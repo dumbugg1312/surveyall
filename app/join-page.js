@@ -103,13 +103,27 @@ async function joinByCode(code) {
   await refresh();
 }
 
+/**
+ * Should this student be shown their nickname?
+ *
+ * Only on a deck that scores someone, where the label is how they find
+ * themselves on the projected leaderboard. Everywhere else it is noise at
+ * best. Defaults to hiding it when the server has not said either way.
+ */
+function showNickname() {
+  return !!(state.session && state.session.has_quiz);
+}
+
 function hasMoved(a, b) {
   return a.state !== b.state
     || a.current_question_id !== b.current_question_id
     || a.current_round !== b.current_round
     || a.accepting !== b.accepting
     || a.reveal !== b.reveal
-    || a.show_on_devices !== b.show_on_devices;
+    || a.show_on_devices !== b.show_on_devices
+    // An instructor can turn a poll into a quiz on a live deck, which is
+    // what makes a nickname worth showing. Repaint when that flips.
+    || a.has_quiz !== b.has_quiz;
 }
 
 function onSessionChange(next) {
@@ -136,8 +150,13 @@ async function refresh() {
 
   if (s.state === 'ended') {
     teardownShared();
+    // Previously: "nothing about you was saved", which was not true. The
+    // answers are kept permanently — the instructor's own end-session
+    // confirmation says "Results are kept", and they are downloadable as
+    // CSV afterwards. What is true is that nothing identifying you was
+    // saved, and that is a claim this screen should not be making at all.
     return showState('✓', 'That\'s a wrap',
-      'Thanks for taking part. You can close this page — nothing about you was saved.');
+      'Thanks for taking part. You can close this page.');
   }
 
   if (s.state === 'lobby') {
@@ -294,11 +313,22 @@ function hintFor(q) {
 
 function header(q) {
   const head = div('join-head');
-  const tag = document.createElement('span');
-  tag.className = 'join-pseudonym';
-  tag.textContent = state.pseudonym || '…';
-  tag.title = 'A random nickname for this session only. Not your name.';
-  head.append(tag);
+
+  // The nickname is shown ONLY when the deck contains a quiz, because that
+  // is the only time a student needs it: to find their own row on the
+  // projected leaderboard. On an ordinary poll nobody needs a name, and
+  // handing one out invites a persona.
+  //
+  // This hides the label, it does not stop claiming one. The label is the
+  // conflict target of the /respond upsert, so it is what makes "change my
+  // answer" replace a vote instead of adding one, and what stops two phones
+  // colliding onto a single row. See worker/schema.sql, responses.
+  if (showNickname()) {
+    const tag = document.createElement('span');
+    tag.className = 'join-pseudonym';
+    tag.textContent = state.pseudonym || '…';
+    head.append(tag);
+  }
 
   if (q && Number.isInteger(q.position)) {
     const prog = div('join-progress', `Q${q.position + 1}`);
@@ -719,7 +749,7 @@ function showState(icon, title, text, waiting = false) {
   }
   if (title) wrap.append(div('state-title', title));
   if (text) wrap.append(div('state-text', text));
-  if (state.pseudonym && state.session) {
+  if (state.pseudonym && state.session && showNickname()) {
     const tag = document.createElement('span');
     tag.className = 'join-pseudonym';
     tag.textContent = `You are ${state.pseudonym}`;

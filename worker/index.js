@@ -161,6 +161,29 @@ async function serveBackground(env, id) {
   });
 }
 
+/**
+ * Does this session's deck contain a quiz question?
+ *
+ * A deck is a competition exactly when something in it is scored, and the
+ * plain-text importer already treats the two words as synonyms (`competition`
+ * is an alias for the `quiz` type in app/deck-format.js). This is DERIVED on
+ * every read rather than cached on the deck or session row, because question
+ * types are edited through PATCH /api/questions/:id and replaced wholesale by
+ * PUT, and neither touches those rows: a stored flag would go stale the moment
+ * an instructor turned a poll into a quiz, including mid-session.
+ *
+ * A phone needs this to decide whether to show a student their nickname. It
+ * discloses nothing: it says a quiz exists, not what any answer is.
+ */
+async function deckHasQuiz(env, sessionId) {
+  const row = await env.DB.prepare(`
+    select 1 as yes from questions q
+    join sessions s on s.deck_id = q.deck_id
+    where s.id = ? and q.type = 'quiz' limit 1
+  `).bind(sessionId).first();
+  return !!row;
+}
+
 /** Ask the session's Durable Object to push an event to its room. */
 async function notifyRoom(env, sessionId, event, data, to = 'all') {
   try {
@@ -286,6 +309,10 @@ async function participantRoute(request, env, seg, method, body, url) {
       reveal: session.reveal,
       show_on_devices: session.show_on_devices,
       qa_moderated: session.qa_moderated,
+      // Whether a nickname is worth showing this student at all. See
+      // deckHasQuiz(): on a deck nobody is being scored on, a nickname is
+      // an invitation to adopt a persona and nothing else.
+      has_quiz: await deckHasQuiz(env, session.id),
     });
   }
 
@@ -659,6 +686,11 @@ async function instructorRoute(request, env, seg, method, body, url, ctx) {
         show_on_devices: updated.show_on_devices,
         qa_moderated: updated.qa_moderated,
         theme: updated.theme,
+        // Mirrored here as well as on GET /api/join/:code so a phone already
+        // sitting in the lobby learns it from the broadcast rather than
+        // waiting out its slow poll. An instructor can add a quiz to a live
+        // deck at any moment.
+        has_quiz: await deckHasQuiz(env, sessionId),
       });
       return json(updated);
     }
