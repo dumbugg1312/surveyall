@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Decks — SurveyAll</title>
+<link rel="stylesheet" href="styles/base.css">
+<link rel="stylesheet" href="styles/app.css">
+</head>
+<body>
+
+<header class="appbar">
+  <a class="brand" href="dashboard.html">SurveyAll</a>
+  <span class="spacer"></span>
+  <span class="muted" id="who" style="font-size:.82rem"></span>
+  <button class="btn btn-sm btn-ghost" id="signOut" type="button">Sign out</button>
+</header>
+
+<main class="page">
+
+  <div class="section-head">
+    <h2>Your decks</h2>
+    <span class="spacer"></span>
+    <button class="btn" id="importDeck" type="button">Import from text</button>
+    <button class="btn btn-primary" id="newDeck" type="button">New deck</button>
+  </div>
+
+  <div id="deckArea">
+    <p class="muted">Loading…</p>
+  </div>
+
+  <div class="section-head" style="margin-top:1rem">
+    <h2>Recent sessions</h2>
+  </div>
+
+  <div class="stack-sm" id="sessionArea">
+    <p class="muted">Loading…</p>
+  </div>
+
+  <p class="privacy-note" style="margin-top:1rem">
+    Sessions store answers only. No student names, emails, IDs, or IP addresses
+    are recorded anywhere in this system.
+  </p>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script type="module" src="app/dashboard-page.js"></script>
+</body>
+</html>

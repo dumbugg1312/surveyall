@@ -1,0 +1,62 @@
+{
+  // ===================================================================
+  // SurveyAll — Cloudflare Worker configuration.
+  //
+  // ONE Worker serves both the website and the API. That means a single
+  // deploy, one origin, and no CORS setup — requests for a file in this
+  // repo are served as static assets, and anything under /api/ runs
+  // worker/index.js.
+  //
+  // You only need to edit ONE line below: `database_id`, after you
+  // create your D1 database. See docs/DEPLOYMENT.md.
+  //
+  // Nothing secret belongs in this file. Your instructor password is a
+  // Cloudflare secret (INSTRUCTOR_PASSWORD), set from the dashboard.
+  // ===================================================================
+
+  "name": "surveyall",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-08-01",
+
+  // Serve the repo's static files (index.html, app/, styles/, …).
+  // See .assetsignore for what is kept off the public site.
+  "assets": {
+    "directory": "./",
+    "binding": "ASSETS"
+  },
+
+  // The database. Replace database_id with the id shown when you create
+  // the database (dashboard, or `wrangler d1 create surveyall`).
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "surveyall",
+      "database_id": "PASTE_YOUR_DATABASE_ID_HERE"
+    }
+  ],
+
+  // One Durable Object per live session, holding that room's WebSockets.
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SESSION_ROOM",
+        "class_name": "SessionRoom"
+      }
+    ]
+  },
+
+  // IMPORTANT: `new_sqlite_classes`, not `new_classes`.
+  // The free Workers plan only supports SQLite-backed Durable Objects;
+  // declaring a KV-backed class here would make the deploy fail with a
+  // billing error that reads as though Durable Objects are paid-only.
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["SessionRoom"]
+    }
+  ],
+
+  "observability": {
+    "enabled": true
+  }
+}

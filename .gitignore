@@ -1,0 +1,26 @@
+# SurveyAll
+#
+# Nothing secret belongs in this repository, which is why it is safe to
+# make public. Your instructor password and signing key live in
+# Cloudflare's encrypted secret store (INSTRUCTOR_PASSWORD, AUTH_SECRET),
+# set from the dashboard — never in a file here.
+#
+# app/config.js is deliberately NOT ignored: it holds no keys, only the
+# optional API base URL.
+
+.DS_Store
+Thumbs.db
+*.log
+
+node_modules/
+.wrangler/
+.dev.vars
+.vscode/
+.idea/
+
+# local scratch
+scratch/
+*.local.*
+
+# local editor/agent settings
+.claude/

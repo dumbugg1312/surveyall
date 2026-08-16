@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Present — SurveyAll</title>
+<link rel="stylesheet" href="styles/base.css">
+<link rel="stylesheet" href="styles/charts.css">
+<link rel="stylesheet" href="styles/present.css">
+</head>
+<body class="present-body">
+
+<div class="stage" id="stage">
+  <div class="stage-backdrop" id="backdrop"></div>
+  <div class="stage-scrim" id="scrim"></div>
+
+  <!-- lobby ------------------------------------------------------- -->
+  <div class="lobby" id="lobby" hidden>
+    <p class="stage-kicker" id="lobbyKicker">SurveyAll</p>
+    <h1 class="lobby-title" id="lobbyTitle">Loading…</h1>
+    <p class="lobby-sub">Scan to join. No app, no account, no sign-in.</p>
+
+    <div class="join-corner is-big" id="lobbyJoin">
+      <div class="join-qr" id="lobbyQR"></div>
+      <div class="join-meta">
+        <span class="join-label">Go to</span>
+        <span class="join-url" id="lobbyURL">—</span>
+        <span class="join-label">Code</span>
+        <span class="join-code" id="lobbyCode">——————</span>
+      </div>
+    </div>
+
+    <p class="lobby-privacy">
+      Responses are anonymous. No names, logins, or identifying information
+      are collected at any point.
+    </p>
+  </div>
+
+  <!-- live question ----------------------------------------------- -->
+  <div class="stage-head" id="head" hidden>
+    <div class="stage-heading">
+      <p class="stage-kicker" id="kicker">Question 1</p>
+      <h1 class="stage-prompt" id="prompt"></h1>
+    </div>
+    <div id="timerHost"></div>
+  </div>
+
+  <div class="stage-body" id="body" hidden>
+    <div class="chart" id="chart"></div>
+  </div>
+
+  <div class="stage-foot" id="foot" hidden>
+    <span class="count-pill" id="countPill">
+      <span class="dot-live" aria-hidden="true"></span>
+      <span id="countText">0 responses</span>
+    </span>
+    <span class="muted" id="stateNote"></span>
+    <span class="spacer"></span>
+    <div class="progress-dots" id="dots"></div>
+  </div>
+
+  <!-- always-available join corner (proposal P4) -------------------- -->
+  <div class="join-corner" id="joinCorner" hidden>
+    <div class="join-qr" id="cornerQR"></div>
+    <div class="join-meta">
+      <span class="join-label">Join anytime</span>
+      <span class="join-url" id="cornerURL">—</span>
+      <span class="join-code" id="cornerCode">——————</span>
+    </div>
+  </div>
+
+  <!-- Q&A panel ---------------------------------------------------- -->
+  <aside class="stage-panel" id="qaPanel" aria-label="Audience questions">
+    <div class="panel-head">
+      <span class="panel-title">Questions from the room</span>
+      <span class="spacer"></span>
+      <button class="btn btn-sm btn-ghost" id="qaClose" type="button">Close</button>
+    </div>
+    <div class="panel-body" id="qaBody"></div>
+  </aside>
+
+  <div class="stage-flash" id="flash" aria-hidden="true"></div>
+
+  <p class="hint-bar">
+    <kbd>→</kbd> next · <kbd>H</kbd> hide · <kbd>C</kbd> close voting ·
+    <kbd>R</kbd> re-ask · <kbd>D</kbd> compare · <kbd>L</kbd> leaderboard ·
+    <kbd>Q</kbd> questions · <kbd>F</kbd> fullscreen
+  </p>
+
+  <!-- control bar -------------------------------------------------- -->
+  <div class="stage-controls" id="controls">
+    <button class="ctrl" id="btnPrev" type="button" title="Previous (←)">←</button>
+    <button class="ctrl" id="btnNext" type="button" title="Next (→)">→</button>
+    <span class="ctrl-sep"></span>
+    <button class="ctrl" id="btnHide" type="button" title="Hide/show results (H)">Hide</button>
+    <button class="ctrl" id="btnClose" type="button" title="Close/open voting (C)">Close voting</button>
+    <button class="ctrl" id="btnTimer" type="button" title="Timer (T)">Timer</button>
+    <span class="ctrl-sep"></span>
+    <button class="ctrl" id="btnReask" type="button" title="Ask again (R)">Re-ask</button>
+    <button class="ctrl" id="btnDelta" type="button" title="Compare rounds (D)">Compare</button>
+    <button class="ctrl" id="btnBoard" type="button" title="Leaderboard (L)">Leaderboard</button>
+    <span class="ctrl-sep"></span>
+    <button class="ctrl" id="btnShare" type="button" title="Show results on phones">Push to phones</button>
+    <button class="ctrl" id="btnQA" type="button" title="Questions (Q)">Q&amp;A</button>
+    <button class="ctrl" id="btnEnd" type="button" title="End session">End</button>
+  </div>
+</div>
+
+<script type="module" src="app/present-page.js"></script>
+</body>
+</html>

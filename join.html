@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f7f4ee">
+<meta name="robots" content="noindex">
+<!-- No analytics, no trackers, no third-party scripts. See docs/architecture.md §5. -->
+<title>Join — SurveyAll</title>
+<link rel="stylesheet" href="styles/base.css">
+<link rel="stylesheet" href="styles/charts.css">
+<link rel="stylesheet" href="styles/join.css">
+</head>
+<body class="join-body">
+
+  <main class="join-shell" id="app" aria-live="polite">
+    <div class="join-state">
+      <div class="pulse-wait" aria-hidden="true"><span></span><span></span><span></span></div>
+      <p class="state-text">Connecting…</p>
+    </div>
+  </main>
+
+  <footer class="join-footer">
+    Anonymous. No account, no name, no tracking.<br>
+    Your answers cannot be traced back to you.
+  </footer>
+
+  <script type="module" src="app/join-page.js"></script>
+</body>
+</html>

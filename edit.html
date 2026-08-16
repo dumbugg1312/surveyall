@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Edit deck — SurveyAll</title>
+<link rel="stylesheet" href="styles/base.css">
+<link rel="stylesheet" href="styles/app.css">
+</head>
+<body>
+
+<header class="appbar">
+  <a class="brand" href="dashboard.html">SurveyAll</a>
+  <input type="text" id="deckTitle" style="max-width:22rem" aria-label="Deck title">
+  <span class="spacer"></span>
+  <span class="muted" id="saveState" style="font-size:.78rem"></span>
+  <button class="btn btn-sm" id="textView" type="button">Text view</button>
+  <button class="btn btn-sm btn-primary" id="startSession" type="button">Start session</button>
+</header>
+
+<main class="page">
+  <div class="editor">
+
+    <section class="stack">
+      <div class="section-head">
+        <h2>Questions</h2>
+        <span class="spacer"></span>
+        <select id="addType" aria-label="Question type to add">
+          <option value="multiple_choice">Multiple choice</option>
+          <option value="word_cloud">Word cloud</option>
+          <option value="open_ended">Open ended</option>
+          <option value="scales">Scales</option>
+          <option value="ranking">Ranking</option>
+          <option value="quiz">Quiz</option>
+          <option value="qa">Q&amp;A</option>
+        </select>
+        <button class="btn btn-primary" id="addQuestion" type="button">Add</button>
+      </div>
+
+      <div class="q-list" id="qList"></div>
+    </section>
+
+    <aside class="side">
+
+      <div class="panel">
+        <h3>Theme</h3>
+        <div class="theme-grid" id="themeGrid"></div>
+      </div>
+
+      <div class="panel">
+        <h3>Background</h3>
+        <div class="bg-grid" id="bgGrid"></div>
+
+        <div class="field">
+          <label for="bgSolid">Solid colour</label>
+          <input type="color" id="bgSolid" style="height:2.4rem;padding:.2rem">
+        </div>
+
+        <label class="upload-drop" id="uploadDrop">
+          Drop an image here, or click to choose
+          <input type="file" id="bgFile" accept="image/*" hidden>
+        </label>
+
+        <div class="bg-grid" id="uploadGrid"></div>
+
+        <div class="bg-controls" id="imageControls" hidden>
+          <label class="label" for="bgDim">Dim <span id="dimVal">45%</span></label>
+          <input type="range" id="bgDim" min="0" max="90" value="45">
+          <label class="label" for="bgBlur">Blur <span id="blurVal">0px</span></label>
+          <input type="range" id="bgBlur" min="0" max="20" value="0">
+        </div>
+
+        <p class="privacy-note" style="font-size:.72rem">
+          Backgrounds render on the projector only. Student phones use the theme
+          colours, which keeps text readable and avoids 60 devices downloading
+          the same image.
+        </p>
+      </div>
+
+      <div class="panel">
+        <h3>Preview</h3>
+        <div id="preview" style="border:1px solid var(--edge);border-radius:10px;overflow:hidden">
+        </div>
+      </div>
+
+    </aside>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script type="module" src="app/edit-page.js"></script>
+</body>
+</html>

@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visual check — SurveyAll</title>
+<link rel="stylesheet" href="../styles/base.css">
+<link rel="stylesheet" href="../styles/charts.css">
+<link rel="stylesheet" href="../styles/app.css">
+<style>
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(24rem, 1fr)); gap: 1.5rem; }
+  .demo { border: 1px solid var(--edge); border-radius: 14px; padding: 1.4rem;
+          background: var(--surface); display: flex; flex-direction: column; gap: .9rem;
+          box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 10px 30px rgba(0,0,0,.05); }
+  .demo h3 { font-size: .9rem; letter-spacing: -.01em; }
+  .demo .chart { font-size: 1rem; }
+  .demo [data-chart="cloud"] { min-height: 15rem; }
+  .demo [data-chart="cards"] { max-height: 18rem; }
+  .status { padding: .85rem 1.1rem; border-radius: 10px; font-weight: 600; font-size: .9rem; }
+  .status.ok { background: color-mix(in srgb, var(--good) 14%, transparent); color: var(--good); }
+  .status.bad { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
+  .controls { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
+</style>
+</head>
+<body>
+
+<header class="appbar">
+  <span class="brand">SurveyAll — visual check</span>
+  <span class="spacer"></span>
+  <label class="label" for="themeSel">Theme</label>
+  <select id="themeSel"></select>
+</header>
+
+<main class="page">
+  <p class="muted">
+    Every result view with sample data and no database. Check a theme reads on your
+    projector before class, or verify the rendering after a code change.
+  </p>
+
+  <div class="controls">
+    <button class="btn btn-primary" id="simulate" type="button">Simulate a live class</button>
+    <button class="btn" id="reask" type="button">Re-ask (show delta)</button>
+    <button class="btn" id="reset" type="button">Reset</button>
+    <span class="muted" id="simState" style="font-size:.82rem"></span>
+  </div>
+
+  <div id="status" class="status">Running…</div>
+
+  <div class="grid" id="grid"></div>
+</main>
+
+<script type="module">
+import { aggregate, computeDelta, quizLeaderboard } from '../app/logic.js';
+import { renderAggregate, renderDelta, renderLeaderboard } from '../app/charts.js';
+import { THEMES, applyTheme } from '../app/themes.js';
+
+const grid = document.getElementById('grid');
+const errors = [];
+const panels = {};
+
+function demo(title, fn) {
+  const box = document.createElement('div');
+  box.className = 'demo';
+  const h = document.createElement('h3');
+  h.textContent = title;
+  const chart = document.createElement('div');
+  chart.className = 'chart';
+  box.append(h, chart);
+  grid.append(box);
+  try { fn(chart); } catch (err) {
+    errors.push(`${title}: ${err.message}`);
+    chart.textContent = `render failed: ${err.message}`;
+    chart.style.color = 'var(--bad)';
+  }
+  return chart;
+}
+
+const rows = (payloads) => payloads.map((payload, i) => ({
+  payload, pseudonym: `P${i}`, id: i, round: 1,
+}));
+const fill = (n, v) => Array(n).fill(v);
+
+// ---------------------------------------------------------------- data
+const mcCfg = { options: ['Never', 'Once or twice', 'Several times', 'Constantly'] };
+const wcWords = ['curious','tired','ready','nervous','excited','confused','hopeful','fine',
+  'sleepy','engaged','lost','motivated','anxious','calm','overwhelmed','good'];
+const scCfg = { statements: ['Reading dense writing','Writing with sources','Speaking in seminar'], min: 1, max: 7 };
+const rkCfg = { items: ['Worked examples','Feedback on drafts','Review sessions','Practice quizzes'] };
+const qzCfg = { options: ['Durkheim','Weber','Marx','Simmel'], correct: [1], time: 20 };
+const texts = [
+  'The part about primary sources still confuses me.',
+  'Could we do more worked examples in class?',
+  'I understood the reading but not the lecture connection.',
+  'More time on the second half please.',
+  'Honestly this all made sense, thanks.',
+  'Can you re-explain the difference between the two frameworks? I got lost around the middle of the chapter and never really recovered.',
+];
+
+function mcRows(counts) {
+  return rows(counts.flatMap((c, i) => fill(c, { choices: [i] })));
+}
+function qzRows(counts) {
+  return rows(counts.flatMap((c, i) => fill(c, { choice: i, ms: 2000 + i * 2600 })));
+}
+
+// -------------------------------------------------------------- panels
+panels.bars = demo('Multiple choice — bars', (c) =>
+  renderAggregate(c, 'multiple_choice', aggregate('multiple_choice', mcCfg, mcRows([12,19,8,3])), { style: 'bars' }));
+
+panels.columns = demo('Multiple choice — columns', (c) =>
+  renderAggregate(c, 'multiple_choice', aggregate('multiple_choice', mcCfg, mcRows([12,19,8,3])), { style: 'columns' }));
+
+panels.donut = demo('Multiple choice — donut', (c) =>
+  renderAggregate(c, 'multiple_choice', aggregate('multiple_choice', mcCfg, mcRows([12,19,8,3])), { style: 'donut' }));
+
+panels.hidden = demo('Hidden — poll blind, reveal later', (c) =>
+  renderAggregate(c, 'multiple_choice', aggregate('multiple_choice', mcCfg, mcRows([12,19,8,3])), { style: 'bars', hidden: true }));
+
+panels.cloud = demo('Word cloud', (c) =>
+  renderAggregate(c, 'word_cloud', aggregate('word_cloud', {},
+    rows(wcWords.flatMap((w, i) => fill(Math.max(1, 14 - i), { words: [w] })))), {}));
+
+panels.cards = demo('Open ended', (c) =>
+  renderAggregate(c, 'open_ended', aggregate('open_ended', {}, rows(texts.map((t) => ({ text: t })))), {}));
+
+panels.scales = demo('Scales (1–7, some skipped)', (c) =>
+  renderAggregate(c, 'scales', aggregate('scales', scCfg,
+    rows(Array.from({ length: 28 }, (_, i) => ({
+      values: [1 + (i % 7), 1 + ((i * 3) % 7), i % 5 === 0 ? null : 1 + ((i * 5) % 7)],
+    })))), {}));
+
+panels.ranking = demo('Ranking (Borda)', (c) =>
+  renderAggregate(c, 'ranking', aggregate('ranking', rkCfg,
+    rows(Array.from({ length: 22 }, (_, i) => ({ order: [0,1,2,3].map((k) => (k + i) % 4) })))), {}));
+
+panels.quiz = demo('Quiz — answer revealed', (c) =>
+  renderAggregate(c, 'quiz', aggregate('quiz', qzCfg, qzRows([7,23,5,2])), { style: 'bars', revealCorrect: true }));
+
+panels.board = demo('Quiz leaderboard (pseudonymous)', (c) =>
+  renderLeaderboard(c, quizLeaderboard([{
+    question: { type: 'quiz', config: qzCfg },
+    rows: [
+      { pseudonym: 'Amber Falcon', payload: { choice: 1, ms: 900 } },
+      { pseudonym: 'Teal Harbor', payload: { choice: 1, ms: 2400 } },
+      { pseudonym: 'Jade Kestrel', payload: { choice: 1, ms: 6100 } },
+      { pseudonym: 'Russet Meridian', payload: { choice: 1, ms: 11000 } },
+      { pseudonym: 'Onyx Thistle', payload: { choice: 1, ms: 17500 } },
+      { pseudonym: 'Copper Willow', payload: { choice: 0, ms: 1200 } },
+    ],
+  }])));
+
+panels.delta = demo('Re-ask — what changed (P1)', (c) => renderDelta(c, null));
+
+panels.empty = demo('Empty — no responses yet', (c) =>
+  renderAggregate(c, 'word_cloud', aggregate('word_cloud', {}, []), {}));
+
+demo('Regression: bars → donut → cloud → bars', (c) => {
+  const agg = aggregate('multiple_choice', mcCfg, mcRows([12,19,8,3]));
+  renderAggregate(c, 'multiple_choice', agg, { style: 'bars' });
+  renderAggregate(c, 'multiple_choice', agg, { style: 'donut' });
+  renderAggregate(c, 'word_cloud', aggregate('word_cloud', {},
+    rows(wcWords.map((w) => ({ words: [w] })))), {});
+  renderAggregate(c, 'multiple_choice', agg, { style: 'bars' });
+  if (c.querySelectorAll('.cloud-word').length) throw new Error('stale cloud nodes survived');
+  if (c.querySelectorAll('svg.donut').length) throw new Error('stale donut survived');
+  const bars = c.querySelectorAll('.chart-row').length;
+  if (bars !== mcCfg.options.length) throw new Error(`expected ${mcCfg.options.length} bars, got ${bars}`);
+});
+
+// ------------------------------------------------------- live simulation
+let timer = null;
+let tick = 0;
+const round1 = [8, 18, 10, 4];
+
+function stopSim() { clearInterval(timer); timer = null; }
+
+document.getElementById('simulate').addEventListener('click', () => {
+  stopSim(); tick = 0;
+  const counts = [0, 0, 0, 0];
+  const cloudCounts = new Map();
+  const board = [];
+  const names = ['Amber Falcon','Teal Harbor','Jade Kestrel','Russet Meridian',
+    'Onyx Thistle','Copper Willow','Verdant Anchor','Silver Dune'];
+
+  timer = setInterval(() => {
+    tick += 1;
+    // votes trickle in the way a real room answers: bursty, uneven
+    for (let k = 0; k < 1 + Math.floor(Math.random() * 3); k += 1) {
+      counts[Math.floor(Math.random() * counts.length)] += 1;
+      const w = wcWords[Math.floor(Math.random() * 8)];
+      cloudCounts.set(w, (cloudCounts.get(w) || 0) + 1);
+    }
+    renderAggregate(panels.bars, 'multiple_choice', aggregate('multiple_choice', mcCfg, mcRows(counts)), { style: 'bars' });
+    renderAggregate(panels.columns, 'multiple_choice', aggregate('multiple_choice', mcCfg, mcRows(counts)), { style: 'columns' });
+    renderAggregate(panels.donut, 'multiple_choice', aggregate('multiple_choice', mcCfg, mcRows(counts)), { style: 'donut' });
+    renderAggregate(panels.cloud, 'word_cloud', aggregate('word_cloud', {},
+      rows([...cloudCounts.entries()].flatMap(([w, c]) => fill(c, { words: [w] })))), {});
+
+    if (tick % 3 === 0 && board.length < names.length) {
+      board.push({ pseudonym: names[board.length], payload: { choice: 1, ms: 500 + Math.random() * 18000 } });
+    }
+    board.forEach((b) => { b.payload.ms = Math.max(300, b.payload.ms + (Math.random() - 0.55) * 2500); });
+    renderLeaderboard(panels.board, quizLeaderboard([{ question: { type: 'quiz', config: qzCfg }, rows: board }]));
+
+    document.getElementById('simState').textContent =
+      `${counts.reduce((a, b) => a + b, 0)} responses in…`;
+    if (tick > 40) { stopSim(); document.getElementById('simState').textContent = 'Class over.'; }
+  }, 420);
+});
+
+document.getElementById('reask').addEventListener('click', () => {
+  const before = aggregate('multiple_choice', { options: ['Yes','No','Not sure'] },
+    mcRows([8, 18, 10]));
+  const after = aggregate('multiple_choice', { options: ['Yes','No','Not sure'] },
+    mcRows([24, 9, 3]));
+  renderDelta(panels.delta, computeDelta(before, after));
+  panels.delta.scrollIntoView({ block: 'center', behavior: 'smooth' });
+});
+
+document.getElementById('reset').addEventListener('click', () => {
+  stopSim();
+  document.getElementById('simState').textContent = '';
+  renderAggregate(panels.bars, 'multiple_choice', aggregate('multiple_choice', mcCfg, mcRows(round1)), { style: 'bars' });
+  renderDelta(panels.delta, null);
+});
+
+// ------------------------------------------------------------ theme
+const sel = document.getElementById('themeSel');
+Object.entries(THEMES).forEach(([id, t]) => {
+  const o = document.createElement('option');
+  o.value = id; o.textContent = t.name;
+  sel.append(o);
+});
+sel.addEventListener('change', () => {
+  applyTheme(document.documentElement, sel.value);
+  document.body.style.background =
+    getComputedStyle(document.documentElement).getPropertyValue('--ground');
+});
+
+// ------------------------------------------------------ self-audit
+/**
+ * Drive every chart's springs to rest and check the word cloud for
+ * overlapping words. Exposed so it can be run from the console or by an
+ * automated check.
+ *
+ * Note on `settle`: animation runs on requestAnimationFrame, which the
+ * browser pauses entirely while a tab is hidden. Stepping the spring
+ * groups by hand makes this audit independent of that.
+ *
+ * Zero-size nodes are excluded: a word that has just left the cloud is
+ * scaled to 0 and removed a moment later, and counting it would report
+ * an overlap the audience never sees.
+ */
+window.__audit = function audit({ settle = true } = {}) {
+  if (settle) {
+    document.querySelectorAll('[data-chart]').forEach((c) => {
+      const g = c.__chart?.group;
+      if (g) for (let i = 0; i < 600 && g.stepAll(1 / 60); i += 1);
+    });
+  }
+  const report = { errors, views: grid.children.length, clouds: [] };
+  document.querySelectorAll('[data-chart="cloud"]').forEach((cloud) => {
+    const host = cloud.getBoundingClientRect();
+    const live = [...cloud.querySelectorAll('.cloud-word')]
+      .map((w) => {
+        const r = w.getBoundingClientRect();
+        return { x: r.left - host.left, y: r.top - host.top, w: r.width, h: r.height,
+                 op: +getComputedStyle(w).opacity };
+      })
+      .filter((b) => b.w >= 2 && b.op >= 0.05);
+    let overlaps = 0;
+    let outOfBounds = 0;
+    for (let i = 0; i < live.length; i += 1) {
+      const a = live[i];
+      if (a.x < -2 || a.y < -2 || a.x + a.w > host.width + 2 || a.y + a.h > host.height + 2) {
+        outOfBounds += 1;
+      }
+      for (let j = i + 1; j < live.length; j += 1) {
+        const b = live[j];
+        if (a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y) overlaps += 1;
+      }
+    }
+    report.clouds.push({ words: live.length, overlaps, outOfBounds });
+  });
+  report.ok = report.errors.length === 0
+    && report.clouds.every((c) => c.overlaps === 0 && c.outOfBounds === 0);
+  return report;
+};
+
+const status = document.getElementById('status');
+const audit = window.__audit();
+if (audit.ok) {
+  status.className = 'status ok';
+  status.textContent =
+    `All ${grid.children.length} views rendered without error · word cloud placed with no overlaps.`;
+} else {
+  status.className = 'status bad';
+  status.textContent = errors.length
+    ? `${errors.length} render error(s): ${errors.join(' · ')}`
+    : `Layout problem: ${JSON.stringify(audit.clouds)}`;
+}
+window.__visualCheck = { errors, count: grid.children.length, audit };
+</script>
+</body>
+</html>

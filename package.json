@@ -1,0 +1,16 @@
+{
+  "name": "surveyall",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Free, anonymous live polling for the classroom.",
+  "type": "module",
+  "scripts": {
+    "test": "node tests/run-tests.mjs",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "db:init": "wrangler d1 execute surveyall --remote --file=worker/schema.sql"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

@@ -1,0 +1,345 @@
+/* =====================================================================
+   SurveyAll — presenter / projector view.
+   Everything scales from one root font-size so the whole slide grows on
+   a big screen without per-element media queries.
+   ===================================================================== */
+
+.present-body {
+  overflow: hidden;
+  height: 100vh;
+  height: 100dvh;
+}
+
+.stage {
+  position: relative;
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--ground);
+  font-size: clamp(16px, 1.15vw + 10px, 30px);
+}
+
+/* backdrop + scrim sit behind everything */
+.stage-backdrop {
+  position: absolute; inset: 0;
+  background-repeat: no-repeat;
+  background-position: center;
+  z-index: 0;
+  pointer-events: none;
+}
+.stage-scrim {
+  position: absolute; inset: 0;
+  background: var(--ground);
+  opacity: 0;
+  transition: opacity .4s ease;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.stage > *:not(.stage-backdrop):not(.stage-scrim) { position: relative; z-index: 2; }
+
+/* ---------------------------------------------------------------- head */
+
+.stage-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.2em;
+  padding: 1.1em 1.4em .6em;
+}
+
+.stage-heading { flex: 1; min-width: 0; }
+
+.stage-kicker {
+  font-size: .58em;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-bottom: .3em;
+}
+
+.stage-prompt {
+  font-family: var(--display);
+  font-size: 1.55em;
+  font-weight: 600;
+  line-height: 1.12;
+  letter-spacing: -.01em;
+  text-wrap: balance;
+}
+
+/* ---------------------------------------------------------------- body */
+
+.stage-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  padding: .4em 1.4em;
+  overflow: hidden;
+}
+
+.stage-body .chart {
+  font-size: 1.5em;
+  margin: auto 0;
+  max-height: 100%;
+}
+.stage-body [data-chart="cloud"],
+.stage-body [data-chart="cards"] { margin: 0; height: 100%; }
+
+/* --------------------------------------------------------- join corner
+   Proposal P4: the QR never leaves the screen, so a student walking in
+   ten minutes late joins without anyone stopping the class.
+   -------------------------------------------------------------------- */
+
+.join-corner {
+  position: absolute;
+  right: 1.1em; bottom: 1.1em;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: .7em;
+  padding: .55em .7em;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  border: 1px solid var(--edge);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, .12);
+  backdrop-filter: blur(8px);
+  transition: opacity .3s ease, transform .3s ease;
+}
+
+.join-corner.is-hidden {
+  opacity: 0;
+  transform: translateY(.6em);
+  pointer-events: none;
+}
+
+.join-qr {
+  width: 5.2em; height: 5.2em;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+  flex-shrink: 0;
+}
+.join-qr svg { display: block; width: 100%; height: 100%; }
+.join-qr[data-qr-failed] { display: none; }
+
+.join-meta { display: flex; flex-direction: column; gap: .1em; }
+.join-label {
+  font-size: .5em; font-weight: 600;
+  letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.join-url { font-size: .58em; color: var(--ink-soft); }
+.join-code {
+  font-family: var(--display);
+  font-size: 1.15em;
+  font-weight: 700;
+  letter-spacing: .12em;
+  line-height: 1.1;
+}
+
+/* big version, shown on the lobby screen */
+.join-corner.is-big {
+  position: static;
+  flex-direction: column;
+  gap: 1em;
+  padding: 1.6em 2em;
+  text-align: center;
+  align-self: center;
+  margin: auto;
+}
+.join-corner.is-big .join-qr { width: 13em; height: 13em; }
+.join-corner.is-big .join-code { font-size: 2.4em; }
+.join-corner.is-big .join-url { font-size: .75em; }
+
+/* ---------------------------------------------------------------- foot */
+
+.stage-foot {
+  display: flex;
+  align-items: center;
+  gap: .8em;
+  padding: .5em 1.4em 1em;
+  font-size: .62em;
+}
+
+.count-pill {
+  display: inline-flex; align-items: center; gap: .45em;
+  padding: .3em .75em;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-dots { display: flex; gap: .3em; align-items: center; }
+.progress-dot {
+  width: .5em; height: .5em; border-radius: 50%;
+  background: color-mix(in srgb, var(--ink) 20%, transparent);
+  transition: background .25s ease, transform .25s ease;
+}
+.progress-dot.is-done { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+.progress-dot.is-current { background: var(--accent); transform: scale(1.6); }
+
+/* --------------------------------------------------------------- timer */
+
+.timer {
+  display: inline-flex; align-items: center; gap: .4em;
+  padding: .3em .8em;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: color-mix(in srgb, var(--accent) 80%, var(--ink));
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.timer.is-urgent {
+  background: color-mix(in srgb, var(--bad) 16%, transparent);
+  color: var(--bad);
+  animation: timer-tick 1s steps(2) infinite;
+}
+@keyframes timer-tick { 50% { opacity: .55; } }
+
+/* ------------------------------------------------------------ controls */
+
+.stage-controls {
+  position: absolute;
+  left: 50%; bottom: 1em;
+  transform: translateX(-50%) translateY(140%);
+  z-index: 7;
+  display: flex; align-items: center; gap: .4em;
+  padding: .5em .7em;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 95%, transparent);
+  border: 1px solid var(--edge);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .18);
+  backdrop-filter: blur(10px);
+  transition: transform .28s cubic-bezier(.22, .8, .3, 1), opacity .28s ease;
+  opacity: 0;
+  font-size: .6em;
+}
+
+.stage:hover .stage-controls,
+.stage-controls:focus-within,
+.stage-controls.is-pinned {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
+
+.ctrl {
+  border: none; background: transparent;
+  padding: .45em .7em;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: .92em;
+  font-weight: 550;
+  white-space: nowrap;
+  transition: background .15s ease;
+}
+.ctrl:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.ctrl:disabled { opacity: .35; cursor: not-allowed; }
+.ctrl.is-active { background: var(--accent); color: #fff; }
+.ctrl-sep { width: 1px; height: 1.4em; background: var(--edge); }
+
+/* --------------------------------------------------------------- lobby */
+
+.lobby {
+  flex: 1;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 1.2em;
+  text-align: center;
+  padding: 2em;
+}
+.lobby-title {
+  font-family: var(--display);
+  font-size: 2.2em;
+  font-weight: 600;
+  line-height: 1.1;
+}
+.lobby-sub { font-size: .8em; color: var(--ink-soft); max-width: 22em; }
+.lobby-privacy {
+  font-size: .6em;
+  color: var(--ink-soft);
+  max-width: 26em;
+  padding-top: .6em;
+  border-top: 1px solid var(--edge);
+}
+
+/* --------------------------------------------------------------- panel */
+
+.stage-panel {
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  width: min(26em, 42%);
+  z-index: 8;
+  background: var(--surface);
+  border-left: 1px solid var(--edge);
+  box-shadow: -8px 0 40px rgba(0, 0, 0, .14);
+  transform: translateX(101%);
+  transition: transform .3s cubic-bezier(.22, .8, .3, 1);
+  display: flex; flex-direction: column;
+  font-size: .62em;
+}
+.stage-panel.is-open { transform: none; }
+
+.panel-head {
+  display: flex; align-items: center; gap: .6em;
+  padding: 1em 1.2em;
+  border-bottom: 1px solid var(--edge);
+}
+.panel-title { font-family: var(--display); font-size: 1.2em; font-weight: 650; }
+.panel-body { flex: 1; overflow-y: auto; padding: 1em 1.2em; display: flex; flex-direction: column; gap: .7em; }
+
+.aq-item {
+  padding: .7em .9em;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  display: flex; flex-direction: column; gap: .5em;
+}
+.aq-item.is-pending { border-style: dashed; background: color-mix(in srgb, var(--accent-2) 6%, transparent); }
+.aq-item.is-answered { opacity: .55; }
+.aq-text { font-size: .95em; line-height: 1.4; overflow-wrap: anywhere; }
+.aq-actions { display: flex; align-items: center; gap: .4em; }
+.aq-votes {
+  display: inline-flex; align-items: center; gap: .25em;
+  font-size: .8em; font-weight: 650; color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------ overlays */
+
+.stage-flash {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9;
+  background: color-mix(in srgb, var(--ground) 88%, transparent);
+  backdrop-filter: blur(4px);
+  font-family: var(--display);
+  font-size: 3em;
+  font-weight: 700;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .25s ease;
+}
+.stage-flash.is-visible { opacity: 1; }
+
+.hint-bar {
+  position: absolute;
+  left: 1.1em; bottom: 1.1em;
+  z-index: 6;
+  font-size: .52em;
+  color: var(--ink-soft);
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+.stage:hover .hint-bar { opacity: .8; }
+
+kbd {
+  display: inline-block;
+  padding: .1em .4em;
+  border: 1px solid var(--edge);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--surface);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .9em;
+}
