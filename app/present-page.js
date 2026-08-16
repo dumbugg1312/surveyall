@@ -16,16 +16,18 @@ import {
 import {
   aggregate, computeDelta, quizLeaderboard, sortedQuestions,
   neighbourQuestion, joinURL, TYPE_LABELS, correctIndices, optionLabels,
-  promptKey,
+  promptKey, isContentSlide, fillJoinPlaceholders, DEFAULT_JOIN_STEPS,
+  questionNumber,
 } from './logic.js';
 import {
   applyTheme, backgroundStyles, scrimOpacity, resolveTheme,
 } from './themes.js';
 import {
-  renderAggregate, renderDelta, renderLeaderboard, celebrate, pulseCount,
+  renderAggregate, renderDelta, renderLeaderboard, renderInstructions,
+  celebrate, pulseCount,
 } from './charts.js';
 import { countTo, delay } from './motion.js';
-import { renderQR } from './qr.js';
+import { renderQR, qrSVG, qrInk } from './qr.js';
 import { joinBase } from './config.js';
 
 const $ = (id) => document.getElementById(id);
@@ -89,7 +91,9 @@ async function boot() {
   applyTheme(document.documentElement,
     resolveTheme(state.session.theme || state.deck.theme, state.deck));
   paintBackground();
-  paintJoin();
+  // awaited: an instructions slide stamps the encoded QR straight into the
+  // slide, so it has to exist before the first render, not one frame later
+  await paintJoin();
   wireControls();
   wireKeyboard();
 
@@ -101,7 +105,9 @@ async function boot() {
   state.unsubs.push(subscribeToAudienceQuestions(state.session.id, loadQA));
 
   // Backstop poll: if realtime drops, the count still creeps up.
-  setInterval(() => { if (state.question) loadRows(); }, 10000);
+  setInterval(() => {
+    if (state.question && !isContentSlide(state.question.type)) loadRows();
+  }, 10000);
 
   await render();
 }
@@ -129,14 +135,24 @@ async function paintJoin() {
   const url = joinURL(joinBase(), state.session.join_code);
   const pretty = url.replace(/^https?:\/\//, '').replace(/\/join\.html#.*$/, '');
 
+  state.joinURL = url;
+  state.joinPretty = pretty;
+
   ui.lobbyCode.textContent = state.session.join_code;
   ui.cornerCode.textContent = state.session.join_code;
   ui.lobbyURL.textContent = pretty;
   ui.cornerURL.textContent = pretty;
 
-  const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim() || '#000';
+  // qrInk keeps the code readable on its white plate even when the theme's
+  // ink is near-white — on a dark theme, tinting it would produce a QR no
+  // phone in the room can decode.
+  const ink = qrInk(
+    getComputedStyle(document.documentElement).getPropertyValue('--ink').trim());
   await renderQR(ui.lobbyQR, url, { dark: ink, light: '#ffffff' });
   await renderQR(ui.cornerQR, url, { dark: ink, light: '#ffffff' });
+  // kept as markup so an instructions slide can stamp it without a second
+  // encode on every repaint
+  state.joinQRSVG = await qrSVG(url, { dark: ink, light: '#ffffff' });
 }
 
 // =====================================================================
@@ -188,10 +204,20 @@ async function render() {
   state.question = q ? { ...q, __round: s.current_round } : null;
   if (!q) return;
 
-  ui.kicker.textContent =
-    `${TYPE_LABELS[q.type] || q.type} · Question ${(q.position ?? 0) + 1} of ${state.questions.length}`
-    + (s.current_round > 1 ? ` · Round ${s.current_round}` : '');
+  // A content slide has no question number and no round — calling it
+  // "Question 3 of 9" would be a lie the room can see.
+  const content = isContentSlide(q.type);
+  const n = questionNumber(state.questions, q.id);
+  ui.stage.classList.toggle('is-content-slide', content);
+  ui.kicker.textContent = content
+    ? `Slide ${(q.position ?? 0) + 1} of ${state.questions.length}`
+    : `${TYPE_LABELS[q.type] || q.type} · Question ${n.number} of ${n.total}`
+      + (s.current_round > 1 ? ` · Round ${s.current_round}` : '');
   ui.prompt.textContent = q.prompt || '';
+
+  // The instructions slide already shows a QR the size of a dinner plate;
+  // the corner copy on top of it is just clutter.
+  if (content && q.config?.show_join !== false) ui.joinCorner.hidden = true;
 
   paintDots();
   paintControlStates();
@@ -213,11 +239,44 @@ async function render() {
     state.shownRows = state.shownPeople = state.lastPeople = null;
     state.srCount = null;
     state.srCountAt = 0;
-    announce(`Question ${(q.position ?? 0) + 1}: ${q.prompt || ''}. `
-      + (s.accepting ? 'Voting is open.' : 'Voting is closed.'));
+    announce(content
+      ? `${q.prompt || 'Instructions'}. ${joinSteps(q).join(' ')}`
+      : `Question ${n.number}: ${q.prompt || ''}. `
+        + (s.accepting ? 'Voting is open.' : 'Voting is closed.'));
   }
 
+  // Nothing is submitted against a content slide, so there is nothing to
+  // fetch, count, or subscribe to — draw it and stop.
+  if (content) { paintContentSlide(q); return; }
+
   await loadRows();
+}
+
+/** An instructions slide's steps, with %CODE% / %URL% filled in. */
+function joinSteps(q) {
+  const raw = Array.isArray(q.config?.steps) && q.config.steps.length
+    ? q.config.steps : DEFAULT_JOIN_STEPS;
+  return raw
+    .map((s) => fillJoinPlaceholders(s, {
+      code: state.session.join_code,
+      url: state.joinPretty || '',
+    }))
+    .filter((s) => s.trim());
+}
+
+function paintContentSlide(q) {
+  // paintChart owns is-awaiting and is not running here, so clear it
+  // ourselves rather than inheriting it from the question we just left.
+  ui.stage.classList.remove('is-awaiting');
+  resetChart();
+  renderInstructions(ui.chart, {
+    steps: joinSteps(q),
+    note: q.config?.note || '',
+    showJoin: q.config?.show_join !== false,
+    url: state.joinPretty || '',
+    code: state.session.join_code,
+    qrSVGText: state.joinQRSVG,
+  });
 }
 
 function paintDots() {
@@ -637,7 +696,10 @@ async function saveQuestionConfig(config) {
 
 async function discussStep() {
   const q = state.question;
-  if (!q || q.type === 'qa') { flash('Pick a question first'); return; }
+  if (!q || q.type === 'qa' || isContentSlide(q.type)) {
+    flash('Pick a question first');
+    return;
+  }
 
   if (state.pairUntil) { await endPairPhase(true); return; }
 
@@ -883,7 +945,7 @@ async function toggleAccepting() {
 /** Proposal P1: ask the same question again, keeping round 1 intact. */
 async function reask() {
   const q = state.question;
-  if (!q) return;
+  if (!q || isContentSlide(q.type)) return;
   const highest = await maxRound(state.session.id, q.id);
   const next = Math.max(state.session.current_round, highest) + 1;
   await patch({ current_round: next, accepting: true, reveal: true });
@@ -898,7 +960,7 @@ async function endSession() {
 
 async function resetQuestion() {
   const q = state.question;
-  if (!q) return;
+  if (!q || isContentSlide(q.type)) return;
   if (!window.confirm('Delete every response to this question for this round?')) return;
   await clearResponses(state.session.id, q.id, state.session.current_round);
   state.rows = [];

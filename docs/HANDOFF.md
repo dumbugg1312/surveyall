@@ -18,7 +18,7 @@ You are picking up a finished codebase that has never been deployed. The code is
 **Never do these — ask Brandon to do them himself:**
 
 - Create the Cloudflare or GitHub account.
-- Type any password. Including `INSTRUCTOR_PASSWORD`.
+- Type any password, or create an instructor account on Brandon's behalf. The first account created becomes the admin.
 - Enter payment details. **Nothing in this project requires a card.** If a page asks for one, you are on the wrong product — stop and say so. The one Cloudflare product that demands a card is **R2**; SurveyAll deliberately doesn't use it, so if something is steering you toward R2, that is a mistake to report rather than work around.
 
 **Ask before each of these** (irreversible or outward-facing):
@@ -28,9 +28,9 @@ You are picking up a finished codebase that has never been deployed. The code is
 - Deleting any deck, session, or response.
 - Running any SQL that isn't `worker/schema.sql`.
 
-**Safe to do freely:** navigating, reading pages, running `worker/schema.sql`, editing local files, `node tests/run-tests.mjs`, and the verification in §4.
+**Safe to do freely:** navigating, reading pages, running `worker/schema.sql` (every statement is idempotent), editing local files, `npm test`, and the verification in §4.
 
-**On secrets:** `INSTRUCTOR_PASSWORD` and `AUTH_SECRET` live in Cloudflare's encrypted store. They must never appear in the repo, in a file you write, or in anything you print back. The repo is safe to be public precisely because it contains nothing secret — keep that true.
+**On secrets:** `AUTH_SECRET` and `SIGNUP_CODE` live in Cloudflare's encrypted store. `AUTH_SECRET` is doubly load-bearing — it signs tokens *and* peppers every stored password, so rotating it invalidates every password, not just every session. They must never appear in the repo, in a file you write, or in anything you print back. The repo is safe to be public precisely because it contains nothing secret — keep that true.
 
 ---
 
@@ -72,13 +72,14 @@ That file is the user-facing guide, written for Brandon. Work through it *with* 
 | 3. Create the D1 database `surveyall`, run `worker/schema.sql` in its console | You — paste and run, report the result |
 | 4. Paste the database ID into `wrangler.jsonc` | You (local edit) or Brandon (GitHub web editor) |
 | 5. Connect the repo in Workers & Pages and deploy | Brandon (authorising GitHub access) |
-| 6. Set `INSTRUCTOR_PASSWORD` and `AUTH_SECRET` as **encrypted secrets** | **Brandon** — never type these yourself |
-| 7. Sign in and confirm the dashboard loads | Either |
+| 6. Set `AUTH_SECRET` and `SIGNUP_CODE` as **encrypted secrets** | **Brandon** — never type these yourself |
+| 7. Create the first account (it becomes admin) and confirm the dashboard loads | **Brandon** — he picks the username and password |
 
 **Gotchas worth pre-empting:**
 
 - The D1 database must be named exactly `surveyall`, matching `wrangler.jsonc`.
-- Both secrets must be **encrypted secrets**, not plain-text variables. A plaintext `INSTRUCTOR_PASSWORD` would be visible in the dashboard and, worse, is the kind of thing that leaks into a screenshot.
+- Both secrets must be **encrypted secrets**, not plain-text variables. A plaintext `AUTH_SECRET` would be visible in the dashboard and, worse, is the kind of thing that leaks into a screenshot — and anyone holding it can forge an instructor token.
+- Brandon must create his own account **before** the sign-up code goes to anyone else: the first account becomes admin and inherits every deck and session made before accounts existed.
 - `migrations` in `wrangler.jsonc` uses `new_sqlite_classes`, not `new_classes`. The free plan only supports SQLite-backed Durable Objects, and using the wrong key produces a billing error that misleadingly reads as though Durable Objects are paid-only. Don't "fix" it by switching keys.
 - If the build fails, read the **last few lines** of the build log in Workers & Pages → Deployments. You can roll back to any previous deployment from that screen.
 

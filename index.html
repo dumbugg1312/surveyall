@@ -36,10 +36,15 @@
   <section class="join-state" id="auth" hidden>
     <h2 class="state-title">Instructor sign-in</h2>
     <p class="state-text">
-      Only you sign in. Students never do — they just scan the code.
+      Instructors only. Students never sign in — they just scan the code.
     </p>
 
     <form class="code-form" id="authForm">
+      <div class="field">
+        <label for="username">Username</label>
+        <input type="text" id="username" autocomplete="username" required
+               autocapitalize="none" autocorrect="off" spellcheck="false">
+      </div>
       <div class="field">
         <label for="password">Password</label>
         <input type="password" id="password" autocomplete="current-password" required>
@@ -48,12 +53,56 @@
       <button class="submit-btn" type="submit" id="authSubmit">Sign in</button>
     </form>
 
+    <p class="state-text" style="font-size:.78rem" id="toSignUpWrap" hidden>
+      No account yet?
+      <button class="btn btn-ghost btn-sm" id="showSignUp" type="button">Create one</button>
+    </p>
     <p class="state-text" style="font-size:.78rem">
-      This is the password you set as <code>INSTRUCTOR_PASSWORD</code> when you
-      deployed. There is no sign-up and no account to recover — if you lose it,
-      set a new one in the Cloudflare dashboard.
+      Forgot your password? There is no reset email — this app stores no
+      email addresses. Ask whoever runs this site to set you a new one.
     </p>
     <button class="btn btn-ghost btn-sm" id="backToJoin" type="button">← Back</button>
+  </section>
+
+  <section class="join-state" id="signup" hidden>
+    <h2 class="state-title">Create an instructor account</h2>
+    <p class="state-text">
+      You'll need the sign-up code from whoever runs this site.
+    </p>
+
+    <form class="code-form" id="signUpForm">
+      <div class="field">
+        <label for="suCode">Sign-up code</label>
+        <input type="text" id="suCode" required autocapitalize="none"
+               autocorrect="off" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="suUsername">Username</label>
+        <input type="text" id="suUsername" autocomplete="username" required
+               autocapitalize="none" autocorrect="off" spellcheck="false">
+        <p class="field-hint">
+          3–32 characters. Letters, numbers, dots, dashes, underscores.
+          It doesn't have to be your real name.
+        </p>
+      </div>
+      <div class="field">
+        <label for="suPassword">Password</label>
+        <input type="password" id="suPassword" autocomplete="new-password" required minlength="4">
+        <p class="field-hint">
+          At least 4 characters — a short PIN is fine. There is no reset
+          email, so pick something you'll remember; only an admin can set
+          you a new one.
+        </p>
+      </div>
+      <div class="field-error" id="signUpError"></div>
+      <button class="submit-btn" type="submit" id="signUpSubmit">Create account</button>
+    </form>
+
+    <p class="state-text" style="font-size:.78rem">
+      We store your username and a hashed password. No email, no name, no
+      tracking. <a href="privacy.html">What we store and why</a>.
+    </p>
+    <button class="btn btn-ghost btn-sm" id="backToSignIn" type="button">← Sign in instead</button>
   </section>
 
   <section class="join-state" id="setup" hidden>
@@ -71,11 +120,16 @@
 
 </main>
 
-<!-- No anonymity footer here either. The app is anonymous by design (see
-     the FERPA note in worker/schema.sql), but students land on this page,
-     and advertising untraceability to a class reads as an invitation to
-     misbehave. The privacy model belongs in the instructor's own words and
-     in docs/DEPLOYMENT.md, which is written for a department to read. -->
+<!-- Still no anonymity claim in this footer. The app collects no student
+     data (see the FERPA note in worker/schema.sql), but students land on
+     this page, and advertising untraceability to a class reads as an
+     invitation to misbehave. The link below is deliberately neutral —
+     someone who wants to know what is collected can go and read it, which
+     is different from promising a room of students that nobody is
+     watching. -->
+<footer class="page-foot">
+  <a href="privacy.html">Privacy</a>
+</footer>
 
 <script type="module" src="app/index-page.js"></script>
 </body>

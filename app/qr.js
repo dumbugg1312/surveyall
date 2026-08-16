@@ -10,8 +10,33 @@
  * still degrades to the printed join code rather than a broken page.
  */
 
+import { contrastRatio } from './themes.js';
+
 let qrcodeLib = null;
 let loadFailed = false;
+
+/**
+ * A module colour that a camera can actually read.
+ *
+ * The QR is drawn in the deck's ink so it belongs to the theme, and it
+ * always sits on a white plate so it stays scannable under projector
+ * gamma. Those two rules fight on a dark theme: Chalkboard's ink is
+ * #f2f5ef, which on white is a QR you can barely see and no phone will
+ * decode. Five of the built-in themes are dark, so this was every one of
+ * their lobby screens.
+ *
+ * Tint when the ink is dark enough to survive the plate; otherwise fall
+ * back to near-black. Scannability wins over palette, every time.
+ * @param {string} ink theme's --ink
+ * @param {string} plate the background the modules are drawn on
+ */
+export function qrInk(ink, plate = '#ffffff') {
+  const hex = String(ink || '').trim();
+  if (!/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(hex)) return '#111111';
+  // 7:1 is WCAG AAA for text; a camera decoding at an angle in a bright
+  // room wants at least that much separation.
+  return contrastRatio(hex, plate) >= 7 ? hex : '#111111';
+}
 
 async function loadLib() {
   if (qrcodeLib) return qrcodeLib;

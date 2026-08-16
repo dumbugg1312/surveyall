@@ -21,12 +21,23 @@
  *      only once the presenter has both revealed AND pushed to devices.
  *   4. Every instructor route requires a valid token before it touches
  *      anything.
+ *   5. Every instructor route is scoped to the signed-in user. This one
+ *      is newer than the others and is the easiest to get wrong: it is
+ *      not enough to know that SOMEBODY is signed in, because a bare
+ *      resource id in a URL says nothing about who owns it. Route
+ *      handlers below therefore never query by id alone — they go
+ *      through ownedDeck/ownedSession/ownedQuestion/… which join back to
+ *      an owner_id, and treat "not yours" as 404 so the existence of
+ *      another instructor's data is never confirmed.
  *
  * If you edit this file, re-run the security probes in docs/HANDOFF.md.
  */
 
 import { SessionRoom } from './session-room.js';
-import { isInstructor, signIn, signPseudonym, verifyPseudonym } from './auth.js';
+import {
+  changePassword, currentUser, resetPassword, signIn, signUp,
+  signPseudonym, verifyPseudonym,
+} from './auth.js';
 
 export { SessionRoom };
 
@@ -113,6 +124,33 @@ function sanitiseQuestion(question) {
   };
 }
 
+/**
+ * "Question 3 of 8" for the phone.
+ *
+ * A phone is handed one question, never the deck, so it cannot work out
+ * its own place in the running order — and `position` is the wrong answer
+ * anyway now that a deck can open with an instructions slide: slide 2 is
+ * question 1. Counted here, in one aggregate, rather than shipping the
+ * whole deck's shape to sixty devices.
+ *
+ * Content slides return number 0: they are not asked, so they are not
+ * numbered. Kept in step with CONTENT_TYPES in app/logic.js.
+ */
+const CONTENT_SLIDE_TYPES = ['instructions'];
+
+async function questionOrdinal(env, deckId, question) {
+  if (CONTENT_SLIDE_TYPES.includes(question.type)) return { number: 0, total: 0 };
+  const marks = CONTENT_SLIDE_TYPES.map(() => '?').join(', ');
+  const row = await env.DB.prepare(`
+    select
+      count(*) as total,
+      sum(case when position <= ? then 1 else 0 end) as number
+    from questions
+    where deck_id = ? and type not in (${marks})
+  `).bind(question.position ?? 0, deckId, ...CONTENT_SLIDE_TYPES).first();
+  return { number: Number(row?.number || 0), total: Number(row?.total || 0) };
+}
+
 const ADJECTIVES = [
   'Amber', 'Brisk', 'Copper', 'Dusky', 'Ember', 'Fleet', 'Golden', 'Hazel',
   'Ivory', 'Jade', 'Keen', 'Lucid', 'Mellow', 'Nimble', 'Onyx', 'Plum',
@@ -144,11 +182,20 @@ function generateJoinCode(len = 6) {
  * <img src="/api/backgrounds/:id"> and CSS url(...) just work and can be
  * cached. Both of those are fetched by the browser itself, which cannot
  * attach an Authorization header, so this route is reachable without a
- * token; the unguessable id is what protects it. That is safe here: a
- * backdrop is the instructor's own projector art, holds no student data,
- * and is already being displayed to the whole room. Listing, uploading
- * and deleting stay behind the instructor gate, so the collection cannot
- * be enumerated.
+ * token; the unguessable id is what protects it.
+ *
+ * This is the ONE route that rule 5 does not cover, so be precise about
+ * what that means now that several instructors share an instance:
+ * anybody holding a background's id can fetch that image, including
+ * another instructor. What is exposed is a backdrop the owner chose to
+ * project onto a wall in front of a room of people — their own art, no
+ * student data in it, no way to reach anything else from it. Listing,
+ * uploading and deleting are all owner-scoped, so a collection still
+ * cannot be enumerated and ids do not leak between accounts.
+ *
+ * It is called out in privacy.html rather than left implicit, because
+ * "images are served by unguessable URL" is a real property of the
+ * system and someone reviewing it deserves to read it from us first.
  */
 async function serveBackground(env, id) {
   const row = await env.DB.prepare('select data_uri from backgrounds where id = ?')
@@ -264,15 +311,47 @@ async function route(request, env, url, ctx) {
   // ---------------------------------------------------------------- auth
   if (seg[0] === 'auth') {
     if (seg[1] === 'signin' && method === 'POST') {
-      const token = await signIn(env, body.password);
-      // Deliberately identical failure for "no password configured" and
-      // "wrong password" — never tell an attacker which.
-      if (!token) return fail('Incorrect password.', 401);
-      return json({ token });
+      const res = await signIn(env, body.username, body.password);
+      if (!res.ok) return fail(res.error, res.status);
+      return json({ token: res.token, user: res.user });
     }
+
+    if (seg[1] === 'signup' && method === 'POST') {
+      const res = await signUp(env, body.username, body.password, body.code);
+      if (!res.ok) return fail(res.error, res.status);
+      return json({ token: res.token, user: res.user });
+    }
+
+    // Does this server have sign-up switched on at all? The sign-up form
+    // is hidden when it doesn't, rather than failing at submit. This
+    // reveals only whether a code is configured, never what it is.
+    if (seg[1] === 'config' && method === 'GET') {
+      return json({ signup_enabled: !!env.SIGNUP_CODE });
+    }
+
     if (seg[1] === 'check') {
-      return json({ ok: await isInstructor(request, env) });
+      const user = await currentUser(request, env);
+      return json({ ok: !!user, user: user || null });
     }
+
+    if (seg[1] === 'password' && method === 'POST') {
+      const user = await currentUser(request, env);
+      if (!user) return fail('Sign in first.', 401);
+      const res = await changePassword(env, user, body.current, body.next);
+      if (!res.ok) return fail(res.error, res.status);
+      return json({ ok: true });
+    }
+
+    // Admin-only. The only way back in for a colleague who forgot their
+    // password, because no email address is stored to mail a link to.
+    if (seg[1] === 'reset' && method === 'POST') {
+      const user = await currentUser(request, env);
+      if (!user) return fail('Sign in first.', 401);
+      const res = await resetPassword(env, user, body.username, body.next);
+      if (!res.ok) return fail(res.error, res.status);
+      return json({ ok: true });
+    }
+
     return fail('Unknown auth route', 404);
   }
 
@@ -293,8 +372,11 @@ async function route(request, env, url, ctx) {
   }
 
   // --------------------------------------------------------- instructor
-  if (!(await isInstructor(request, env))) return fail('Sign in first.', 401);
-  return instructorRoute(request, env, seg, method, body, url, ctx);
+  // From here down, `user` is never optional. Every handler below scopes
+  // its queries to user.id — see rule 5 in the file header.
+  const user = await currentUser(request, env);
+  if (!user) return fail('Sign in first.', 401);
+  return instructorRoute(request, env, seg, method, body, url, ctx, user);
 }
 
 // =====================================================================
@@ -353,6 +435,7 @@ async function participantRoute(request, env, seg, method, body, url) {
     if (!q) return json(null);
     return json({
       ...sanitiseQuestion(q),
+      ...(await questionOrdinal(env, session.deck_id, q)),
       round: session.current_round,
       accepting: session.accepting,
       reveal: session.reveal,
@@ -482,10 +565,55 @@ async function participantRoute(request, env, seg, method, body, url) {
 }
 
 // =====================================================================
+// Ownership
+//
+// The whole of rule 5 lives in these five functions. Each takes a bare
+// id from a URL and returns the row ONLY if the signed-in user owns it,
+// joining back to an owner_id where the table has no owner of its own
+// (a question belongs to whoever owns its deck; a response belongs to
+// whoever owns its session).
+//
+// Handlers below must go through these rather than querying by id. A
+// query like `where id = ?` looks harmless and is the exact shape of the
+// bug: ids are random, but an unguessable identifier is not an access
+// control, and `GET /api/sessions/:id/responses` returns student answers.
+//
+// "Not yours" is answered 404, never 403 — a 403 would confirm that the
+// id exists and belongs to somebody else, which is itself a disclosure.
+// =====================================================================
+
+const ownedDeck = (DB, id, user) => DB
+  .prepare('select * from decks where id = ? and owner_id = ?').bind(id, user.id).first();
+
+const ownedSession = (DB, id, user) => DB
+  .prepare('select * from sessions where id = ? and owner_id = ?').bind(id, user.id).first();
+
+const ownedQuestion = (DB, id, user) => DB.prepare(`
+  select q.* from questions q
+  join decks d on d.id = q.deck_id
+  where q.id = ? and d.owner_id = ?
+`).bind(id, user.id).first();
+
+const ownedResponse = (DB, id, user) => DB.prepare(`
+  select r.id, r.session_id from responses r
+  join sessions s on s.id = r.session_id
+  where r.id = ? and s.owner_id = ?
+`).bind(id, user.id).first();
+
+const ownedAudienceQuestion = (DB, id, user) => DB.prepare(`
+  select a.id, a.session_id from audience_questions a
+  join sessions s on s.id = a.session_id
+  where a.id = ? and s.owner_id = ?
+`).bind(id, user.id).first();
+
+/** The one answer given for "doesn't exist" and "belongs to someone else". */
+const notYours = () => fail('Not found.', 404);
+
+// =====================================================================
 // Instructor routes (token required — checked before we got here)
 // =====================================================================
 
-async function instructorRoute(request, env, seg, method, body, url, ctx) {
+async function instructorRoute(request, env, seg, method, body, url, ctx, user) {
   const DB = env.DB;
 
   // ------------------------------------------------------------- decks
@@ -494,8 +622,8 @@ async function instructorRoute(request, env, seg, method, body, url, ctx) {
 
     if (!deckId && method === 'GET') {
       const { results } = await DB.prepare(
-        'select * from decks order by updated_at desc',
-      ).all();
+        'select * from decks where owner_id = ? order by updated_at desc',
+      ).bind(user.id).all();
       return json((results || []).map(rowToDeck));
     }
 
@@ -503,10 +631,10 @@ async function instructorRoute(request, env, seg, method, body, url, ctx) {
       const id = uid();
       const t = now();
       await DB.prepare(`
-        insert into decks (id, title, theme, background, settings, created_at, updated_at)
-        values (?, ?, ?, ?, ?, ?, ?)
+        insert into decks (id, owner_id, title, theme, background, settings, created_at, updated_at)
+        values (?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
-        id, body.title || 'Untitled deck', body.theme || 'lecture-hall',
+        id, user.id, body.title || 'Untitled deck', body.theme || 'lecture-hall',
         JSON.stringify(body.background || { kind: 'theme' }),
         JSON.stringify(body.settings || {}), t, t,
       ).run();
@@ -515,6 +643,10 @@ async function instructorRoute(request, env, seg, method, body, url, ctx) {
 
     // ---- questions under a deck ----------------------------------------
     if (deckId && seg[2] === 'questions') {
+      // One check covers every verb below: a question is reachable only
+      // through a deck you own.
+      if (!(await ownedDeck(DB, deckId, user))) return notYours();
+
       if (seg[3] === 'reorder' && method === 'POST') {
         const ids = Array.isArray(body.ids) ? body.ids : [];
         await DB.batch(ids.map((id, i) =>
@@ -560,11 +692,13 @@ async function instructorRoute(request, env, seg, method, body, url, ctx) {
     }
 
     if (deckId && method === 'GET') {
-      return json(rowToDeck(
-        await DB.prepare('select * from decks where id = ?').bind(deckId).first()));
+      const deck = await ownedDeck(DB, deckId, user);
+      if (!deck) return notYours();
+      return json(rowToDeck(deck));
     }
 
     if (deckId && method === 'PATCH') {
+      if (!(await ownedDeck(DB, deckId, user))) return notYours();
       const fields = [];
       const values = [];
       for (const key of ['title', 'theme']) {
@@ -574,14 +708,19 @@ async function instructorRoute(request, env, seg, method, body, url, ctx) {
         if (body[key] !== undefined) { fields.push(`${key} = ?`); values.push(JSON.stringify(body[key])); }
       }
       fields.push('updated_at = ?'); values.push(now());
-      values.push(deckId);
-      await DB.prepare(`update decks set ${fields.join(', ')} where id = ?`).bind(...values).run();
+      values.push(deckId, user.id);
+      // owner_id repeated in the WHERE as well as checked above: belt and
+      // braces on the one statement that rewrites a deck.
+      await DB.prepare(`update decks set ${fields.join(', ')} where id = ? and owner_id = ?`)
+        .bind(...values).run();
       return json(rowToDeck(
         await DB.prepare('select * from decks where id = ?').bind(deckId).first()));
     }
 
     if (deckId && method === 'DELETE') {
-      await DB.prepare('delete from decks where id = ?').bind(deckId).run();
+      if (!(await ownedDeck(DB, deckId, user))) return notYours();
+      await DB.prepare('delete from decks where id = ? and owner_id = ?')
+        .bind(deckId, user.id).run();
       return json({ ok: true });
     }
   }
@@ -589,6 +728,7 @@ async function instructorRoute(request, env, seg, method, body, url, ctx) {
   // --------------------------------------------------------- questions
   if (seg[0] === 'questions' && seg[1]) {
     if (method === 'PATCH') {
+      if (!(await ownedQuestion(DB, seg[1], user))) return notYours();
       const fields = [];
       const values = [];
       for (const key of ['prompt', 'type', 'position']) {
@@ -602,6 +742,7 @@ async function instructorRoute(request, env, seg, method, body, url, ctx) {
         await DB.prepare('select * from questions where id = ?').bind(seg[1]).first()));
     }
     if (method === 'DELETE') {
+      if (!(await ownedQuestion(DB, seg[1], user))) return notYours();
       await DB.prepare('delete from questions where id = ?').bind(seg[1]).run();
       return json({ ok: true });
     }
@@ -614,24 +755,28 @@ async function instructorRoute(request, env, seg, method, body, url, ctx) {
     if (!sessionId && method === 'GET') {
       const deck = url.searchParams.get('deck');
       const stmt = deck
-        ? DB.prepare('select * from sessions where deck_id = ? order by created_at desc').bind(deck)
-        : DB.prepare('select * from sessions order by created_at desc');
+        ? DB.prepare('select * from sessions where owner_id = ? and deck_id = ? order by created_at desc')
+          .bind(user.id, deck)
+        : DB.prepare('select * from sessions where owner_id = ? order by created_at desc')
+          .bind(user.id);
       const { results } = await stmt.all();
       return json((results || []).map(rowToSession));
     }
 
     if (!sessionId && method === 'POST') {
-      const deck = await DB.prepare('select theme from decks where id = ?')
-        .bind(body.deckId).first();
+      // Starting a session on somebody else's deck would run their
+      // questions under your account and file the answers under yours.
+      const deck = await ownedDeck(DB, body.deckId, user);
+      if (!deck) return notYours();
       const id = uid();
       for (let attempt = 0; attempt < 8; attempt += 1) {
         try {
           await DB.prepare(`
-            insert into sessions (id, deck_id, join_code, label, theme, created_at)
-            values (?, ?, ?, ?, ?, ?)
+            insert into sessions (id, deck_id, owner_id, join_code, label, theme, created_at)
+            values (?, ?, ?, ?, ?, ?, ?)
           `).bind(
-            id, body.deckId, generateJoinCode(6), body.label || '',
-            body.theme || deck?.theme || 'lecture-hall', now(),
+            id, body.deckId, user.id, generateJoinCode(6), body.label || '',
+            body.theme || deck.theme || 'lecture-hall', now(),
           ).run();
           return json(rowToSession(
             await DB.prepare('select * from sessions where id = ?').bind(id).first()));
@@ -642,6 +787,7 @@ async function instructorRoute(request, env, seg, method, body, url, ctx) {
     }
 
     if (sessionId && seg[2] === 'ws') {
+      if (!(await ownedSession(DB, sessionId, user))) return notYours();
       const roomId = env.SESSION_ROOM.idFromName(sessionId);
       return env.SESSION_ROOM.get(roomId).fetch(
         new Request('https://room/connect?role=presenter', request),
@@ -649,6 +795,9 @@ async function instructorRoute(request, env, seg, method, body, url, ctx) {
     }
 
     if (sessionId && seg[2] === 'responses') {
+      // The most sensitive read in the file: raw student answers.
+      if (!(await ownedSession(DB, sessionId, user))) return notYours();
+
       if (method === 'GET') {
         const q = url.searchParams.get('question');
         const round = url.searchParams.get('round');
@@ -674,6 +823,7 @@ async function instructorRoute(request, env, seg, method, body, url, ctx) {
     }
 
     if (sessionId && seg[2] === 'qa' && method === 'GET') {
+      if (!(await ownedSession(DB, sessionId, user))) return notYours();
       const { results } = await DB.prepare(`
         select * from audience_questions where session_id = ?
         order by upvotes desc, created_at asc
@@ -684,6 +834,7 @@ async function instructorRoute(request, env, seg, method, body, url, ctx) {
     }
 
     if (sessionId && seg[2] === 'maxround' && method === 'GET') {
+      if (!(await ownedSession(DB, sessionId, user))) return notYours();
       const q = url.searchParams.get('question');
       const row = await DB.prepare(
         'select max(round) as r from responses where session_id = ? and question_id = ?',
@@ -692,11 +843,13 @@ async function instructorRoute(request, env, seg, method, body, url, ctx) {
     }
 
     if (sessionId && method === 'GET') {
-      return json(rowToSession(
-        await DB.prepare('select * from sessions where id = ?').bind(sessionId).first()));
+      const session = await ownedSession(DB, sessionId, user);
+      if (!session) return notYours();
+      return json(rowToSession(session));
     }
 
     if (sessionId && method === 'PATCH') {
+      if (!(await ownedSession(DB, sessionId, user))) return notYours();
       const allowed = ['state', 'current_question_id', 'current_round', 'accepting',
         'reveal', 'show_on_devices', 'qa_moderated', 'label', 'started_at', 'ended_at'];
       const bools = new Set(['accepting', 'reveal', 'show_on_devices', 'qa_moderated']);
@@ -708,8 +861,8 @@ async function instructorRoute(request, env, seg, method, body, url, ctx) {
         values.push(bools.has(key) ? (body[key] ? 1 : 0) : body[key]);
       }
       if (!fields.length) return fail('Nothing to update', 400);
-      values.push(sessionId);
-      await DB.prepare(`update sessions set ${fields.join(', ')} where id = ?`)
+      values.push(sessionId, user.id);
+      await DB.prepare(`update sessions set ${fields.join(', ')} where id = ? and owner_id = ?`)
         .bind(...values).run();
 
       const updated = rowToSession(
@@ -737,19 +890,24 @@ async function instructorRoute(request, env, seg, method, body, url, ctx) {
     }
 
     if (sessionId && method === 'DELETE') {
-      await DB.prepare('delete from sessions where id = ?').bind(sessionId).run();
+      if (!(await ownedSession(DB, sessionId, user))) return notYours();
+      await DB.prepare('delete from sessions where id = ? and owner_id = ?')
+        .bind(sessionId, user.id).run();
       return json({ ok: true });
     }
   }
 
   // -------------------------------------------------------- responses
   if (seg[0] === 'responses' && seg[1] && method === 'DELETE') {
+    if (!(await ownedResponse(DB, Number(seg[1]), user))) return notYours();
     await DB.prepare('delete from responses where id = ?').bind(Number(seg[1])).run();
     return json({ ok: true });
   }
 
   // --------------------------------------------------------------- qa
   if (seg[0] === 'qa' && seg[1] && method === 'PATCH') {
+    const owned = await ownedAudienceQuestion(DB, Number(seg[1]), user);
+    if (!owned) return notYours();
     const fields = [];
     const values = [];
     for (const key of ['approved', 'answered']) {
@@ -759,9 +917,7 @@ async function instructorRoute(request, env, seg, method, body, url, ctx) {
     values.push(Number(seg[1]));
     await DB.prepare(`update audience_questions set ${fields.join(', ')} where id = ?`)
       .bind(...values).run();
-    const row = await DB.prepare('select session_id from audience_questions where id = ?')
-      .bind(Number(seg[1])).first();
-    if (row) await notifyRoom(env, row.session_id, 'qa', { changed: true });
+    await notifyRoom(env, owned.session_id, 'qa', { changed: true });
     return json({ ok: true });
   }
 
@@ -771,8 +927,8 @@ async function instructorRoute(request, env, seg, method, body, url, ctx) {
       // Deliberately omits data_uri: the picker only needs ids, and
       // shipping every image on every editor load would be wasteful.
       const { results } = await DB.prepare(
-        'select id, bytes, created_at from backgrounds order by created_at desc',
-      ).all();
+        'select id, bytes, created_at from backgrounds where owner_id = ? order by created_at desc',
+      ).bind(user.id).all();
       return json(results || []);
     }
     if (!seg[1] && method === 'POST') {
@@ -783,14 +939,18 @@ async function instructorRoute(request, env, seg, method, body, url, ctx) {
       if (dataUri.length > 1_500_000) return fail('Image too large after compression', 413);
       const id = uid();
       await DB.prepare(
-        'insert into backgrounds (id, data_uri, bytes, created_at) values (?, ?, ?, ?)',
-      ).bind(id, dataUri, dataUri.length, now()).run();
+        'insert into backgrounds (id, owner_id, data_uri, bytes, created_at) values (?, ?, ?, ?, ?)',
+      ).bind(id, user.id, dataUri, dataUri.length, now()).run();
       return json({ id, url: `/api/backgrounds/${id}` });
     }
     // NOTE: GET /api/backgrounds/:id is handled earlier, before the
     // instructor gate, because the browser fetches it as an image.
     if (seg[1] && method === 'DELETE') {
-      await DB.prepare('delete from backgrounds where id = ?').bind(seg[1]).run();
+      const owned = await DB.prepare('select id from backgrounds where id = ? and owner_id = ?')
+        .bind(seg[1], user.id).first();
+      if (!owned) return notYours();
+      await DB.prepare('delete from backgrounds where id = ? and owner_id = ?')
+        .bind(seg[1], user.id).run();
       return json({ ok: true });
     }
   }

@@ -55,63 +55,283 @@
 .deck-meta { font-size: .78rem; color: var(--ink-soft); }
 .deck-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; margin-top: auto; }
 
-/* ------------------------------------------------------------- editor */
+/* =====================================================================
+   The deck editor — three panes.
 
-.editor {
+   Slides on the left, the open slide in the middle, the deck's look on
+   the right. Each pane owns its own scrollbar so the rail never scrolls
+   away from you while you work down a long question, which is the whole
+   reason a slide overview earns its width.
+   ===================================================================== */
+
+.edit-body { overflow: hidden; }
+
+.editor-shell {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 20rem;
-  gap: var(--sp-5);
+  grid-template-columns: 15rem minmax(0, 1fr) 21rem;
+  height: calc(100vh - 3.6rem);   /* below the sticky appbar */
+  height: calc(100dvh - 3.6rem);
+  min-height: 0;
+}
+.editor-shell.design-hidden { grid-template-columns: 15rem minmax(0, 1fr); }
+.editor-shell.design-hidden > .side { display: none; }
+
+/* ------------------------------------------------------- the slide rail */
+
+.slide-rail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--edge);
+  background: color-mix(in srgb, var(--ink) 3%, var(--surface));
+}
+
+.rail-head {
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-3) var(--sp-2);
+}
+.rail-count { font-size: .72rem; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+
+.rail-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  list-style: none;
+  margin: 0;
+  padding: 0 var(--sp-2) var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.rail-empty {
+  padding: var(--sp-4) var(--sp-3);
+  font-size: .82rem;
+  color: var(--ink-soft);
+}
+
+.rail-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.1rem minmax(0, 1fr);
+  gap: var(--sp-2);
   align-items: start;
+  padding: .2rem .15rem;
+  border-radius: 8px;
 }
-@media (max-width: 900px) {
-  .editor { grid-template-columns: minmax(0, 1fr); }
+.rail-item.is-dragging { opacity: .4; }
+/* a drop line, in the direction the slide is travelling */
+.rail-item.is-drop-before::before,
+.rail-item.is-drop-after::after {
+  content: '';
+  position: absolute;
+  left: 1.6rem; right: .2rem;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.rail-item.is-drop-before::before { top: -.3rem; }
+.rail-item.is-drop-after::after { bottom: -.3rem; }
+
+.rail-num {
+  padding-top: .15rem;
+  font-size: .7rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  cursor: grab;
 }
 
-.q-list { display: flex; flex-direction: column; gap: var(--sp-3); }
+.rail-col { min-width: 0; display: flex; flex-direction: column; gap: .15rem; }
 
-.q-card {
+.rail-thumb {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 2px solid var(--edge);
+  border-radius: 8px;
+  overflow: hidden;
+  background: none;
+  cursor: pointer;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.rail-thumb:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--edge)); }
+.rail-item.is-selected .rail-thumb {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.rail-type {
+  font-size: .68rem;
+  color: var(--ink-soft);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Row actions stay out of the way until you want them, so the rail reads
+   as a strip of slides rather than a strip of buttons. */
+.rail-actions {
+  position: absolute;
+  top: .3rem; right: .3rem;
+  display: flex;
+  gap: .1rem;
+  padding: .1rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  transition: opacity .15s ease;
+}
+.rail-item:hover .rail-actions,
+.rail-item:focus-within .rail-actions { opacity: 1; }
+
+.rail-act {
+  width: 1.15rem; height: 1.15rem;
+  display: grid; place-items: center;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--ink-soft);
+  font-size: .7rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.rail-act:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 10%, transparent); color: var(--ink); }
+.rail-act:disabled { opacity: .3; cursor: default; }
+.rail-act.is-danger:hover { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
+
+.rail-foot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border-top: 1px solid var(--edge);
+  background: var(--surface);
+}
+.rail-foot .btn { width: 100%; }
+
+/* --------------------------------------------------------- slide stage */
+
+.slide-stage {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.stage-canvas-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  align-items: center;
+}
+.stage-canvas {
+  width: 100%;
+  max-width: 44rem;
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.canvas-note { font-size: .74rem; text-align: center; }
+
+.slide-form {
+  width: 100%;
+  max-width: 44rem;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
   border: 1px solid var(--edge);
   border-radius: var(--radius);
   background: var(--surface);
-  overflow: hidden;
 }
-.q-card.is-open { border-color: color-mix(in srgb, var(--accent) 45%, var(--edge)); }
+.form-head { display: flex; align-items: center; gap: var(--sp-2); }
+.form-head h2 { font-size: 1.05rem; }
 
-.q-card-head {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-  padding: var(--sp-3) var(--sp-4);
-  cursor: pointer;
-  background: none;
-  border: none;
-  width: 100%;
-  text-align: left;
-}
-
-.q-num {
-  width: 1.8rem; height: 1.8rem;
+.step-num {
+  width: 1.3rem;
   flex-shrink: 0;
-  border-radius: 50%;
-  background: var(--accent-soft);
-  color: color-mix(in srgb, var(--accent) 80%, var(--ink));
-  display: grid; place-items: center;
-  font-size: .8rem; font-weight: 700;
+  font-size: .74rem;
+  font-weight: 700;
+  color: var(--ink-soft);
   font-variant-numeric: tabular-nums;
 }
 
-.q-card-title { flex: 1; min-width: 0; }
-.q-card-prompt {
-  font-weight: 550;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.q-card-type { font-size: .74rem; color: var(--ink-soft); }
+/* ------------------------------------------------- new-slide gallery */
 
-.q-card-body {
-  padding: 0 var(--sp-4) var(--sp-4);
-  display: flex; flex-direction: column; gap: var(--sp-3);
-  border-top: 1px solid var(--edge);
-  padding-top: var(--sp-4);
+.gallery-backdrop { position: fixed; inset: 0; z-index: 190; }
+
+.slide-gallery {
+  position: fixed;
+  z-index: 200;
+  width: min(38rem, calc(100vw - 2rem));
+  max-height: min(30rem, 70vh);
+  overflow-y: auto;
+  padding: var(--sp-4);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.gallery-head h3 { font-size: 1rem; margin-bottom: var(--sp-3); }
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr));
+  gap: var(--sp-3);
+}
+
+.gallery-tile {
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+  padding: .4rem;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease;
+}
+.gallery-tile:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.gallery-thumb {
+  display: block;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--edge);
+}
+.gallery-name { font-size: .84rem; font-weight: 650; }
+.gallery-blurb { font-size: .7rem; color: var(--ink-soft); line-height: 1.35; }
+
+/* ------------------------------------------------------ narrow screens */
+
+@media (max-width: 1080px) {
+  .editor-shell { grid-template-columns: 12rem minmax(0, 1fr); }
+  .editor-shell > .side { display: none; }
+  .editor-shell:not(.design-hidden) > .side {
+    display: flex;
+    position: fixed;
+    top: 3.6rem; right: 0; bottom: 0;
+    width: min(21rem, 92vw);
+    z-index: 60;
+    box-shadow: var(--shadow);
+  }
+}
+@media (max-width: 720px) {
+  .edit-body { overflow: auto; }
+  .editor-shell { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .slide-rail { border-right: none; border-bottom: 1px solid var(--edge); }
+  .rail-list { flex-direction: row; overflow-x: auto; }
+  .rail-item { min-width: 8.5rem; }
+  .slide-stage { padding: var(--sp-4); overflow: visible; }
 }
 
 .opt-editor { display: flex; flex-direction: column; gap: var(--sp-2); }
@@ -137,7 +357,16 @@
 
 /* ------------------------------------------------------------- panels */
 
-.side { display: flex; flex-direction: column; gap: var(--sp-4); position: sticky; top: 4.5rem; }
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--sp-4);
+  border-left: 1px solid var(--edge);
+  background: color-mix(in srgb, var(--ink) 2%, var(--surface));
+}
 
 .panel {
   border: 1px solid var(--edge);
@@ -488,4 +717,321 @@
   overflow-y: auto;
   display: flex; flex-direction: column; gap: var(--sp-4);
   box-shadow: var(--shadow);
+}
+
+/* =====================================================================
+   Miniature slides (app/slide-preview.js).
+
+   One set of rules for three sizes: the rail thumbnail, the editor
+   canvas, and the new-slide gallery. The slide's own font-size is a
+   percentage of its width (cqw), and everything inside is in em, so the
+   whole composition scales without a single media query — the same trick
+   present.css uses to fill a projector.
+   ===================================================================== */
+
+.sp-frame {
+  container-type: inline-size;
+  width: 100%;
+  display: block;
+}
+
+.sp-slide {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  isolation: isolate;
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 12px;        /* fallback where container units are missing */
+  font-size: 5.6cqw;
+  line-height: 1.3;
+}
+
+.sp-backdrop { position: absolute; inset: 0; background-repeat: no-repeat; background-position: center; }
+.sp-scrim { position: absolute; inset: 0; }
+
+.sp-content {
+  position: relative;
+  z-index: 2;
+  height: 100%;
+  padding: 6% 6.5%;
+  display: flex;
+  flex-direction: column;
+  gap: .45em;
+}
+
+.sp-kicker {
+  font-size: .4em;
+  font-weight: 600;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.sp-prompt {
+  font-family: var(--display);
+  font-size: 1.05em;
+  font-weight: 650;
+  line-height: 1.14;
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.sp-prompt.is-empty { opacity: .45; font-style: italic; }
+
+.sp-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.sp-blank { opacity: .4; font-size: .5em; }
+
+/* ---------------------------------------------------------- bars/donut */
+
+.sp-bars { display: flex; flex-direction: column; gap: .34em; width: 100%; }
+.sp-bar-row { display: flex; align-items: center; gap: .4em; }
+.sp-bar-track {
+  flex: 1;
+  height: .42em;
+  border-radius: var(--bar-radius);
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
+  overflow: hidden;
+}
+.sp-bar-fill { height: 100%; border-radius: inherit; background: var(--accent); }
+.sp-bar-fill.is-alt { background: var(--accent-2); opacity: .85; }
+.sp-bar-fill.is-key { background: var(--good); }
+.sp-bar-label {
+  flex: 0 0 auto;
+  max-width: 42%;
+  font-size: .38em;
+  color: var(--ink-soft);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.sp-donut-wrap { display: grid; place-items: center; height: 100%; }
+.sp-donut {
+  width: 3.2em; height: 3.2em;
+  border-radius: 50%;
+  -webkit-mask: radial-gradient(circle, transparent 46%, #000 47%);
+  mask: radial-gradient(circle, transparent 46%, #000 47%);
+}
+
+/* ---------------------------------------------------------------- cloud */
+
+.sp-cloud {
+  display: flex; flex-wrap: wrap;
+  align-items: baseline; justify-content: center;
+  gap: .1em .35em;
+  font-family: var(--display);
+  font-weight: 650;
+  line-height: 1;
+}
+.sp-cloud-word { color: var(--accent); }
+.sp-cloud-word.is-alt { color: var(--accent-2); }
+
+/* --------------------------------------------------------- text cards */
+
+.sp-cards { display: flex; gap: .35em; width: 100%; }
+.sp-card {
+  flex: 1;
+  display: flex; flex-direction: column; gap: .2em;
+  padding: .35em;
+  border-radius: .3em;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+.sp-line {
+  height: .16em;
+  width: 90%;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--ink) 26%, transparent);
+}
+
+/* --------------------------------------------------------------- scales */
+
+.sp-scales { display: flex; flex-direction: column; gap: .32em; width: 100%; }
+.sp-scale-row { display: flex; align-items: center; gap: .4em; }
+.sp-scale-label {
+  flex: 0 0 34%;
+  font-size: .38em;
+  color: var(--ink-soft);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sp-scale-track {
+  position: relative;
+  flex: 1;
+  height: .12em;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--ink) 15%, transparent);
+}
+.sp-scale-dot {
+  position: absolute;
+  top: 50%;
+  width: .42em; height: .42em;
+  margin: -.21em 0 0 -.21em;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* -------------------------------------------------------------- ranking */
+
+.sp-rank { display: flex; flex-direction: column; gap: .3em; width: 100%; }
+.sp-rank-row { display: flex; align-items: center; gap: .35em; }
+.sp-rank-num {
+  width: .9em; height: .9em;
+  flex-shrink: 0;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+  font-size: .38em;
+  font-weight: 700;
+}
+.sp-rank-bar { height: .34em; border-radius: var(--bar-radius); background: var(--accent); }
+
+/* ------------------------------------------------------------- spectrum */
+
+.sp-spectrum { display: flex; flex-direction: column; gap: .25em; width: 100%; }
+.sp-spectrum-ends {
+  display: flex; justify-content: space-between;
+  font-size: .36em; color: var(--ink-soft);
+}
+.sp-spectrum-axis {
+  position: relative;
+  height: 2.1em;
+  border-radius: .25em;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--accent) 14%, transparent),
+    color-mix(in srgb, var(--accent-2) 14%, transparent));
+}
+.sp-spectrum-dot {
+  position: absolute;
+  width: .28em; height: .28em;
+  margin: -.14em 0 0 -.14em;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ------------------------------------------------------------- showdown */
+
+.sp-showdown { display: flex; gap: .4em; width: 100%; }
+.sp-sample {
+  flex: 1;
+  display: flex; flex-direction: column; gap: .2em;
+  padding: .35em;
+  border-radius: .3em;
+  border: 1px solid color-mix(in srgb, var(--ink) 15%, transparent);
+}
+.sp-sample-text {
+  font-size: .36em;
+  line-height: 1.3;
+  color: var(--ink-soft);
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.sp-sample-bar {
+  margin-top: auto;
+  height: .28em;
+  border-radius: var(--bar-radius);
+  background: var(--accent);
+}
+
+/* -------------------------------------------------------------- heatmap */
+
+.sp-heat { display: flex; flex-wrap: wrap; gap: .18em; font-size: .38em; line-height: 1.45; }
+.sp-heat-seg {
+  padding: .05em .3em;
+  border-radius: .2em;
+  background: color-mix(in srgb, var(--accent) calc(var(--heat, .3) * 55%), transparent);
+}
+.sp-heat-seg.is-blank { height: 1.15em; }
+
+/* ------------------------------------------------------------------ Q&A */
+
+.sp-qa { display: flex; flex-direction: column; gap: .3em; width: 100%; }
+.sp-bubble {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: .85em;
+  padding-right: .25em;
+  border-radius: .3em .3em .3em .1em;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.sp-bubble.is-alt {
+  background: color-mix(in srgb, var(--accent-2) 22%, transparent);
+  align-self: flex-end;
+  border-radius: .3em .3em .1em .3em;
+}
+.sp-bubble-vote { font-size: .34em; color: var(--ink-soft); line-height: 1; }
+
+/* -------------------------------------------------------- instructions */
+
+.sp-instructions {
+  display: flex;
+  align-items: center;
+  gap: .8em;
+  width: 100%;
+}
+.sp-steps {
+  flex: 1;
+  min-width: 0;
+  list-style: none;
+  margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: .28em;
+}
+.sp-step { display: flex; align-items: flex-start; gap: .35em; }
+.sp-step-num {
+  flex-shrink: 0;
+  width: .95em; height: .95em;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--ground);
+  font-size: .4em;
+  font-weight: 700;
+  line-height: 1;
+}
+.sp-step-text {
+  font-size: .4em;
+  line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.sp-joincard {
+  flex-shrink: 0;
+  display: flex; flex-direction: column; align-items: center; gap: .25em;
+  padding: .4em;
+  border-radius: .35em;
+  border: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+}
+/* The QR is a picture of a code that doesn't exist until a session
+   starts, so the editor draws its silhouette rather than inventing one.
+   Three finder squares are what make it read as a QR at 2em across. */
+.sp-qr {
+  width: 2.4em; height: 2.4em;
+  display: grid;
+  grid-template: repeat(7, 1fr) / repeat(7, 1fr);
+  gap: 6%;
+  padding: 6%;
+  border-radius: .15em;
+  background: #fff;
+}
+.sp-qr > span { border-radius: .5px; }
+.sp-qr > .sp-qr-on { background: color-mix(in srgb, #111 78%, transparent); }
+.sp-join-meta { display: flex; flex-direction: column; align-items: center; }
+.sp-join-label {
+  font-size: .3em; font-weight: 600; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-soft);
+}
+.sp-join-code {
+  font-family: var(--display);
+  font-size: .55em; font-weight: 700; letter-spacing: .12em;
 }

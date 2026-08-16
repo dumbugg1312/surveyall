@@ -511,3 +511,40 @@ button.seg-body { cursor: pointer; transition: border-color .15s ease, backgroun
   .q-prompt { font-size: 1.7rem; }
   .join-shell { padding-top: 1.5rem; }
 }
+
+/* -------------------------------------------------- instructions slide
+   The projector's instructions slide, mirrored onto the phone of someone
+   who has already followed it. Confirmation first, then the same words
+   for anyone who can't read the screen from the back row. */
+
+.instr-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.instr-badge {
+  align-self: flex-start;
+  padding: .2rem .6rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--good) 16%, transparent);
+  color: var(--good);
+  font-size: .78rem;
+  font-weight: 650;
+}
+
+.instr-list {
+  margin: 0;
+  padding-left: 1.3rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  font-size: .94rem;
+  line-height: 1.45;
+}
+
+.instr-smallprint { font-size: .8rem; color: var(--ink-soft); }

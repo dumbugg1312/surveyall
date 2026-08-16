@@ -5,7 +5,9 @@
   "description": "Free, anonymous live polling for the classroom.",
   "type": "module",
   "scripts": {
-    "test": "node tests/run-tests.mjs",
+    "test": "node tests/run-tests.mjs && node tests/run-worker-tests.mjs",
+    "test:logic": "node tests/run-tests.mjs",
+    "test:worker": "node tests/run-worker-tests.mjs",
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
     "db:init": "wrangler d1 execute surveyall --remote --file=worker/schema.sql"

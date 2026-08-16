@@ -7,10 +7,11 @@
  * site and its API, so the frontend talks to its own origin. There are
  * no keys to paste here and nothing secret in this file.
  *
- * Your instructor password is NOT here. It lives in Cloudflare's
- * encrypted secret store (`INSTRUCTOR_PASSWORD`), set from the dashboard
- * or `wrangler secret put`. Never put a password in this repository —
- * it is public.
+ * No password is here. Instructor passwords are hashed into the
+ * database, and the two secrets that protect them — `AUTH_SECRET` and
+ * `SIGNUP_CODE` — live in Cloudflare's encrypted secret store, set from
+ * the dashboard or `wrangler secret put`. Never put either in this
+ * repository — it is public.
  *
  * See docs/DEPLOYMENT.md.
  */

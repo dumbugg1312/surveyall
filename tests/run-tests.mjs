@@ -15,7 +15,8 @@ import {
   buildCSV, toCSVValue, sessionToCSVRows, CSV_HEADERS, payloadToText,
   correctIndices, optionLabels, generateJoinCode, joinURL,
   neighbourQuestion, sortedQuestions, MULTI_SUBMIT_TYPES,
-  splitPassage, promptKey,
+  splitPassage, promptKey, isContentSlide, fillJoinPlaceholders, DEFAULT_JOIN_STEPS,
+  questionNumber,
 } from '../app/logic.js';
 import { parseDeck, serialiseDeck, SAMPLE_DECK } from '../app/deck-format.js';
 import {
@@ -566,10 +567,14 @@ describe('plain-text deck format (P3)', () => {
     eq(deck.title, 'Sample deck — first day of class');
     eq(deck.theme, 'lecture-hall');
     eq(deck.background, { kind: 'preset', id: 'gradient-dusk' });
-    eq(deck.questions.length, 7);
+    eq(deck.questions.length, 8);
     eq(deck.questions.map((q) => q.type), [
-      'word_cloud', 'multiple_choice', 'scales', 'quiz', 'ranking', 'open_ended', 'qa',
+      'instructions', 'word_cloud', 'multiple_choice', 'scales', 'quiz',
+      'ranking', 'open_ended', 'qa',
     ]);
+    // the opening slide carries its own steps, %CODE% intact
+    ok(deck.questions[0].config.steps.some((s) => s.includes('%CODE%')));
+    eq(deck.questions[0].config.show_join, true);
   });
 
   it('reads a quiz answer key from checkbox syntax', () => {
@@ -665,7 +670,94 @@ Ask away`);
       eq(again.questions[i].config.correct, q.config.correct, `answer key of question ${i + 1}`);
       eq(again.questions[i].config.items, q.config.items, `items of question ${i + 1}`);
       eq(again.questions[i].config.statements, q.config.statements, `statements of question ${i + 1}`);
+      eq(again.questions[i].config.steps, q.config.steps, `steps of question ${i + 1}`);
     });
+  });
+});
+
+// =====================================================================
+describe('instructions slide', () => {
+  it('is a content slide, not a question', () => {
+    ok(isContentSlide('instructions'));
+    notOk(isContentSlide('multiple_choice'));
+    notOk(isContentSlide('qa'));
+  });
+
+  it('refuses every answer, whatever is thrown at it', () => {
+    for (const raw of [null, {}, { choices: [0] }, { text: 'hi' }]) {
+      notOk(validateResponse('instructions', { steps: ['a'] }, raw).ok);
+    }
+  });
+
+  it('aggregates to nothing rather than throwing', () => {
+    const agg = aggregate('instructions', { steps: ['a'] }, []);
+    eq(agg.total, 0);
+  });
+
+  it('parses steps from "-" lines and defaults show_join on', () => {
+    const deck = parseDeck(`## instructions
+Join in before we start
+- Point your camera at the QR code.
+- Or type %CODE% at the address on screen.`);
+    eq(deck.errors, []);
+    eq(deck.questions[0].type, 'instructions');
+    eq(deck.questions[0].prompt, 'Join in before we start');
+    eq(deck.questions[0].config.steps.length, 2);
+    eq(deck.questions[0].config.show_join, true);
+  });
+
+  it('falls back to the standard steps and a heading when given neither', () => {
+    const deck = parseDeck('## instructions');
+    eq(deck.errors, []);
+    eq(deck.questions[0].prompt, 'How to join');
+    eq(deck.questions[0].config.steps, DEFAULT_JOIN_STEPS);
+  });
+
+  it('round-trips join: false', () => {
+    const parsed = parseDeck(`## intro
+Housekeeping
+- Phones out.
+join: false`);
+    eq(parsed.questions[0].config.show_join, false);
+    const again = parseDeck(serialiseDeck({ title: 'x' }, parsed.questions));
+    eq(again.questions[0].config.show_join, false);
+    eq(again.questions[0].config.steps, ['Phones out.']);
+  });
+
+  it('substitutes the live join code into a step, leaving the deck portable', () => {
+    const step = 'Or go to %URL% and type the code %CODE%.';
+    eq(fillJoinPlaceholders(step, { code: 'BQ7RTM', url: 'polls.example.edu' }),
+      'Or go to polls.example.edu and type the code BQ7RTM.');
+    // the stored deck itself is never rewritten
+    ok(step.includes('%CODE%'));
+  });
+
+  it('leaves an unknown placeholder alone rather than blanking it', () => {
+    eq(fillJoinPlaceholders('Room %ROOM%', { code: 'X' }), 'Room %ROOM%');
+  });
+
+  it('is skipped when numbering questions for the room', () => {
+    const deck = [
+      { id: 'a', type: 'instructions', position: 0 },
+      { id: 'b', type: 'multiple_choice', position: 1 },
+      { id: 'c', type: 'instructions', position: 2 },
+      { id: 'd', type: 'quiz', position: 3 },
+    ];
+    // the first thing anyone answers is "Question 1 of 2", not "2 of 4"
+    eq(questionNumber(deck, 'b'), { number: 1, total: 2 });
+    eq(questionNumber(deck, 'd'), { number: 2, total: 2 });
+    eq(questionNumber(deck, 'a').number, 0, 'a content slide has no number');
+  });
+
+  it('contributes no rows to a CSV export', () => {
+    const questions = [
+      { id: 'i', type: 'instructions', prompt: 'Join', position: 0, config: {} },
+      { id: 'm', type: 'multiple_choice', prompt: 'Pick', position: 1, config: { options: ['A', 'B'] } },
+    ];
+    const rows = sessionToCSVRows({ label: 'S' }, questions,
+      [{ question_id: 'm', round: 1, pseudonym: 'Jade Kestrel', payload: { choices: [0] } }]);
+    eq(rows.length, 1);
+    eq(rows[0].question_type, 'Multiple choice');
   });
 });
 
@@ -693,7 +785,7 @@ describe('end-to-end participant simulation', () => {
     let rejected = 0;
 
     for (const q of questions) {
-      if (q.type === 'qa') continue;
+      if (q.type === 'qa' || isContentSlide(q.type)) continue;
 
       pseudonyms.forEach((pseudonym, i) => {
         const raw = fakeAnswer(q, i);
@@ -706,12 +798,12 @@ describe('end-to-end participant simulation', () => {
       });
     }
 
+    const askable = questions.filter((q) => q.type !== 'qa' && !isContentSlide(q.type));
     eq(rejected, 0, 'every simulated answer should validate');
-    eq(responses.length, 30 * (questions.length - 1));
+    eq(responses.length, 30 * askable.length);
 
     // every question aggregates without throwing and counts everyone
-    for (const q of questions) {
-      if (q.type === 'qa') continue;
+    for (const q of askable) {
       const rows = responses.filter((r) => r.question_id === q.id);
       const agg = aggregate(q.type, q.config, rows);
       eq(agg.total, 30, `${q.type} should count 30 respondents`);

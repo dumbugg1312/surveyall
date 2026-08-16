@@ -10,8 +10,9 @@
   // You only need to edit ONE line below: `database_id`, after you
   // create your D1 database. See docs/DEPLOYMENT.md.
   //
-  // Nothing secret belongs in this file. Your instructor password is a
-  // Cloudflare secret (INSTRUCTOR_PASSWORD), set from the dashboard.
+  // Nothing secret belongs in this file. The two secrets this app needs
+  // — AUTH_SECRET and SIGNUP_CODE — are set from the Cloudflare
+  // dashboard. Instructor passwords are hashed into the database.
   // ===================================================================
 
   "name": "surveyall",

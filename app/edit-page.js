@@ -1,9 +1,18 @@
 /**
  * SurveyAll — deck editor.
  *
- * Questions on the left, look-and-feel on the right, live preview under
- * it. Everything saves as you go; the text view round-trips the whole
- * deck through the plain-text format so a deck is never trapped here.
+ * Three panes, the shape every instructor already has muscle memory for:
+ * the deck as a strip of slides on the left, the slide you're working on
+ * in the middle (what the room sees on top, what you type underneath),
+ * and the look of the whole deck on the right.
+ *
+ * The rail is not a list of prompts. Each item is a real miniature of the
+ * projected slide, in the deck's own theme, with the instructor's own
+ * options in it — because when you are arranging a class you are thinking
+ * in slides, not in database rows. Drag to reorder, click to open.
+ *
+ * Everything saves as you go; the text view round-trips the whole deck
+ * through the plain-text format so a deck is never trapped here.
  */
 
 import {
@@ -12,7 +21,9 @@ import {
   replaceQuestions, createSession,
   uploadBackground, listBackgrounds, deleteBackground,
 } from './db.js';
-import { TYPE_LABELS, splitPassage } from './logic.js';
+import {
+  TYPE_LABELS, splitPassage, DEFAULT_JOIN_STEPS, isContentSlide,
+} from './logic.js';
 import { TEMPLATES } from './templates.js';
 import {
   THEMES, BACKGROUND_PRESETS, getTheme, applyTheme,
@@ -20,12 +31,13 @@ import {
   resolveTheme, buildCustomTheme, CUSTOM_FONTS, CUSTOM_RADII, contrastRatio,
 } from './themes.js';
 import { parseDeck, serialiseDeck } from './deck-format.js';
+import { renderSlide } from './slide-preview.js';
 
 const $ = (id) => document.getElementById(id);
 
 let deck = null;
 let questions = [];
-let openId = null;
+let selectedId = null;
 let saveTimer = null;
 
 boot().catch((e) => { console.error(e); toast(e.message || String(e)); });
@@ -43,16 +55,18 @@ async function boot() {
 
   deck = await getDeck(deckId);
   questions = await listQuestions(deckId);
+  selectedId = questions[0]?.id || null;
 
   $('deckTitle').value = deck.title;
   $('deckTitle').addEventListener('input', () => {
     saveDeck({ title: $('deckTitle').value.trim() || 'Untitled deck' });
   });
 
-  $('addQuestion').addEventListener('click', onAdd);
+  $('addSlide').addEventListener('click', toggleSlideGallery);
   $('addTemplate').addEventListener('click', openTemplatePicker);
   $('textView').addEventListener('click', openTextView);
   $('startSession').addEventListener('click', onStart);
+  $('btnDesign').addEventListener('click', toggleDesign);
 
   buildThemeGrid();
   buildMyThemesGrid();
@@ -61,105 +75,409 @@ async function boot() {
   wireBackgroundControls();
   await refreshUploads();
 
-  renderQuestions();
-  renderPreview();
+  renderRail();
+  renderStage();
+}
+
+function selected() {
+  return questions.find((q) => q.id === selectedId) || null;
+}
+
+function selectSlide(id) {
+  if (selectedId === id) return;
+  selectedId = id;
+  renderRail();
+  renderStage();
+  document.querySelector('.rail-item.is-selected')
+    ?.scrollIntoView({ block: 'nearest' });
 }
 
 // =====================================================================
-// Questions
+// The rail — the deck as slides
 // =====================================================================
 
-async function onAdd() {
-  const type = $('addType').value;
+function renderRail() {
+  const list = $('railList');
+  list.textContent = '';
+  $('railCount').textContent = questions.length
+    ? `${questions.length} slide${questions.length === 1 ? '' : 's'}` : '';
+
+  if (!questions.length) {
+    const empty = document.createElement('li');
+    empty.className = 'rail-empty';
+    empty.textContent = 'No slides yet.';
+    list.append(empty);
+    return;
+  }
+
+  questions.forEach((q, i) => list.append(railItem(q, i)));
+}
+
+function railItem(q, index) {
+  const item = document.createElement('li');
+  item.className = 'rail-item' + (q.id === selectedId ? ' is-selected' : '');
+  item.dataset.id = q.id;
+  item.draggable = true;
+
+  const num = document.createElement('span');
+  num.className = 'rail-num';
+  num.textContent = String(index + 1);
+
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'rail-thumb';
+  button.setAttribute('aria-current', q.id === selectedId ? 'true' : 'false');
+  button.setAttribute('aria-label',
+    `Slide ${index + 1}: ${q.prompt || 'untitled'} — ${TYPE_LABELS[q.type] || q.type}`);
+  paintThumb(button, q);
+  button.addEventListener('click', () => selectSlide(q.id));
+
+  const caption = document.createElement('span');
+  caption.className = 'rail-type';
+  caption.textContent = TYPE_LABELS[q.type] || q.type;
+
+  const col = document.createElement('div');
+  col.className = 'rail-col';
+  col.append(button, caption);
+
+  item.append(num, col, railMenu(q, index));
+  wireDrag(item, index);
+  return item;
+}
+
+function paintThumb(host, q) {
+  renderSlide(host, q, deck, resolveTheme(deck.theme, deck));
+}
+
+/** Re-draw only the open slide's thumbnail — called on every keystroke. */
+function refreshSelectedThumb() {
+  const item = $('railList').querySelector(`.rail-item[data-id="${selectedId}"]`);
+  const q = selected();
+  if (!item || !q) return;
+  paintThumb(item.querySelector('.rail-thumb'), q);
+  item.querySelector('.rail-type').textContent = TYPE_LABELS[q.type] || q.type;
+}
+
+/** The small ⋯ on a rail item: duplicate, delete, nudge up/down. */
+function railMenu(q, index) {
+  const wrap = document.createElement('div');
+  wrap.className = 'rail-actions';
+
+  const up = iconBtn('↑', 'Move up', async () => { await move(index, -1); }, index === 0);
+  const down = iconBtn('↓', 'Move down', async () => { await move(index, 1); },
+    index === questions.length - 1);
+  const dup = iconBtn('⧉', 'Duplicate', () => duplicateSlide(q));
+  const del = iconBtn('×', 'Delete', () => deleteSlide(q));
+  del.classList.add('is-danger');
+
+  wrap.append(up, down, dup, del);
+  return wrap;
+}
+
+function iconBtn(glyph, title, fn, disabled) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'rail-act';
+  b.textContent = glyph;
+  b.title = title;
+  b.setAttribute('aria-label', title);
+  b.disabled = !!disabled;
+  b.addEventListener('click', (e) => { e.stopPropagation(); fn(); });
+  return b;
+}
+
+// ------------------------------------------------------- drag to reorder
+
+let dragFrom = null;
+
+function wireDrag(item, index) {
+  item.addEventListener('dragstart', (e) => {
+    dragFrom = index;
+    item.classList.add('is-dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    // Firefox refuses to start a drag without payload on the transfer.
+    e.dataTransfer.setData('text/plain', String(index));
+  });
+  item.addEventListener('dragend', () => {
+    dragFrom = null;
+    $('railList').querySelectorAll('.rail-item')
+      .forEach((n) => n.classList.remove('is-dragging', 'is-drop-before', 'is-drop-after'));
+  });
+  item.addEventListener('dragover', (e) => {
+    if (dragFrom == null || dragFrom === index) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    item.classList.toggle('is-drop-before', index < dragFrom);
+    item.classList.toggle('is-drop-after', index > dragFrom);
+  });
+  item.addEventListener('dragleave', () => {
+    item.classList.remove('is-drop-before', 'is-drop-after');
+  });
+  item.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    const from = dragFrom;
+    dragFrom = null;
+    if (from == null || from === index) return;
+    await moveTo(from, index);
+  });
+}
+
+async function moveTo(from, to) {
+  const [moved] = questions.splice(from, 1);
+  questions.splice(to, 0, moved);
+  questions.forEach((q, i) => { q.position = i; });
+  await reorderQuestions(deck.id, questions.map((q) => q.id));
+  renderRail();
+  renderStage();
+  touch();
+}
+
+async function move(index, step) {
+  const target = index + step;
+  if (target < 0 || target >= questions.length) return;
+  await moveTo(index, target);
+}
+
+// =====================================================================
+// Adding slides — a gallery of layouts, not a dropdown
+// =====================================================================
+
+/**
+ * Every slide type, in the order an instructor meets them: the one that
+ * gets the room onto their phones first, then the everyday polls, then
+ * the specialist ones.
+ */
+const SLIDE_TYPES = [
+  ['instructions', 'How to join, projected. Big QR, big code, your own steps.'],
+  ['multiple_choice', 'The everyday poll. Bars, donut, opinion or best answer.'],
+  ['word_cloud', 'One or two words each; the room writes the headline.'],
+  ['open_ended', 'Sentences, shown as cards. Hold them for review if you like.'],
+  ['scales', 'Rate several statements 1–5. Good for confidence checks.'],
+  ['ranking', 'Put items in order. Counted by Borda points.'],
+  ['quiz', 'Timed, scored, with a leaderboard.'],
+  ['spectrum', 'Where do you stand? A slider, drawn as a scatter, never averaged.'],
+  ['sample_vote', 'Two or more samples; the room picks the strongest and says why.'],
+  ['heatmap', 'A short passage the room highlights or labels.'],
+  ['qa', 'Open floor. Questions from the room, upvoted, moderated by you.'],
+];
+
+function toggleSlideGallery() {
+  const open = document.getElementById('slideGallery');
+  if (open) { closeSlideGallery(); return; }
+  openSlideGallery();
+}
+
+function closeSlideGallery() {
+  document.getElementById('slideGallery')?.remove();
+  document.getElementById('galleryBackdrop')?.remove();
+  $('addSlide').setAttribute('aria-expanded', 'false');
+}
+
+function openSlideGallery() {
+  const backdrop = document.createElement('div');
+  backdrop.id = 'galleryBackdrop';
+  backdrop.className = 'gallery-backdrop';
+  backdrop.addEventListener('click', closeSlideGallery);
+
+  const pop = document.createElement('div');
+  pop.id = 'slideGallery';
+  pop.className = 'slide-gallery';
+
+  const head = document.createElement('div');
+  head.className = 'gallery-head';
+  head.append(Object.assign(document.createElement('h3'), { textContent: 'New slide' }));
+  pop.append(head);
+
+  const grid = document.createElement('div');
+  grid.className = 'gallery-grid';
+
+  SLIDE_TYPES.forEach(([type, blurb]) => {
+    const tile = document.createElement('button');
+    tile.type = 'button';
+    tile.className = 'gallery-tile';
+
+    const thumb = document.createElement('span');
+    thumb.className = 'gallery-thumb';
+    renderSlide(thumb, { type, prompt: '', config: defaultConfig(type) },
+      deck, resolveTheme(deck.theme, deck), { placeholder: true });
+
+    const name = document.createElement('span');
+    name.className = 'gallery-name';
+    name.textContent = TYPE_LABELS[type] || type;
+    const note = document.createElement('span');
+    note.className = 'gallery-blurb';
+    note.textContent = blurb;
+
+    tile.append(thumb, name, note);
+    tile.addEventListener('click', async () => {
+      closeSlideGallery();
+      await addSlide(type);
+    });
+    grid.append(tile);
+  });
+
+  pop.append(grid);
+  document.body.append(backdrop, pop);
+  $('addSlide').setAttribute('aria-expanded', 'true');
+
+  // anchor under the button, kept inside the viewport
+  const r = $('addSlide').getBoundingClientRect();
+  pop.style.left = `${Math.max(12, Math.min(r.left, window.innerWidth - pop.offsetWidth - 12))}px`;
+  pop.style.bottom = `${Math.max(12, window.innerHeight - r.top + 8)}px`;
+  pop.querySelector('.gallery-tile')?.focus();
+}
+
+/** New slides land after the one you're on, the way a deck actually grows. */
+async function addSlide(type) {
+  const at = selectedId
+    ? questions.findIndex((q) => q.id === selectedId) + 1
+    : questions.length;
   const created = await createQuestion(deck.id, {
     type,
-    prompt: '',
+    prompt: type === 'instructions' ? 'Join in before we start' : '',
     config: defaultConfig(type),
-  }, questions.length);
-  questions.push(created);
-  openId = created.id;
-  renderQuestions();
+  }, at);
+
+  questions.splice(at, 0, created);
+  questions.forEach((q, i) => { q.position = i; });
+  if (at !== questions.length - 1) {
+    await reorderQuestions(deck.id, questions.map((q) => q.id));
+  }
+  selectedId = created.id;
+  renderRail();
+  renderStage();
+  touch();
+  // straight into the heading — a new slide always needs one
+  $('slideEditor').querySelector('textarea, input[type="text"]')?.focus();
+}
+
+async function duplicateSlide(q) {
+  const at = questions.findIndex((x) => x.id === q.id) + 1;
+  const copy = await createQuestion(deck.id,
+    { type: q.type, prompt: q.prompt, config: JSON.parse(JSON.stringify(q.config)) }, at);
+  questions.splice(at, 0, copy);
+  questions.forEach((x, i) => { x.position = i; });
+  await reorderQuestions(deck.id, questions.map((x) => x.id));
+  selectedId = copy.id;
+  renderRail();
+  renderStage();
+  touch();
+}
+
+async function deleteSlide(q) {
+  if (!confirm('Delete this slide?')) return;
+  const at = questions.findIndex((x) => x.id === q.id);
+  await deleteQuestion(q.id);
+  questions = questions.filter((x) => x.id !== q.id);
+  await reorderQuestions(deck.id, questions.map((x) => x.id));
+  questions.forEach((x, i) => { x.position = i; });
+  if (selectedId === q.id) {
+    selectedId = (questions[at] || questions[at - 1] || null)?.id || null;
+  }
+  renderRail();
+  renderStage();
   touch();
 }
 
 function defaultConfig(type) {
   switch (type) {
+    case 'instructions': return { steps: [...DEFAULT_JOIN_STEPS], show_join: true };
     case 'multiple_choice': return { options: ['', ''], multiple: false, chart: 'bars' };
     case 'quiz': return { options: ['', '', '', ''], correct: [0], time: 20, scoring: 'time' };
     case 'word_cloud': return { max_words: 1, max_length: 25 };
     case 'open_ended': return { max_length: 200 };
     case 'scales': return { statements: [''], min: 1, max: 5, allow_skip: false };
     case 'ranking': return { items: ['', ''] };
+    case 'sample_vote': return { samples: ['', ''], allow_rationale: true };
+    case 'heatmap': return { passage: '', segments: [], mode: 'highlight', max_picks: 1 };
     default: return {};
   }
 }
 
-function renderQuestions() {
-  const list = $('qList');
-  list.textContent = '';
+// =====================================================================
+// The stage — canvas on top, the slide's own editor underneath
+// =====================================================================
 
-  if (!questions.length) {
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    const h = document.createElement('h3');
-    h.textContent = 'No questions yet';
-    const p = document.createElement('p');
-    p.textContent = 'Pick a type above and hit Add, or use the text view to paste a whole deck at once.';
-    empty.append(h, p);
-    list.append(empty);
+function renderStage() {
+  renderCanvas();
+  renderSlideEditor();
+}
+
+function renderCanvas() {
+  const host = $('canvas');
+  const q = selected();
+  const note = $('canvasNote');
+
+  if (!q) {
+    host.textContent = '';
+    renderSlide(host, { type: null, prompt: deck.title || 'Your deck', config: {} },
+      deck, resolveTheme(deck.theme, deck), { placeholder: true });
+    note.textContent = '';
     return;
   }
 
-  questions.forEach((q, i) => list.append(questionCard(q, i)));
-}
-
-function questionCard(q, index) {
-  const card = document.createElement('div');
-  card.className = 'q-card' + (openId === q.id ? ' is-open' : '');
-
-  const head = document.createElement('button');
-  head.type = 'button';
-  head.className = 'q-card-head';
-
-  const num = document.createElement('span');
-  num.className = 'q-num';
-  num.textContent = String(index + 1);
-
-  const title = document.createElement('div');
-  title.className = 'q-card-title';
-  const prompt = document.createElement('div');
-  prompt.className = 'q-card-prompt';
-  prompt.textContent = q.prompt || 'Untitled question';
-  const type = document.createElement('div');
-  type.className = 'q-card-type';
-  type.textContent = TYPE_LABELS[q.type] || q.type;
-  title.append(prompt, type);
-
-  head.append(num, title);
-  head.addEventListener('click', () => {
-    openId = openId === q.id ? null : q.id;
-    renderQuestions();
+  const index = questions.findIndex((x) => x.id === q.id);
+  renderSlide(host, q, deck, resolveTheme(deck.theme, deck), {
+    kicker: `${TYPE_LABELS[q.type] || q.type} · Slide ${index + 1} of ${questions.length}`,
   });
-  card.append(head);
-
-  if (openId === q.id) card.append(questionBody(q, index));
-  return card;
+  note.textContent = isContentSlide(q.type)
+    ? 'Nothing to answer — this slide just sits on the projector.'
+    : 'A sketch of the projected slide. Real results appear when you run it.';
 }
 
-function questionBody(q, index) {
+function renderSlideEditor() {
+  const host = $('slideEditor');
+  host.textContent = '';
+
+  const q = selected();
+  if (!q) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    const h = document.createElement('h3');
+    h.textContent = questions.length ? 'Pick a slide' : 'No slides yet';
+    const p = document.createElement('p');
+    p.textContent = questions.length
+      ? 'Choose one on the left to edit it.'
+      : 'Most decks open with an Instructions slide so the room can join, '
+        + 'then a first question. Use “New slide”, the activity library, '
+        + 'or paste a whole deck through the text view.';
+    empty.append(h, p);
+    if (!questions.length) {
+      empty.append(btn('+ Add an instructions slide', 'btn-primary',
+        () => addSlide('instructions')));
+    }
+    host.append(empty);
+    return;
+  }
+
+  host.append(slideForm(q));
+}
+
+function slideForm(q) {
   const body = document.createElement('div');
-  body.className = 'q-card-body';
+  body.className = 'slide-form';
 
-  // ---- prompt -------------------------------------------------------
-  const promptField = field('Question', textarea(q.prompt, (v) => {
-    q.prompt = v;
-    save(q, { prompt: v });
-    const card = $('qList').children[index];
-    card.querySelector('.q-card-prompt').textContent = v || 'Untitled question';
-  }));
-  body.append(promptField);
+  const head = document.createElement('div');
+  head.className = 'form-head';
+  head.append(Object.assign(document.createElement('h2'),
+    { textContent: TYPE_LABELS[q.type] || q.type }));
+  head.append(spacer());
+  head.append(btn('Duplicate', 'btn-sm', () => duplicateSlide(q)));
+  head.append(btn('Delete', 'btn-sm btn-danger', () => deleteSlide(q)));
+  body.append(head);
 
-  // ---- type-specific ------------------------------------------------
+  // ---- heading / prompt ---------------------------------------------
+  body.append(field(
+    q.type === 'instructions' ? 'Heading' : 'Question',
+    textarea(q.prompt, q.type === 'instructions' ? 'What should the slide say up top?'
+      : 'What do you want to ask?', (v) => {
+      q.prompt = v;
+      save(q, { prompt: v });
+    }),
+  ));
+
+  // ---- type-specific -------------------------------------------------
+  if (q.type === 'instructions') body.append(stepsEditor(q));
   if (q.type === 'multiple_choice' || q.type === 'quiz') {
     body.append(optionsEditor(q, q.type === 'quiz'));
   }
@@ -174,34 +492,76 @@ function questionBody(q, index) {
   if (q.type === 'heatmap') body.append(passageEditor(q));
 
   body.append(settingsFor(q));
-
-  // ---- row actions --------------------------------------------------
-  const actions = document.createElement('div');
-  actions.className = 'row row-wrap';
-  actions.append(
-    btn('↑', 'btn-sm', async () => { await move(index, -1); }, index === 0),
-    btn('↓', 'btn-sm', async () => { await move(index, 1); }, index === questions.length - 1),
-    spacer(),
-    btn('Duplicate', 'btn-sm', async () => {
-      const copy = await createQuestion(deck.id,
-        { type: q.type, prompt: q.prompt, config: JSON.parse(JSON.stringify(q.config)) },
-        questions.length);
-      questions.push(copy);
-      renderQuestions();
-      touch();
-    }),
-    btn('Delete', 'btn-sm btn-danger', async () => {
-      if (!confirm('Delete this question?')) return;
-      await deleteQuestion(q.id);
-      questions = questions.filter((x) => x.id !== q.id);
-      await reorderQuestions(deck.id, questions.map((x) => x.id));
-      questions.forEach((x, i) => { x.position = i; });
-      renderQuestions();
-      touch();
-    }),
-  );
-  body.append(actions);
   return body;
+}
+
+// =====================================================================
+// Per-type editors
+// =====================================================================
+
+/**
+ * The instructions slide's steps.
+ *
+ * %CODE% is substituted with the live join code when the slide is
+ * projected, so the same deck can be run in every section without editing
+ * a number that only exists once a session has started.
+ */
+function stepsEditor(q) {
+  const wrap = document.createElement('div');
+  wrap.className = 'opt-editor';
+  const l = document.createElement('span');
+  l.className = 'label';
+  l.textContent = 'Steps — %CODE% becomes this session\'s join code';
+  wrap.append(l);
+
+  if (!Array.isArray(q.config.steps)) q.config.steps = [...DEFAULT_JOIN_STEPS];
+  const steps = q.config.steps;
+
+  steps.forEach((step, i) => {
+    const line = document.createElement('div');
+    line.className = 'opt-line';
+    const num = document.createElement('span');
+    num.className = 'step-num';
+    num.textContent = String(i + 1);
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = step;
+    input.placeholder = `Step ${i + 1}`;
+    input.addEventListener('input', () => {
+      q.config.steps[i] = input.value;
+      save(q, { config: q.config });
+    });
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'opt-remove';
+    remove.textContent = '×';
+    remove.title = 'Remove step';
+    remove.addEventListener('click', () => {
+      q.config.steps.splice(i, 1);
+      save(q, { config: q.config });
+      renderStage();
+    });
+    line.append(num, input, remove);
+    wrap.append(line);
+  });
+
+  const row = document.createElement('div');
+  row.className = 'row row-wrap';
+  row.append(btn('+ Add step', 'btn-sm', () => {
+    q.config.steps = [...steps, ''];
+    save(q, { config: q.config });
+    renderStage();
+    focusLast(wrap.parentElement);
+  }));
+  if (steps.length && steps.join('') !== DEFAULT_JOIN_STEPS.join('')) {
+    row.append(btn('Reset to the standard steps', 'btn-sm', () => {
+      q.config.steps = [...DEFAULT_JOIN_STEPS];
+      save(q, { config: q.config });
+      renderStage();
+    }));
+  }
+  wrap.append(row);
+  return wrap;
 }
 
 function optionsEditor(q, isQuiz) {
@@ -258,7 +618,7 @@ function optionsEditor(q, isQuiz) {
       q.config.options.splice(i, 1);
       q.config.correct = [...correct].filter((c) => c !== i).map((c) => (c > i ? c - 1 : c));
       save(q, { config: q.config });
-      renderQuestions();
+      renderStage();
     });
     line.append(remove);
 
@@ -268,7 +628,8 @@ function optionsEditor(q, isQuiz) {
   wrap.append(btn('+ Add option', 'btn-sm', () => {
     q.config.options = [...options, ''];
     save(q, { config: q.config });
-    renderQuestions();
+    renderStage();
+    focusLast(wrap.parentElement);
   }));
 
   return wrap;
@@ -302,7 +663,7 @@ function listEditor(q, key, label) {
     remove.addEventListener('click', () => {
       q.config[key].splice(i, 1);
       save(q, { config: q.config });
-      renderQuestions();
+      renderStage();
     });
     line.append(input, remove);
     wrap.append(line);
@@ -311,10 +672,17 @@ function listEditor(q, key, label) {
   wrap.append(btn('+ Add', 'btn-sm', () => {
     q.config[key] = [...items, ''];
     save(q, { config: q.config });
-    renderQuestions();
+    renderStage();
+    focusLast(wrap.parentElement);
   }));
 
   return wrap;
+}
+
+/** After a re-render, land the caret in the row that was just added. */
+function focusLast(scope) {
+  const inputs = (scope || $('slideEditor')).querySelectorAll('.opt-line input[type="text"]');
+  inputs[inputs.length - 1]?.focus();
 }
 
 function settingsFor(q) {
@@ -337,7 +705,7 @@ function settingsFor(q) {
   const bool = (key, label) => grid.append(checkline(label, !!cfg[key], (v) => {
     cfg[key] = v;
     save(q, { config: cfg });
-    renderQuestions();
+    renderStage();
   }));
 
   const choose = (key, label, options, dflt) => grid.append(field(label, (() => {
@@ -351,8 +719,7 @@ function settingsFor(q) {
     s.addEventListener('change', () => {
       cfg[key] = s.value;
       save(q, { config: cfg });
-      renderPreview();
-      renderQuestions(); // mode switches show/hide dependent fields
+      renderStage(); // mode switches show/hide dependent fields
     });
     return s;
   })()));
@@ -373,10 +740,14 @@ function settingsFor(q) {
   const bool2 = (key, label, dflt) => grid.append(checkline(label, cfg[key] ?? dflt, (v) => {
     cfg[key] = v;
     save(q, { config: cfg });
-    renderQuestions();
+    renderStage();
   }));
 
   switch (q.type) {
+    case 'instructions':
+      bool2('show_join', 'Show the QR code and join code', true);
+      text('note', 'Small print (optional)', 'Phones on silent, please');
+      break;
     case 'multiple_choice':
       choose('mode', 'Question mode', {
         opinion: 'Opinion — no key, the split is the point',
@@ -568,7 +939,7 @@ function openTemplatePicker() {
     const insert = document.createElement('button');
     insert.type = 'button';
     insert.className = 'btn btn-sm btn-primary';
-    insert.textContent = `Insert ${t.questions.length === 1 ? '1 question' : `${t.questions.length} questions`}`;
+    insert.textContent = `Insert ${t.questions.length === 1 ? '1 slide' : `${t.questions.length} slides`}`;
     insert.addEventListener('click', async () => {
       insert.disabled = true;
       for (const tq of t.questions) {
@@ -576,10 +947,11 @@ function openTemplatePicker() {
           { type: tq.type, prompt: tq.prompt, config: JSON.parse(JSON.stringify(tq.config)) },
           questions.length);
         questions.push(created);
+        selectedId = created.id;
       }
       backdrop.remove();
-      renderQuestions();
-      renderPreview();
+      renderRail();
+      renderStage();
       touch();
       toast(`${t.name} added`);
     });
@@ -600,19 +972,15 @@ function openTemplatePicker() {
   document.body.append(backdrop);
 }
 
-async function move(index, step) {
-  const target = index + step;
-  if (target < 0 || target >= questions.length) return;
-  [questions[index], questions[target]] = [questions[target], questions[index]];
-  questions.forEach((q, i) => { q.position = i; });
-  await reorderQuestions(deck.id, questions.map((q) => q.id));
-  renderQuestions();
-  touch();
-}
-
 // =====================================================================
 // Theme + background
 // =====================================================================
+
+function toggleDesign() {
+  const open = $('editorShell').classList.toggle('design-hidden');
+  $('btnDesign').setAttribute('aria-expanded', open ? 'false' : 'true');
+  $('btnDesign').classList.toggle('is-active', !open);
+}
 
 /**
  * A miniature of the actual slide — the theme's own background, display
@@ -650,7 +1018,8 @@ async function applyDeckTheme(themeId, customTheme) {
   buildThemeGrid();
   buildMyThemesGrid();
   buildBackgroundGrid();
-  renderPreview();
+  renderRail();
+  renderCanvas();
   touch();
 }
 
@@ -960,59 +1329,9 @@ async function setBackground(bg) {
   $('imageControls').hidden = bg.kind !== 'image';
   buildBackgroundGrid();
   await refreshUploads();
-  renderPreview();
+  renderRail();
+  renderCanvas();
   touch();
-}
-
-// =====================================================================
-// Preview
-// =====================================================================
-
-function renderPreview() {
-  const host = $('preview');
-  host.textContent = '';
-
-  const themeRef = resolveTheme(deck.theme, deck);
-  const frame = document.createElement('div');
-  frame.style.cssText = 'position:relative;aspect-ratio:16/9;overflow:hidden;isolation:isolate';
-  applyTheme(frame, themeRef);
-  const theme = getTheme(themeRef);
-  frame.style.background = theme.tokens['--ground'];
-
-  const backdrop = document.createElement('div');
-  backdrop.style.cssText = 'position:absolute;inset:0';
-  Object.assign(backdrop.style, backgroundStyles(deck.background, themeRef));
-
-  const scrim = document.createElement('div');
-  scrim.style.cssText = `position:absolute;inset:0;background:${theme.tokens['--ground']};` +
-    `opacity:${scrimOpacity(deck.background)}`;
-
-  const content = document.createElement('div');
-  content.style.cssText =
-    'position:relative;padding:8% 7%;display:flex;flex-direction:column;gap:6%;height:100%';
-
-  const q = questions[0];
-  const heading = document.createElement('div');
-  heading.style.cssText = `font-family:${theme.tokens['--display']};font-size:1.05rem;` +
-    `font-weight:600;line-height:1.15;color:${theme.tokens['--ink']}`;
-  heading.textContent = q?.prompt || deck.title || 'Your question appears here';
-
-  const bars = document.createElement('div');
-  bars.style.cssText = 'display:flex;flex-direction:column;gap:5%';
-  [78, 52, 34].forEach((w, i) => {
-    const track = document.createElement('div');
-    track.style.cssText = `height:.5rem;border-radius:${theme.tokens['--bar-radius']};` +
-      `background:${theme.tokens['--edge']};overflow:hidden`;
-    const fill = document.createElement('div');
-    fill.style.cssText = `height:100%;width:${w}%;border-radius:inherit;background:${
-      i === 0 ? theme.tokens['--accent'] : theme.tokens['--accent-2']};opacity:${1 - i * 0.22}`;
-    track.append(fill);
-    bars.append(track);
-  });
-
-  content.append(heading, bars);
-  frame.append(backdrop, scrim, content);
-  host.append(frame);
 }
 
 // =====================================================================
@@ -1071,15 +1390,16 @@ function openTextView() {
         });
         if (!parsed.questions.length) return;
       }
-      if (!confirm('Replace every question in this deck with the text above?')) return;
+      if (!confirm('Replace every slide in this deck with the text above?')) return;
       await updateDeck(deck.id, {
         title: parsed.title, theme: parsed.theme, background: parsed.background,
       });
       questions = await replaceQuestions(deck.id, parsed.questions);
       deck = await getDeck(deck.id);
+      selectedId = questions[0]?.id || null;
       $('deckTitle').value = deck.title;
       buildThemeGrid(); buildBackgroundGrid();
-      renderQuestions(); renderPreview();
+      renderRail(); renderStage();
       backdrop.remove();
       toast('Deck updated');
     }),
@@ -1092,7 +1412,7 @@ function openTextView() {
 }
 
 async function onStart() {
-  if (!questions.length) { toast('Add a question first'); return; }
+  if (!questions.length) { toast('Add a slide first'); return; }
   const label = prompt('Label this session (e.g. "Tue 9am section")',
     new Date().toLocaleDateString());
   if (label == null) return;
@@ -1129,7 +1449,10 @@ function scheduleFlush() {
   setSaveState('Saving…');
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flushSaves, 420);
-  renderPreview();
+  // The canvas and the open thumbnail follow every keystroke; the rest of
+  // the rail is untouched, so nothing you are not looking at repaints.
+  renderCanvas();
+  refreshSelectedThumb();
 }
 
 async function flushSaves() {
@@ -1173,11 +1496,11 @@ function checkline(label, checked, onChange) {
   return wrap;
 }
 
-function textarea(value, onInput) {
+function textarea(value, placeholder, onInput) {
   const t = document.createElement('textarea');
   t.value = value || '';
   t.rows = 2;
-  t.placeholder = 'What do you want to ask?';
+  t.placeholder = placeholder;
   t.addEventListener('input', () => onInput(t.value));
   return t;
 }
@@ -1210,3 +1533,18 @@ function toast(msg) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('is-visible'), 2200);
 }
+
+// ------------------------------------------------------------ keyboard
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { closeSlideGallery(); return; }
+  // Slide-to-slide with the keyboard, but only when the caret isn't in a
+  // field — otherwise arrowing through your own prompt would jump slides.
+  if (e.target.matches('input, textarea, select')) return;
+  if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+  const i = questions.findIndex((q) => q.id === selectedId);
+  const next = questions[i + (e.key === 'ArrowDown' ? 1 : -1)];
+  if (!next) return;
+  e.preventDefault();
+  selectSlide(next.id);
+});

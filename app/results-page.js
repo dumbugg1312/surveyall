@@ -13,7 +13,7 @@ import {
 } from './db.js';
 import {
   aggregate, sortedQuestions, quizLeaderboard, computeDelta,
-  sessionToCSVRows, buildCSV, CSV_HEADERS, TYPE_LABELS,
+  sessionToCSVRows, buildCSV, CSV_HEADERS, TYPE_LABELS, isContentSlide,
 } from './logic.js';
 import { applyTheme, resolveTheme } from './themes.js';
 import { renderAggregate, renderLeaderboard, renderDelta } from './charts.js';
@@ -79,6 +79,9 @@ function renderSummary() {
 
   const people = new Set(allResponses.map((r) => r.pseudonym)).size;
   const answered = new Set(allResponses.map((r) => r.question_id)).size;
+  // Instructions slides are part of the deck but never part of the
+  // denominator — "3 of 5 questions used" must not count the title card.
+  const askable = questions.filter((q) => !isContentSlide(q.type)).length;
 
   const stats = document.createElement('div');
   stats.className = 'stat-row';
@@ -86,7 +89,7 @@ function renderSummary() {
   [
     [people, 'Participants'],
     [allResponses.length, 'Responses'],
-    [`${answered}/${questions.length}`, 'Questions used'],
+    [`${answered}/${askable}`, 'Questions used'],
     [new Date(session.created_at).toLocaleDateString(), 'Date'],
   ].forEach(([value, label]) => {
     const stat = document.createElement('div');

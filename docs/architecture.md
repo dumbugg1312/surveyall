@@ -130,6 +130,8 @@ Three properties that matter more than the raw numbers:
 
 The goal is not "we handle student data carefully" — it is that **no student data ever exists**.
 
+> **Scope note, since instructor accounts landed.** The claim is *no student data*, not *no data*. The `users` table holds a username and a password hash per instructor — staff records, which FERPA does not govern. There is deliberately no email column, so that username is the entire personal footprint of the system. Everything in the list below concerns students and is unaffected. `/privacy.html` states the distinction in the words a non-technical reader needs.
+
 1. **No name field exists in the participant UI.** Not optional, not skippable — the input does not exist. (`join.html`)
 2. **No accounts, no login, no email for students.** A join code is a room number, not a credential.
 3. **No column in the database can hold an identifier.** There is no `name`, `email`, `student_id`, or `ip` column in any table, and the schema header says so explicitly so a future change can't drift into it. (`worker/schema.sql`)
@@ -148,7 +150,31 @@ This is a genuinely different shape of protection and worth stating plainly rath
 - **What got better:** students hold no database credential at all. On Supabase the anon key shipped in the page and RLS policies were what stopped it being abused; here there is no key to abuse, and participants can only reach the handful of `/api/join/<code>/…` endpoints that exist.
 - **What got weaker:** there is now one line of defence rather than two. A bug in the Worker's route handling could expose something that RLS would have caught independently.
 
-The mitigation is that the surface is small and explicit: four rules, listed at the top of `worker/index.js`, in one file of a few hundred lines. `docs/HANDOFF.md` includes probes that verify each one against a live deployment, and they should be re-run after any change to that file.
+The mitigation is that the surface is small and explicit: five rules, listed at the top of `worker/index.js`, in one file of a few hundred lines. `docs/HANDOFF.md` includes probes that verify each one against a live deployment, and they should be re-run after any change to that file.
+
+Since accounts arrived those rules are also checked automatically. `tests/run-worker-tests.mjs` builds a real SQLite database from `worker/schema.sql`, wraps it in the slice of the D1 API the Worker uses, and drives the Worker's own `fetch` handler — so a handler that forgets an owner check fails there for the same reason it would fail in production. That is not RLS, and it does not restore the second independent line of defence, but it does mean the single line is regression-tested rather than merely reviewed.
+
+### Multi-instructor: why this was a change of shape, not a migration
+
+`owner_id` was on `decks`, `sessions`, and `backgrounds` from the first schema, defaulting to `'owner'` — but nothing read it, so every instructor query ran unscoped (`select * from decks`, `where id = ?`). That was correct when one person held one password and is silently wrong the moment a second account exists: everything still looks right when tested with one account.
+
+The fix has three parts, and the third is the one worth remembering:
+
+1. **A `users` table**, and tokens that carry a user id. A v1 token proved *someone* signed in without saying *who*, which is unscopeable — `verifyToken` refuses them outright rather than tolerating them.
+2. **Every root query filtered by `owner_id`.**
+3. **Nested resources resolved through their owner**, not by id. A question, a response, a Q&A message and a background have no owner column of their own; they inherit one from the deck or session above them. `ownedDeck`/`ownedSession`/`ownedQuestion`/`ownedResponse`/`ownedAudienceQuestion` do that join in one place, and handlers call them instead of querying by id. Ids are random, but an unguessable identifier is not an access control — and the route this mattered most for, `GET /api/sessions/:id/responses`, returns raw student answers.
+
+"Not yours" answers **404, never 403**: a 403 confirms the id exists and belongs to somebody else, which is itself a disclosure.
+
+One route is deliberately outside this: `GET /api/backgrounds/:id` serves an uploaded backdrop without a token, because a browser cannot attach an `Authorization` header to `<img src>`. Anyone holding the id can fetch that image, including another instructor. It is projector art with no student data in it, listing and deletion are owner-scoped so a collection cannot be enumerated, and `/privacy.html` discloses it rather than leaving it implicit.
+
+### Passwords under a 10ms CPU ceiling
+
+The free plan's per-invocation CPU limit (§2) rules out PBKDF2 at a normal iteration count — 100,000 measures ~11ms on a development laptop, and Workers CPU is slower, so the request would be killed mid-hash. Storing a weak hash and calling it done would have been the easy wrong answer.
+
+Instead the password is **peppered before hashing**: HMAC-SHA256 under `AUTH_SECRET`, which lives in Cloudflare's encrypted secret store and never in the database. Against the likeliest threat by far — a database leak without the Worker's secrets — the stored hashes are inert, because candidate passwords cannot even be tested without the key. PBKDF2 (25,000 iterations, per-user salt, ~3ms) sits underneath for the case where `AUTH_SECRET` leaks too. `iterations` is stored per row, so the cost can be raised later and rows re-hash themselves on the next successful sign-in.
+
+The cost of this choice is stated where it bites: rotating `AUTH_SECRET` invalidates every stored password, not just every session.
 
 **Residual risk, stated plainly:** a student can type their name into an open-ended answer. No system can prevent that. The presenter can delete any response in one click, and the input's placeholder discourages it. This is the one FERPA surface that is procedural rather than structural.
 

@@ -48,30 +48,88 @@
 PRAGMA foreign_keys = ON;
 
 -- ---------------------------------------------------------------------
--- AUTHENTICATION — note there is no users table.
+-- USERS — one row per instructor.
 --
--- There is one instructor: you. Your password is stored as an encrypted
--- Cloudflare Worker secret (INSTRUCTOR_PASSWORD), never in this database
--- and never in the repository. Signing in posts the password to the
--- Worker, which compares it in constant time and returns a short-lived
--- signed token.
+-- FERPA NOTE, because this table is the exception to the rule above:
+-- these are STAFF accounts, never students. A student never appears
+-- here, never signs up, and never holds a credential of any kind. The
+-- only personal data in this entire database is what an instructor
+-- chooses as their username, and it is not verified to be a real name.
 --
--- Why not a users table with a password hash? Because Cloudflare's free
--- plan allows 10ms of CPU per request, and a password hash worth storing
--- (PBKDF2/bcrypt at a safe iteration count) takes an order of magnitude
--- longer than that — the request would be killed mid-hash. Storing the
--- password in the platform's encrypted secret store instead is both
--- faster and, for a single-operator tool, at least as safe: there is no
--- hash for an attacker to take offline and grind.
+-- There is deliberately NO email column. Accounts are created with a
+-- shared signup code (see SIGNUP_CODE in worker/auth.js), so there is
+-- nothing to verify by email and nothing to send mail to. The cost of
+-- that choice is real and is documented in docs/DEPLOYMENT.md: a
+-- forgotten password can only be reset by an admin, because there is no
+-- address to send a reset link to.
 --
--- The tradeoff, stated plainly: one shared password means no per-user
--- accounts and no audit trail of who changed what. For one instructor's
--- own decks that is the right trade. If this ever needs real multi-user
--- accounts, that is the point to move auth onto a service built for it.
+-- PASSWORD STORAGE — read before changing the numbers:
 --
--- `owner_id` is kept on the tables below anyway, so multi-instructor
--- support is a change of shape rather than a migration.
+-- Cloudflare's free plan allows 10ms of CPU per request (see
+-- docs/architecture.md §2), which rules out PBKDF2 at the iteration
+-- count you would normally pick: 100,000 iterations measures ~11ms on a
+-- development laptop and Workers CPU is slower still, so the request
+-- would be killed mid-hash.
+--
+-- So the defence is layered rather than piled onto iteration count:
+--
+--   1. PEPPER. The password is HMAC-SHA256'd with AUTH_SECRET *before*
+--      hashing. AUTH_SECRET lives in Cloudflare's encrypted secret
+--      store, never in this database and never in the repo. An attacker
+--      who obtains a dump of this table therefore has nothing to grind:
+--      without the pepper, no candidate password can even be tested.
+--      This is the layer doing the real work.
+--   2. PBKDF2-SHA256 over a per-user random salt, so that if AUTH_SECRET
+--      leaks *as well*, cracking is still per-user and not free.
+--
+-- `iterations` is stored PER ROW rather than hardcoded, so the cost can
+-- be raised later without invalidating existing passwords — auth.js
+-- transparently re-hashes on the next successful sign-in. Raise the
+-- default in auth.js (PBKDF2_ITERATIONS); do not edit rows here.
 -- ---------------------------------------------------------------------
+create table if not exists users (
+  id            text primary key,
+  -- Lowercased on write, so 'Brandon' and 'brandon' cannot both exist.
+  username      text not null unique,
+  password_hash text not null,
+  salt          text not null,
+  iterations    integer not null,
+  -- Admins can reset another user's password. The FIRST account created
+  -- becomes admin; see bootstrap in worker/auth.js.
+  is_admin      integer not null default 0,
+  created_at    integer not null,
+  last_seen_at  integer
+);
+
+-- ---------------------------------------------------------------------
+-- AUTH_THROTTLE — rate limiting for sign-in and sign-up.
+--
+-- Keyed by USERNAME (for sign-in) or by the fixed string 'signup', and
+-- deliberately NOT by IP address. Throttling by IP is the obvious
+-- implementation and it is the wrong one here: it would mean this
+-- database storing a network identifier for every person who mistypes a
+-- password, which breaks the guarantee stated at the top of this file
+-- that no table can hold an IP. Per-username throttling stops password
+-- guessing against a specific account, which is the threat that matters;
+-- a global counter caps signup spam. Neither records who anyone is.
+--
+-- Sign-in uses ESCALATING lockout: each consecutive failure doubles the
+-- wait, up to an hour. That is not a detail — passwords here may be as
+-- short as a 4-digit PIN, and this table is what makes that survivable.
+-- The full reasoning, the arithmetic, and the denial-of-service tradeoff
+-- it carries are documented at SIGNIN_FREE_ATTEMPTS in worker/auth.js.
+-- Read that before changing any of it.
+--
+-- `retry_after` is an epoch-ms deadline: refuse this key until then.
+-- `last_fail_at` doubles as the decay clock, so an old failure is
+-- forgotten rather than counted toward a future lockout.
+-- ---------------------------------------------------------------------
+create table if not exists auth_throttle (
+  key          text primary key,
+  attempts     integer not null default 0,
+  last_fail_at integer not null default 0,
+  retry_after  integer not null default 0
+);
 
 -- ---------------------------------------------------------------------
 -- DECKS — a reusable set of questions.

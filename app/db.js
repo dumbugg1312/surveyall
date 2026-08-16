@@ -85,38 +85,68 @@ function emitAuth(user) {
   authListeners.forEach((cb) => { try { cb(user); } catch { /* ignore */ } });
 }
 
+/**
+ * @returns {Promise<{id, username, is_admin}|null>} the signed-in
+ * instructor. The server resolves the token to a real row on every call,
+ * so a deleted account stops working immediately rather than at expiry.
+ */
 export async function currentUser() {
   if (!getToken()) return null;
   if (cachedUser) return cachedUser;
   try {
     const res = await api('/api/auth/check', { auth: true });
-    if (res?.ok) { emitAuth({ id: 'owner' }); return cachedUser; }
+    if (res?.ok && res.user) { emitAuth(res.user); return cachedUser; }
   } catch { /* fall through */ }
   setToken(null);
   return null;
 }
 
-/**
- * Sign in. The first argument is ignored — it exists so the page
- * controllers kept working across the backend change. There is one
- * instructor and one password; see worker/schema.sql for why.
- */
-export async function signIn(_email, password) {
+/** Sign in with a username and password. */
+export async function signIn(username, password) {
   const res = await api('/api/auth/signin', {
     method: 'POST',
-    body: { password: password ?? _email },
+    body: { username, password },
   });
   setToken(res.token);
-  emitAuth({ id: 'owner' });
+  emitAuth(res.user);
   return cachedUser;
 }
 
-/** No self-service accounts exist; the password is set at deploy time. */
-export async function signUp() {
-  throw new Error(
-    'SurveyAll has a single instructor password, set when you deployed it. '
-    + 'There is no sign-up. See docs/DEPLOYMENT.md if you need to change it.',
-  );
+/**
+ * Create an account. `code` is the shared sign-up code the operator
+ * hands out — there is no email address in this system, so that code is
+ * the only thing gating who can make an account.
+ */
+export async function signUp(username, password, code) {
+  const res = await api('/api/auth/signup', {
+    method: 'POST',
+    body: { username, password, code },
+  });
+  setToken(res.token);
+  emitAuth(res.user);
+  return cachedUser;
+}
+
+/** Whether this deployment has sign-up switched on at all. */
+export async function signUpEnabled() {
+  try {
+    const res = await api('/api/auth/config');
+    return !!res?.signup_enabled;
+  } catch { return false; }
+}
+
+/** Change your own password. Requires the current one. */
+export async function changePassword(current, next) {
+  return api('/api/auth/password', { method: 'POST', auth: true, body: { current, next } });
+}
+
+/**
+ * Admin-only: set another user's password.
+ * This is the whole account-recovery story — no email means no reset
+ * link. See docs/DEPLOYMENT.md.
+ */
+export async function resetUserPassword(username, next) {
+  return api('/api/auth/reset', { method: 'POST', auth: true, body: { username, next } });
 }
 
 export async function signOut() {

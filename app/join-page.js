@@ -20,7 +20,10 @@ import {
   askAudienceQuestion, listAudienceQuestions, upvoteAudienceQuestion,
   subscribeToAudienceQuestions,
 } from './db.js';
-import { validateResponse, aggregate, optionLabels, MULTI_SUBMIT_TYPES } from './logic.js';
+import {
+  validateResponse, aggregate, optionLabels, MULTI_SUBMIT_TYPES,
+  isContentSlide, fillJoinPlaceholders, DEFAULT_JOIN_STEPS,
+} from './logic.js';
 import { applyTheme } from './themes.js';
 import { renderAggregate } from './charts.js';
 import { prefersReducedMotion } from './motion.js';
@@ -211,8 +214,49 @@ async function refresh() {
     state.submitted = !!prior && !MULTI_SUBMIT_TYPES.has(q.type);
   }
 
+  if (isContentSlide(q.type)) return renderContentSlide(q);
   if (q.type === 'qa') return renderQAPage(q);
   renderQuestion(q, changed);
+}
+
+/**
+ * An instructions slide, on the phone of someone who already followed it.
+ *
+ * They are holding the proof that step one worked, so this is not a call
+ * to action — it is confirmation plus the same words the projector is
+ * showing, for anyone who can't read the screen from where they sit. No
+ * QR: you cannot scan the phone you are holding.
+ */
+function renderContentSlide(q) {
+  teardownShared();
+  app.textContent = '';
+  app.append(header(q));
+  app.append(div('q-prompt', q.prompt || 'How this works'));
+
+  const steps = (Array.isArray(q.config?.steps) && q.config.steps.length
+    ? q.config.steps : DEFAULT_JOIN_STEPS)
+    .map((s) => fillJoinPlaceholders(s, { code: state.session.join_code || '' }))
+    .filter((s) => s.trim());
+
+  const wrap = div('instr-card');
+  wrap.append(div('instr-badge', '✓ You\'re in'));
+
+  if (steps.length) {
+    const list = document.createElement('ol');
+    list.className = 'instr-list';
+    steps.forEach((s) => {
+      const li = document.createElement('li');
+      li.textContent = s;
+      list.append(li);
+    });
+    wrap.append(list);
+  }
+
+  if (q.config?.note) wrap.append(div('instr-smallprint', q.config.note));
+  wrap.append(div('state-text', 'Nothing to answer here — keep this page open '
+    + 'and the first question will appear by itself.'));
+
+  app.append(wrap);
 }
 
 function renderQuestion(q, isNew) {
@@ -425,9 +469,15 @@ function header(q) {
     head.append(tag);
   }
 
-  if (q && Number.isInteger(q.position)) {
-    const prog = div('join-progress', `Q${q.position + 1}`);
-    head.append(prog);
+  // "Q1" on a slide with nothing to answer is a promise the slide doesn't
+  // keep, and once a deck can open with an instructions slide, `position`
+  // stops being the question number — slide 2 is question 1. The server
+  // counts it (see questionOrdinal); older payloads without it fall back.
+  if (q && !isContentSlide(q.type)) {
+    const n = Number.isInteger(q.number) && q.number > 0
+      ? q.number
+      : (Number.isInteger(q.position) ? q.position + 1 : null);
+    if (n) head.append(div('join-progress', q.total ? `Q${n}/${q.total}` : `Q${n}`));
   }
   return head;
 }

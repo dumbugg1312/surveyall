@@ -592,3 +592,110 @@ kbd {
   .stage-kicker { color: var(--ink); }
   .stage-controls { opacity: .55; }
 }
+
+/* =====================================================================
+   Instructions slide.
+
+   The slide that gets sixty phones into the room. Steps on the left at
+   reading size, the QR and code on the right as large as the slide will
+   allow — the two things a student at the back is actually squinting at.
+   Nothing on it animates: people are reading, and a moving slide is a
+   slide nobody finishes reading.
+   ===================================================================== */
+
+.stage-body [data-chart="instructions"] { font-size: min(1.5em, 5vh); }
+
+.instructions-slide {
+  display: flex;
+  align-items: center;
+  gap: 1.6em;
+  width: 100%;
+  flex-wrap: wrap;
+}
+
+.instr-steps {
+  flex: 1 1 18em;
+  min-width: 0;
+  list-style: none;
+  margin: 0; padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: .7em;
+}
+
+.instr-step {
+  display: flex;
+  align-items: baseline;
+  gap: .6em;
+  font-size: .82em;
+  line-height: 1.4;
+}
+.instr-step-num {
+  flex-shrink: 0;
+  width: 1.5em; height: 1.5em;
+  display: inline-grid; place-items: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--ground);
+  font-size: .8em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  /* baseline-aligned text next to a circle drifts; nudge it back on */
+  transform: translateY(.12em);
+}
+.instr-step-text { text-wrap: pretty; }
+
+/* Nothing to join means the steps get the whole slide */
+.instructions-slide.is-textonly .instr-steps { flex-basis: 100%; font-size: 1.05em; }
+
+.instr-join {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .5em;
+  padding: .9em 1.1em;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  border: 1px solid var(--edge);
+  box-shadow: 0 6px 28px rgba(0, 0, 0, .13);
+}
+.instr-qr {
+  width: 8.4em; height: 8.4em;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+.instr-qr svg { display: block; width: 100%; height: 100%; }
+.instr-qr[data-qr-failed] { display: none; }
+
+.instr-join-meta { display: flex; flex-direction: column; align-items: center; gap: .05em; }
+/* the URL and the code are two separate instructions; let them breathe */
+.instr-join-label + .instr-join-url + .instr-join-label { margin-top: .35em; }
+.instr-join-label {
+  font-size: .42em;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.instr-join-url { font-size: .5em; color: var(--ink-soft); }
+.instr-join-code {
+  font-family: var(--display);
+  font-size: 1.5em;
+  font-weight: 700;
+  letter-spacing: .12em;
+  line-height: 1.15;
+}
+
+.instr-note {
+  flex-basis: 100%;
+  font-size: .5em;
+  color: var(--ink-soft);
+}
+
+/* A slide with nothing to answer has no count to show. The progress dots
+   stay — they are about where you are in the deck, not about responses. */
+.stage.is-content-slide .count-pill,
+.stage.is-content-slide .hands-pill,
+.stage.is-content-slide #stateNote { display: none; }

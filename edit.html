@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="styles/base.css">
 <link rel="stylesheet" href="styles/app.css">
 </head>
-<body>
+<body class="edit-body">
 
 <header class="appbar">
   <a class="brand" href="dashboard.html">SurveyAll</a>
@@ -16,127 +16,128 @@
   <span class="spacer"></span>
   <span class="muted" id="saveState" style="font-size:.78rem"></span>
   <button class="btn btn-sm" id="textView" type="button">Text view</button>
+  <button class="btn btn-sm" id="btnDesign" type="button"
+          aria-expanded="true" aria-controls="designPanel">Design</button>
   <button class="btn btn-sm btn-primary" id="startSession" type="button">Start session</button>
 </header>
 
-<main class="page">
-  <div class="editor">
+<!-- Three panes, PowerPoint's shape: the deck on the left, the slide you
+     are working on in the middle, its look on the right. Each pane scrolls
+     on its own so the rail never scrolls away from you. -->
+<div class="editor-shell" id="editorShell">
 
-    <section class="stack">
-      <div class="section-head">
-        <h2>Questions</h2>
-        <span class="spacer"></span>
-        <select id="addType" aria-label="Question type to add">
-          <option value="multiple_choice">Multiple choice</option>
-          <option value="word_cloud">Word cloud</option>
-          <option value="open_ended">Open ended</option>
-          <option value="scales">Scales</option>
-          <option value="ranking">Ranking</option>
-          <option value="quiz">Quiz</option>
-          <option value="qa">Q&amp;A</option>
-          <option value="spectrum">Opinion spectrum</option>
-          <option value="sample_vote">Writing showdown</option>
-          <option value="heatmap">Passage heatmap</option>
-        </select>
-        <button class="btn btn-primary" id="addQuestion" type="button">Add</button>
-        <button class="btn" id="addTemplate" type="button"
-                title="Insert a research-backed classroom activity">Templates</button>
+  <!-- ------------------------------------------------- slide rail ---- -->
+  <nav class="slide-rail" aria-label="Slides">
+    <div class="rail-head">
+      <span class="eyebrow">Slides</span>
+      <span class="spacer"></span>
+      <span class="rail-count" id="railCount"></span>
+    </div>
+
+    <ol class="rail-list" id="railList"></ol>
+
+    <div class="rail-foot">
+      <button class="btn btn-sm btn-primary rail-add" id="addSlide" type="button"
+              aria-expanded="false" aria-haspopup="true">+ New slide</button>
+      <button class="btn btn-sm" id="addTemplate" type="button"
+              title="Insert a research-backed classroom activity">Activity library</button>
+    </div>
+  </nav>
+
+  <!-- ------------------------------------------------ slide stage ---- -->
+  <main class="slide-stage" id="slideStage">
+    <div class="stage-canvas-wrap">
+      <div class="stage-canvas" id="canvas"></div>
+      <p class="canvas-note muted" id="canvasNote"></p>
+    </div>
+    <div class="slide-editor" id="slideEditor"></div>
+  </main>
+
+  <!-- ----------------------------------------------- design panel ---- -->
+  <aside class="side" id="designPanel">
+
+    <div class="panel">
+      <h3>Theme</h3>
+      <div class="theme-grid" id="themeGrid"></div>
+
+      <div class="mythemes-head">
+        <h4>My themes</h4>
+        <button class="btn btn-sm" id="btnNewTheme" type="button">+ New theme</button>
       </div>
+      <p class="mythemes-empty" id="myThemesEmpty">
+        Build your own look — pick four colours and a headline face,
+        the rest is derived so it always stays readable.
+      </p>
+      <div class="theme-grid" id="myThemeGrid"></div>
 
-      <div class="q-list" id="qList"></div>
-    </section>
-
-    <aside class="side">
-
-      <div class="panel">
-        <h3>Theme</h3>
-        <div class="theme-grid" id="themeGrid"></div>
-
-        <div class="mythemes-head">
-          <h4>My themes</h4>
-          <button class="btn btn-sm" id="btnNewTheme" type="button">+ New theme</button>
-        </div>
-        <p class="mythemes-empty" id="myThemesEmpty">
-          Build your own look — pick four colours and a headline face,
-          the rest is derived so it always stays readable.
-        </p>
-        <div class="theme-grid" id="myThemeGrid"></div>
-
-        <div class="theme-builder" id="themeBuilder" hidden>
-          <div class="field">
-            <label for="ctName">Name</label>
-            <input id="ctName" type="text" maxlength="40" placeholder="My theme">
-          </div>
-          <div class="ct-colors">
-            <div class="field"><label for="ctGround">Background</label>
-              <input id="ctGround" type="color" value="#f7f4ee"></div>
-            <div class="field"><label for="ctInk">Text</label>
-              <input id="ctInk" type="color" value="#1c2434"></div>
-            <div class="field"><label for="ctAccent">Accent</label>
-              <input id="ctAccent" type="color" value="#1d4ed8"></div>
-            <div class="field"><label for="ctAccent2">Second accent</label>
-              <input id="ctAccent2" type="color" value="#b45309"></div>
-          </div>
-          <div class="ct-row">
-            <div class="field"><label for="ctFont">Headline</label>
-              <select id="ctFont"></select></div>
-            <div class="field"><label for="ctRadius">Corners</label>
-              <select id="ctRadius"></select></div>
-          </div>
-          <div class="field">
-            <label for="ctBackdrop">Backdrop</label>
-            <select id="ctBackdrop"></select>
-          </div>
-          <div id="ctPreviewHost"></div>
-          <p class="ct-warn" id="ctWarn" hidden></p>
-          <div class="ct-actions">
-            <button class="btn btn-primary" id="ctSave" type="button">Save &amp; apply</button>
-            <button class="btn" id="ctCancel" type="button">Cancel</button>
-            <span class="spacer"></span>
-            <button class="btn btn-danger" id="ctDelete" type="button" hidden>Delete</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="panel">
-        <h3>Background</h3>
-        <div class="bg-grid" id="bgGrid"></div>
-
+      <div class="theme-builder" id="themeBuilder" hidden>
         <div class="field">
-          <label for="bgSolid">Solid colour</label>
-          <input type="color" id="bgSolid" style="height:2.4rem;padding:.2rem">
+          <label for="ctName">Name</label>
+          <input id="ctName" type="text" maxlength="40" placeholder="My theme">
         </div>
-
-        <label class="upload-drop" id="uploadDrop">
-          Drop an image here, or click to choose
-          <input type="file" id="bgFile" accept="image/*" hidden>
-        </label>
-
-        <div class="bg-grid" id="uploadGrid"></div>
-
-        <div class="bg-controls" id="imageControls" hidden>
-          <label class="label" for="bgDim">Dim <span id="dimVal">45%</span></label>
-          <input type="range" id="bgDim" min="0" max="90" value="45">
-          <label class="label" for="bgBlur">Blur <span id="blurVal">0px</span></label>
-          <input type="range" id="bgBlur" min="0" max="20" value="0">
+        <div class="ct-colors">
+          <div class="field"><label for="ctGround">Background</label>
+            <input id="ctGround" type="color" value="#f7f4ee"></div>
+          <div class="field"><label for="ctInk">Text</label>
+            <input id="ctInk" type="color" value="#1c2434"></div>
+          <div class="field"><label for="ctAccent">Accent</label>
+            <input id="ctAccent" type="color" value="#1d4ed8"></div>
+          <div class="field"><label for="ctAccent2">Second accent</label>
+            <input id="ctAccent2" type="color" value="#b45309"></div>
         </div>
+        <div class="ct-row">
+          <div class="field"><label for="ctFont">Headline</label>
+            <select id="ctFont"></select></div>
+          <div class="field"><label for="ctRadius">Corners</label>
+            <select id="ctRadius"></select></div>
+        </div>
+        <div class="field">
+          <label for="ctBackdrop">Backdrop</label>
+          <select id="ctBackdrop"></select>
+        </div>
+        <div id="ctPreviewHost"></div>
+        <p class="ct-warn" id="ctWarn" hidden></p>
+        <div class="ct-actions">
+          <button class="btn btn-primary" id="ctSave" type="button">Save &amp; apply</button>
+          <button class="btn" id="ctCancel" type="button">Cancel</button>
+          <span class="spacer"></span>
+          <button class="btn btn-danger" id="ctDelete" type="button" hidden>Delete</button>
+        </div>
+      </div>
+    </div>
 
-        <p class="privacy-note" style="font-size:.72rem">
-          Backgrounds render on the projector only. Student phones use the theme
-          colours, which keeps text readable and avoids 60 devices downloading
-          the same image.
-        </p>
+    <div class="panel">
+      <h3>Background</h3>
+      <div class="bg-grid" id="bgGrid"></div>
+
+      <div class="field">
+        <label for="bgSolid">Solid colour</label>
+        <input type="color" id="bgSolid" style="height:2.4rem;padding:.2rem">
       </div>
 
-      <div class="panel">
-        <h3>Preview</h3>
-        <div id="preview" style="border:1px solid var(--edge);border-radius:10px;overflow:hidden">
-        </div>
+      <label class="upload-drop" id="uploadDrop">
+        Drop an image here, or click to choose
+        <input type="file" id="bgFile" accept="image/*" hidden>
+      </label>
+
+      <div class="bg-grid" id="uploadGrid"></div>
+
+      <div class="bg-controls" id="imageControls" hidden>
+        <label class="label" for="bgDim">Dim <span id="dimVal">45%</span></label>
+        <input type="range" id="bgDim" min="0" max="90" value="45">
+        <label class="label" for="bgBlur">Blur <span id="blurVal">0px</span></label>
+        <input type="range" id="bgBlur" min="0" max="20" value="0">
       </div>
 
-    </aside>
-  </div>
-</main>
+      <p class="privacy-note" style="font-size:.72rem">
+        Backgrounds render on the projector only. Student phones use the theme
+        colours, which keeps text readable and avoids 60 devices downloading
+        the same image.
+      </p>
+    </div>
+
+  </aside>
+</div>
 
 <div class="toast" id="toast"></div>
 

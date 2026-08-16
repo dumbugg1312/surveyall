@@ -161,6 +161,17 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .btn-sm { padding: .35rem .6rem; font-size: .82rem; }
 .btn-lg { padding: .85rem 1.4rem; font-size: 1.05rem; }
 
+/* -------------------------------------------------------------- footer */
+
+.page-foot {
+  padding: var(--sp-4) var(--sp-3) calc(var(--sp-4) + env(safe-area-inset-bottom));
+  text-align: center;
+  font-size: .78rem;
+}
+
+.page-foot a { color: var(--ink-soft); text-decoration: none; }
+.page-foot a:hover { color: var(--ink); text-decoration: underline; }
+
 /* -------------------------------------------------------------- fields */
 
 .field { display: flex; flex-direction: column; gap: var(--sp-2); }
@@ -169,6 +180,18 @@ button, input, select, textarea { font: inherit; color: inherit; }
   font-size: .82rem;
   font-weight: 600;
   color: var(--ink-soft);
+}
+
+/* Guidance under an input — what a valid value looks like, or a
+   consequence worth knowing before submitting (the sign-up form uses it
+   to say that a forgotten password cannot be self-reset). */
+.field-hint {
+  margin: 0;
+  font-size: .74rem;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  opacity: .85;
+  text-align: left;
 }
 
 input[type="text"], input[type="email"], input[type="password"],
@@ -260,16 +283,24 @@ textarea { resize: vertical; min-height: 5rem; }
 
 /* ------------------------------------------------------- privacy badge */
 
+/* The padlock hangs in the margin rather than being a flex sibling.
+   Flex here would make every inline child its own column — a link inside
+   the note gets torn onto its own narrow line and trailing punctuation
+   becomes a third column. Text must flow normally in this one. */
 .privacy-note {
-  display: flex; align-items: flex-start; gap: var(--sp-2);
+  position: relative;
+  padding-left: 1.6rem;
   font-size: .8rem;
   color: var(--ink-soft);
   line-height: 1.45;
 }
 .privacy-note::before {
   content: '🔒';
+  position: absolute;
+  left: 0;
+  top: 0;
   font-size: .9rem;
-  line-height: 1.3;
+  line-height: 1.45;
 }
 
 /* --------------------------------------------------------------- shell */

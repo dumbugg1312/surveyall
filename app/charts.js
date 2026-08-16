@@ -1737,6 +1737,56 @@ export function renderHeatmap(container, agg, opts = {}) {
 }
 
 // =====================================================================
+// Instructions — the one slide that isn't a chart
+//
+// This is what the room sees while sixty phones are still finding the
+// page: numbered steps on the left, the QR and the code as big as they
+// will go on the right. Everything is rebuilt on paint rather than
+// spring-updated, because nothing here is live data — no counts arrive,
+// nothing moves, and that stillness is the point while people read it.
+// =====================================================================
+
+export function renderInstructions(container, opts = {}) {
+  const { steps = [], note = '', showJoin = true, url = '', code = '', qrSVGText = null } = opts;
+
+  container.textContent = '';
+  container.dataset.chart = 'instructions';
+
+  const wrap = el('div', 'instructions-slide');
+  if (!showJoin) wrap.classList.add('is-textonly');
+
+  const list = el('ol', 'instr-steps');
+  steps.filter((s) => String(s || '').trim()).forEach((step, i) => {
+    const li = el('li', 'instr-step');
+    li.append(el('span', 'instr-step-num', String(i + 1)));
+    li.append(el('span', 'instr-step-text', step));
+    list.append(li);
+  });
+  if (list.children.length) wrap.append(list);
+
+  if (showJoin) {
+    const card = el('div', 'instr-join');
+    const qr = el('div', 'instr-qr');
+    if (qrSVGText) qr.innerHTML = qrSVGText;
+    else qr.dataset.qrFailed = '1';
+    card.append(qr);
+
+    const meta = el('div', 'instr-join-meta');
+    meta.append(el('span', 'instr-join-label', 'Go to'));
+    meta.append(el('span', 'instr-join-url', url));
+    meta.append(el('span', 'instr-join-label', 'Code'));
+    meta.append(el('span', 'instr-join-code', code));
+    card.append(meta);
+    wrap.append(card);
+  }
+
+  if (note) wrap.append(el('p', 'instr-note', note));
+
+  container.append(wrap);
+  return undefined;
+}
+
+// =====================================================================
 
 export function renderAggregate(container, type, agg, opts = {}) {
   if (!agg) return undefined;

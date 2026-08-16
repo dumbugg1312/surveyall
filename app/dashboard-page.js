@@ -26,7 +26,10 @@ async function boot() {
     window.location.replace(`index.html?next=${encodeURIComponent(window.location.href)}`);
     return;
   }
-  $('who').textContent = user.email || '';
+  // There is no email address in this system; a username is the whole
+  // identity. Admins are marked because only they can reset a colleague's
+  // password, and it is worth knowing which account you are in.
+  $('who').textContent = user.is_admin ? `${user.username} · admin` : (user.username || '');
 
   $('signOut').addEventListener('click', async () => {
     await signOut();
@@ -91,7 +94,8 @@ async function loadDecks() {
     meta.className = 'deck-meta';
     meta.textContent = 'Loading…';
     listQuestions(deck.id).then((qs) => {
-      meta.textContent = `${qs.length} question${qs.length === 1 ? '' : 's'} · ${theme.name}`;
+      // slides, not questions: a deck's instructions slide is part of it
+      meta.textContent = `${qs.length} slide${qs.length === 1 ? '' : 's'} · ${theme.name}`;
     }).catch(() => { meta.textContent = theme.name; });
 
     const actions = document.createElement('div');

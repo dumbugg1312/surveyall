@@ -14,6 +14,7 @@
  */
 
 export const QUESTION_TYPES = [
+  'instructions',
   'multiple_choice', 'word_cloud', 'open_ended',
   'scales', 'ranking', 'quiz', 'qa',
   'spectrum', 'sample_vote', 'heatmap',
@@ -22,8 +23,21 @@ export const QUESTION_TYPES = [
 /** Types where one device may submit many rows (each gets its own slot). */
 export const MULTI_SUBMIT_TYPES = new Set(['word_cloud', 'open_ended']);
 
+/**
+ * Slides that never collect an answer.
+ *
+ * A deck is a sequence of slides, and not every slide is a question — the
+ * instructions slide that opens a class exists to get sixty phones into
+ * the room, and it has no payload, no aggregate, no CSV column. Everything
+ * that walks the deck expecting responses checks this set first.
+ */
+export const CONTENT_TYPES = new Set(['instructions']);
+
+export function isContentSlide(type) { return CONTENT_TYPES.has(type); }
+
 /** Human labels, used in the editor and in CSV headers. */
 export const TYPE_LABELS = {
+  instructions: 'Instructions',
   multiple_choice: 'Multiple choice',
   word_cloud: 'Word cloud',
   open_ended: 'Open ended',
@@ -35,6 +49,25 @@ export const TYPE_LABELS = {
   sample_vote: 'Writing showdown',
   heatmap: 'Passage heatmap',
 };
+
+/**
+ * The steps an instructions slide shows when the instructor hasn't written
+ * their own. `%CODE%` is substituted with the live join code at display
+ * time (the deck itself has no code — a code belongs to a session), so a
+ * deck stays portable across every section that runs it.
+ */
+export const DEFAULT_JOIN_STEPS = [
+  'Open the camera on your phone and point it at the QR code.',
+  'Or go to the address on screen and type the code %CODE%.',
+  'Leave the page open — questions appear as we go.',
+];
+
+/** Fill %CODE% / %URL% placeholders in an instructions step. */
+export function fillJoinPlaceholders(text, { code = '', url = '' } = {}) {
+  return String(text || '')
+    .replace(/%CODE%/gi, code)
+    .replace(/%URL%/gi, url);
+}
 
 /**
  * Multiple-choice discussion modes (pedagogy roadmap, feature 1).
@@ -269,6 +302,9 @@ export function validateResponse(type, config, raw) {
 
     case 'qa':
       return { ok: false, error: 'Q&A is submitted separately.' };
+
+    case 'instructions':
+      return { ok: false, error: 'This slide has nothing to answer.' };
 
     default:
       return { ok: false, error: `Unknown question type: ${type}` };
@@ -756,6 +792,22 @@ export function promptKey(prompt) {
 
 export function sortedQuestions(questions) {
   return [...(questions || [])].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+}
+
+/**
+ * Where a question sits *among questions*.
+ *
+ * A deck's slides and its questions are no longer the same list: put an
+ * instructions slide at the front and slide 2 is question 1. The room is
+ * told "Question 1 of 8", not "Question 2 of 9", because the count they
+ * care about is how many times they will be asked to answer.
+ *
+ * @returns {{number: number, total: number}} number is 0 for a content slide
+ */
+export function questionNumber(questions, id) {
+  const asked = sortedQuestions(questions).filter((q) => !isContentSlide(q.type));
+  const i = asked.findIndex((q) => q.id === id);
+  return { number: i + 1, total: asked.length };
 }
 
 export function neighbourQuestion(questions, currentId, step) {

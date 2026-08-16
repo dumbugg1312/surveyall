@@ -14,6 +14,11 @@
  *   theme: chalkboard
  *   background: gradient-dusk
  *
+ *   ## instructions
+ *   Join in before we start
+ *   - Point your phone's camera at the QR code.
+ *   - Or go to the address on screen and type %CODE%.
+ *
  *   ## multiple_choice
  *   Which of these is a social institution?
  *   - Marriage
@@ -49,9 +54,11 @@
  *   Open floor
  */
 
-import { QUESTION_TYPES, splitPassage } from './logic.js';
+import { QUESTION_TYPES, splitPassage, DEFAULT_JOIN_STEPS } from './logic.js';
 
 const TYPE_ALIASES = {
+  instructions: 'instructions', instruction: 'instructions', intro: 'instructions',
+  info: 'instructions', how_to_join: 'instructions', join: 'instructions',
   mc: 'multiple_choice', choice: 'multiple_choice', multiple_choice: 'multiple_choice',
   wordcloud: 'word_cloud', word_cloud: 'word_cloud', cloud: 'word_cloud',
   open: 'open_ended', open_ended: 'open_ended', text: 'open_ended',
@@ -83,6 +90,9 @@ export function parseDeck(source) {
 
   const pushCurrent = () => {
     if (!current) return;
+    // A content slide's prompt is its heading, and a heading is optional —
+    // "How to join" is a sensible default and not worth an error.
+    if (!current.prompt && current.type === 'instructions') current.prompt = 'How to join';
     if (!current.prompt) {
       errors.push(`Question ${deck.questions.length + 1} (${current.type}) has no prompt line.`);
     }
@@ -227,6 +237,7 @@ const KNOWN_SETTINGS = new Set([
   'background', 'anonymous_note', 'layout',
   'mode', 'confidence', 'hold', 'left', 'right', 'labels', 'max_picks',
   'rationale', 'corners', 'anchors',
+  'join', 'show_join', 'note',
 ]);
 
 function isKnownSetting(key) { return KNOWN_SETTINGS.has(key); }
@@ -259,6 +270,8 @@ function parseBackground(value) {
 }
 
 function applyQuestionSetting(q, key, value) {
+  if (key === 'join' || key === 'show_join') { q.config.show_join = coerce(value) !== false; return; }
+  if (key === 'note') { q.config.note = String(value); return; }
   if (key === 'left') { q.config.left_label = String(value); return; }
   if (key === 'right') { q.config.right_label = String(value); return; }
   if (key === 'rationale') { q.config.allow_rationale = coerce(value) !== false; return; }
@@ -280,6 +293,13 @@ function finaliseQuestion(q, errors, number) {
   const out = { type: q.type, prompt: q.prompt, config };
 
   switch (q.type) {
+    case 'instructions': {
+      // "- " lines are the steps; an empty list falls back to the built-in
+      // join instructions rather than projecting a blank slide.
+      config.steps = q.options.length ? q.options.map((o) => o.label) : [...DEFAULT_JOIN_STEPS];
+      if (config.show_join == null) config.show_join = true;
+      break;
+    }
     case 'multiple_choice':
     case 'quiz': {
       config.options = q.options.map((o) => o.label);
@@ -388,6 +408,11 @@ export function serialiseDeck(deck, questions) {
         out.push(correct.has(i) ? `- [x] ${label}` : `- ${label}`);
       });
     }
+    if (q.type === 'instructions' && Array.isArray(cfg.steps)) {
+      cfg.steps.forEach((s) => out.push(`- ${s}`));
+      if (cfg.show_join === false) out.push('join: false');
+      if (cfg.note) out.push(`note: ${cfg.note}`);
+    }
     if (Array.isArray(cfg.items)) cfg.items.forEach((it) => out.push(`- ${it}`));
     if (Array.isArray(cfg.samples)) cfg.samples.forEach((s) => out.push(`- ${s}`));
     if (Array.isArray(cfg.statements)) cfg.statements.forEach((s) => out.push(`~ ${s}`));
@@ -423,6 +448,12 @@ export function serialiseDeck(deck, questions) {
 export const SAMPLE_DECK = `# Sample deck — first day of class
 theme: lecture-hall
 background: gradient-dusk
+
+## instructions
+Join in before we start
+- Open the camera on your phone and point it at the QR code.
+- Or go to the address on screen and type the code %CODE%.
+- Leave the page open — questions appear as we go.
 
 ## word_cloud
 In one word, how are you feeling about this course?
