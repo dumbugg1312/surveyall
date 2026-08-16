@@ -57,6 +57,58 @@ function useChart(container, kind) {
 }
 
 /**
+ * "Waiting for the first answer…" — the line under a chart that is live
+ * with zero responses. Every question spends its opening seconds in this
+ * state in front of the whole room, so it gets a real treatment (see the
+ * [data-awaiting] block in charts.css) instead of a rack of dead zeros.
+ * One note per container, kept across renders so the dots don't restart.
+ */
+function awaitNote(container, state, on, text = 'Waiting for the first answer…') {
+  if (on && !state.meta.awaitNote) {
+    const note = el('p', 'chart-await-note');
+    const dots = el('span', 'await-dots');
+    dots.append(el('span'), el('span'), el('span'));
+    note.append(dots, el('span', 'await-text', text));
+    container.append(note);
+    state.meta.awaitNote = note;
+  } else if (on && container.lastChild !== state.meta.awaitNote) {
+    container.append(state.meta.awaitNote);
+  } else if (!on && state.meta.awaitNote) {
+    state.meta.awaitNote.remove();
+    state.meta.awaitNote = null;
+  }
+}
+
+/**
+ * Shared empty-state card for the views that have nothing to draw at all
+ * (cloud, open ended). Keyed by kind so flipping between "hidden" and
+ * "waiting" swaps the copy, while repeated renders of the same kind reuse
+ * the node and never restart the dots.
+ */
+function emptyCard(container, state, kind, text) {
+  if (state.meta.emptyKind === kind && state.meta.empty) return;
+  state.meta.empty?.remove();
+  const card = el('p', 'chart-empty');
+  if (kind === 'waiting') {
+    const dots = el('span', 'await-dots');
+    dots.append(el('span'), el('span'), el('span'));
+    card.append(dots);
+  }
+  card.append(el('span', null, text));
+  container.append(card);
+  state.meta.empty = card;
+  state.meta.emptyKind = kind;
+}
+
+function clearEmptyCard(state) {
+  if (state.meta.empty) {
+    state.meta.empty.remove();
+    state.meta.empty = null;
+    state.meta.emptyKind = null;
+  }
+}
+
+/**
  * Colour policy.
  *
  * `categorical` — a perceptually even walk from accent to accent-2, used
@@ -103,6 +155,12 @@ export function renderChoice(container, agg, opts = {}) {
   const max = Math.max(1, ...agg.options.map((o) => o.count));
   const isNew = !state.group;
 
+  // Live question, zero responses: the state every question opens in,
+  // in front of the whole room. Callers that show archived data pass
+  // `awaiting: false` so a question nobody answered doesn't claim to wait.
+  const awaiting = !opts.hidden && (agg.total || 0) === 0 && opts.awaiting !== false;
+  container.toggleAttribute('data-awaiting', awaiting);
+
   if (isNew) {
     state.group = new SpringGroup(() => state.paint?.(), PRESETS.smooth);
   }
@@ -125,6 +183,7 @@ export function renderChoice(container, agg, opts = {}) {
     value.append(pct, count);
 
     row.append(label, track, value);
+    row.style.setProperty('--row-i', String(i)); // phases the awaiting sweep
     container.append(row);
     state.rows.push({ row, label, track, fill, value, pct, count });
 
@@ -158,7 +217,11 @@ export function renderChoice(container, agg, opts = {}) {
     r.row.classList.toggle('is-correct', correct.has(i));
   });
 
-  state.meta = { colors, correct, showPercent: opts.showPercent !== false, hidden: opts.hidden, root };
+  // Object.assign, not reassignment: meta also carries the await note.
+  Object.assign(state.meta, {
+    colors, correct, showPercent: opts.showPercent !== false, hidden: opts.hidden, root,
+  });
+  awaitNote(container, state, awaiting);
   state.group.prune(new Set([
     ...agg.options.flatMap((_, i) => [`w:${i}`, `c:${i}`, `p:${i}`, `dim:${i}`, `in:${i}`]),
   ]));
@@ -217,6 +280,8 @@ function renderDonut(container, agg, opts = {}) {
   const n = agg.options.length;
   const colors = palette(root, n);
   const total = agg.total || 0;
+  const awaiting = !opts.hidden && total === 0 && opts.awaiting !== false;
+  container.toggleAttribute('data-awaiting', awaiting);
   const R = 15.9155; // circumference = 100 → dasharray in percent units
 
   if (!state.group) {
@@ -237,8 +302,12 @@ function renderDonut(container, agg, opts = {}) {
 
     const legend = el('div', 'donut-legend');
     container.append(wrap, legend);
-    state.meta = { s, track, arcs, legend, cnum, items: [] };
+    Object.assign(state.meta, { s, track, arcs, legend, cnum, clabel, items: [] });
   }
+
+  state.meta.awaiting = awaiting;
+  state.meta.clabel.textContent = awaiting ? 'waiting' : 'responses';
+  awaitNote(container, state, awaiting, 'Waiting for the first answer…');
 
   const { s, track, arcs, legend } = state.meta;
 
@@ -288,8 +357,8 @@ function renderDonut(container, agg, opts = {}) {
       it.dot.style.background = colors[i] || colors[0];
     });
 
-    const t = Math.round(g.get('total'));
-    if (state.meta.cnum.textContent !== String(t)) state.meta.cnum.textContent = String(t);
+    const t = state.meta.awaiting ? '—' : String(Math.round(g.get('total')));
+    if (state.meta.cnum.textContent !== t) state.meta.cnum.textContent = t;
   }
 
   state.paint = paint;
@@ -320,14 +389,16 @@ export function renderWordCloud(container, agg, opts = {}) {
   if (opts.hidden || !words.length) {
     if (!state.meta.empty) {
       container.textContent = '';
-      state.meta.empty = el('p', 'chart-empty',
-        opts.hidden ? 'Responses hidden' : 'Waiting for the first word…');
-      container.append(state.meta.empty);
       state.nodes = new Map();
     }
+    const waiting = !opts.hidden && opts.awaiting !== false;
+    emptyCard(container, state,
+      opts.hidden ? 'hidden' : waiting ? 'waiting' : 'none',
+      opts.hidden ? 'Responses hidden'
+        : waiting ? 'Waiting for the first word…' : 'No responses.');
     return;
   }
-  if (state.meta.empty) { state.meta.empty.remove(); state.meta.empty = null; }
+  clearEmptyCard(state);
 
   if (!state.group) {
     state.group = new SpringGroup(() => state.paint?.(), PRESETS.gentle);
@@ -583,13 +654,16 @@ export function renderOpenEnded(container, agg, opts = {}) {
   const entries = opts.hidden ? [] : (agg.entries || []);
 
   if (!entries.length) {
-    container.textContent = '';
-    container.append(el('p', 'chart-empty',
-      opts.hidden ? 'Responses hidden' : 'Waiting for responses…'));
+    if (state.rows.length) container.textContent = '';
     state.rows = [];
+    const waiting = !opts.hidden && opts.awaiting !== false;
+    emptyCard(container, state,
+      opts.hidden ? 'hidden' : waiting ? 'waiting' : 'none',
+      opts.hidden ? 'Responses hidden'
+        : waiting ? 'Waiting for responses…' : 'No responses.');
     return;
   }
-  container.querySelectorAll('.chart-empty').forEach((n) => n.remove());
+  clearEmptyCard(state);
 
   const root = container;
   const colors = palette(root, 5);
@@ -646,6 +720,8 @@ export function renderScales(container, agg, opts = {}) {
   const steps = Math.round(span) + 1;
   const n = agg.statements.length;
   const isNew = !state.group;
+  const awaiting = !opts.hidden && (agg.total || 0) === 0 && opts.awaiting !== false;
+  container.toggleAttribute('data-awaiting', awaiting);
 
   if (isNew) state.group = new SpringGroup(() => state.paint?.(), PRESETS.smooth);
 
@@ -661,6 +737,7 @@ export function renderScales(container, agg, opts = {}) {
     track.append(dist, marker);
     const avg = el('div', 'scale-avg');
     row.append(label, track, avg);
+    row.style.setProperty('--row-i', String(i));
     container.append(row);
 
     const ticks = [];
@@ -687,6 +764,8 @@ export function renderScales(container, agg, opts = {}) {
     state.group.set(`o:${i}`, hasAvg ? 1 : 0);
     state.group.set(`v:${i}`, hasAvg ? st.avg : 0, { preset: 'precise' });
   });
+
+  awaitNote(container, state, awaiting);
 
   function paint() {
     const g = state.group;
@@ -731,6 +810,9 @@ export function renderRanking(container, agg, opts = {}) {
   const colors = palette(root, n, 'uniform');
   const maxPts = Math.max(1, ...agg.items.map((i) => i.points));
   const isNew = !state.group;
+  const awaiting = !opts.hidden && (agg.total || 0) === 0 && opts.awaiting !== false;
+  container.toggleAttribute('data-awaiting', awaiting);
+  state.meta.awaiting = awaiting;
 
   if (isNew) state.group = new SpringGroup(() => state.paint?.(), PRESETS.bouncy);
 
@@ -746,6 +828,7 @@ export function renderRanking(container, agg, opts = {}) {
     track.append(fill);
     const points = el('div', 'rank-points');
     row.append(place, label, track, points);
+    row.style.setProperty('--row-i', String(i));
     container.append(row);
     state.rows.push({ row, place, label, track, fill, points });
     state.group.set(`y:${i}`, i, isNew ? { from: i } : {});
@@ -767,6 +850,8 @@ export function renderRanking(container, agg, opts = {}) {
     r.__color = colors[displayIndex] || colors[0];
   });
 
+  awaitNote(container, state, awaiting);
+
   function paint() {
     const g = state.group;
     const ink = token(root, '--ink', '#111');
@@ -782,7 +867,8 @@ export function renderRanking(container, agg, opts = {}) {
       r.fill.style.boxShadow = w > 0.5 ? `0 4px 14px ${rgba(c, 0.28)}` : 'none';
 
       const rank = Math.round(g.get(`rank:${i}`, 1));
-      const rankTxt = opts.hidden ? '–' : String(rank);
+      // While awaiting, a printed rank would imply an order nobody chose.
+      const rankTxt = opts.hidden || state.meta.awaiting ? '–' : String(rank);
       if (r.place.textContent !== rankTxt) r.place.textContent = rankTxt;
       r.place.style.color = rank === 1 ? c : rgba(ink, 0.55);
 
