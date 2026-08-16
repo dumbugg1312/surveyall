@@ -364,7 +364,15 @@ function socketFor(sessionId) {
 
     let ws;
     try {
-      ws = new WebSocket(url.toString());
+      // A browser cannot put an Authorization header on a WebSocket
+      // handshake, so a presenter's token travels as a subprotocol.
+      // Participants send nothing: their route is unauthenticated by
+      // design and offering a protocol they don't need would only be
+      // one more thing to get wrong.
+      const token = getToken();
+      ws = (authed && token)
+        ? new WebSocket(url.toString(), ['surveyall.bearer', token])
+        : new WebSocket(url.toString());
     } catch {
       scheduleRetry();
       return;

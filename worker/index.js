@@ -134,6 +134,33 @@ function generateJoinCode(len = 6) {
   return out;
 }
 
+/**
+ * Serve one uploaded backdrop as an actual image.
+ *
+ * Hand back the decoded bytes rather than a redirect so that
+ * <img src="/api/backgrounds/:id"> and CSS url(...) just work and can be
+ * cached. Both of those are fetched by the browser itself, which cannot
+ * attach an Authorization header, so this route is reachable without a
+ * token; the unguessable id is what protects it. That is safe here: a
+ * backdrop is the instructor's own projector art, holds no student data,
+ * and is already being displayed to the whole room. Listing, uploading
+ * and deleting stay behind the instructor gate, so the collection cannot
+ * be enumerated.
+ */
+async function serveBackground(env, id) {
+  const row = await env.DB.prepare('select data_uri from backgrounds where id = ?')
+    .bind(id).first();
+  if (!row) return new Response('Not found', { status: 404 });
+  const [meta, b64] = row.data_uri.split(',');
+  const type = (meta.match(/^data:([^;]+)/) || [])[1] || 'image/jpeg';
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+  return new Response(bytes, {
+    headers: { 'Content-Type': type, 'Cache-Control': 'public, max-age=31536000, immutable' },
+  });
+}
+
 /** Ask the session's Durable Object to push an event to its room. */
 async function notifyRoom(env, sessionId, event, data, to = 'all') {
   try {
@@ -207,6 +234,15 @@ async function route(request, env, url, ctx) {
   // proves nothing, holds no credential, and is never identified.
   if (seg[0] === 'join') {
     return participantRoute(request, env, seg, method, body, url);
+  }
+
+  // ------------------------------------------------- backdrop images
+  // Reachable without a token, and only ever one image at a time by its
+  // id. See serveBackground() for why that is the right call: the
+  // browser fetches these as <img src>/url(), which cannot carry an
+  // Authorization header at all.
+  if (seg[0] === 'backgrounds' && seg[1] && method === 'GET') {
+    return serveBackground(env, seg[1]);
   }
 
   // --------------------------------------------------------- instructor
@@ -678,21 +714,8 @@ async function instructorRoute(request, env, seg, method, body, url, ctx) {
       ).bind(id, dataUri, dataUri.length, now()).run();
       return json({ id, url: `/api/backgrounds/${id}` });
     }
-    if (seg[1] && method === 'GET') {
-      const row = await DB.prepare('select data_uri from backgrounds where id = ?')
-        .bind(seg[1]).first();
-      if (!row) return new Response('Not found', { status: 404 });
-      // Redirect-free: hand back the data URI as the image itself so an
-      // <img src="/api/backgrounds/:id"> just works and can be cached.
-      const [meta, b64] = row.data_uri.split(',');
-      const type = (meta.match(/^data:([^;]+)/) || [])[1] || 'image/jpeg';
-      const bin = atob(b64);
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
-      return new Response(bytes, {
-        headers: { 'Content-Type': type, 'Cache-Control': 'public, max-age=31536000, immutable' },
-      });
-    }
+    // NOTE: GET /api/backgrounds/:id is handled earlier, before the
+    // instructor gate, because the browser fetches it as an image.
     if (seg[1] && method === 'DELETE') {
       await DB.prepare('delete from backgrounds where id = ?').bind(seg[1]).run();
       return json({ ok: true });

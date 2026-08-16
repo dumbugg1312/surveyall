@@ -60,7 +60,16 @@ export class SessionRoom {
 
     this.state.acceptWebSocket(server, [role]);
 
-    return new Response(null, { status: 101, webSocket: client });
+    // If the client offered subprotocols we MUST select one, or the
+    // browser rejects the handshake. A presenter offers
+    // ['surveyall.bearer', <token>] because a WebSocket has no other way
+    // to authenticate; echo the marker back, never the token itself.
+    const headers = {};
+    const offered = (request.headers.get('Sec-WebSocket-Protocol') || '')
+      .split(',').map((s) => s.trim()).filter(Boolean);
+    if (offered.length) headers['Sec-WebSocket-Protocol'] = offered[0];
+
+    return new Response(null, { status: 101, webSocket: client, headers });
   }
 
   /**

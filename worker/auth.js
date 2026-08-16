@@ -105,11 +105,31 @@ export async function verifyToken(env, token) {
   }
 }
 
-/** Pull a Bearer token off a request. */
+/** The subprotocol name that marks the next value as an instructor token. */
+export const WS_TOKEN_PROTOCOL = 'surveyall.bearer';
+
+/**
+ * Pull a Bearer token off a request.
+ *
+ * Normal API calls carry it in the Authorization header. A WebSocket
+ * cannot: `new WebSocket(url)` gives a browser no way to set request
+ * headers at all, so the presenter's socket would be rejected 401 on
+ * every attempt and the projector would never receive live answers. For
+ * that one case the token rides in the subprotocol list instead, as
+ * ['surveyall.bearer', <token>], which is the standard workaround and
+ * keeps the token out of the URL (and therefore out of request logs).
+ */
 export function bearer(request) {
   const header = request.headers.get('Authorization') || '';
   const m = header.match(/^Bearer\s+(.+)$/i);
-  return m ? m[1].trim() : null;
+  if (m) return m[1].trim();
+
+  const offered = (request.headers.get('Sec-WebSocket-Protocol') || '')
+    .split(',').map((s) => s.trim()).filter(Boolean);
+  const at = offered.indexOf(WS_TOKEN_PROTOCOL);
+  if (at !== -1 && offered[at + 1]) return offered[at + 1];
+
+  return null;
 }
 
 /** True when this request carries a valid instructor token. */

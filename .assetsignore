@@ -14,5 +14,16 @@ wrangler.jsonc
 .gitignore
 README.md
 
+# NEVER publish local development state. `.dev.vars` holds the local
+# copies of INSTRUCTOR_PASSWORD and AUTH_SECRET; it is gitignored, so a
+# deploy from GitHub never sees it, but `wrangler deploy` run from a
+# laptop would otherwise serve it at /.dev.vars in plain text. A leaked
+# AUTH_SECRET lets anyone forge an instructor token.
+.dev.vars
+.dev.vars.*
+.wrangler/
+.git/
+.claude/
+
 # tests/ IS intentionally published: tests/visual-check.html is a useful
 # pre-class tool for checking a theme reads on the projector.
