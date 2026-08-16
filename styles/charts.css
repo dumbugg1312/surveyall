@@ -521,12 +521,6 @@ svg.donut {
 
 [data-chart="leaderboard"] { gap: .3em; }
 
-.leaderboard-note {
-  font-size: .66em;
-  color: var(--ink-soft);
-  margin-bottom: .5em;
-  letter-spacing: .01em;
-}
 
 .lb-body {
   position: relative;

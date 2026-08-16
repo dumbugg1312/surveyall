@@ -19,7 +19,7 @@
   <div class="lobby" id="lobby" hidden>
     <p class="stage-kicker" id="lobbyKicker">SurveyAll</p>
     <h1 class="lobby-title" id="lobbyTitle">Loading…</h1>
-    <p class="lobby-sub">Scan to join. No app, no account, no sign-in.</p>
+    <p class="lobby-sub">Scan the code, or go to the address below.</p>
 
     <div class="join-corner is-big" id="lobbyJoin">
       <div class="join-qr" id="lobbyQR"></div>
@@ -31,10 +31,12 @@
       </div>
     </div>
 
-    <p class="lobby-privacy">
-      Responses are anonymous. No names, logins, or identifying information
-      are collected at any point.
-    </p>
+    <!-- No privacy paragraph here. This is projected in front of the whole
+         room at the start of every session, and a promise that nothing can
+         be traced reads to a class as permission rather than as reassurance.
+         The app is still anonymous by design (see the FERPA note in
+         worker/schema.sql); the instructor makes that case in their own
+         words, and docs/DEPLOYMENT.md states it for a department. -->
   </div>
 
   <!-- live question ----------------------------------------------- -->

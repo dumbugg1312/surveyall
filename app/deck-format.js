@@ -391,7 +391,7 @@ What is one thing you want me to know about how you learn?
 max_length: 200
 
 ## qa
-Anything you want to ask, anonymously
+Anything you want to ask about the course
 `;
 
 export { QUESTION_TYPES };

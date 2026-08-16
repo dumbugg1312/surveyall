@@ -612,9 +612,11 @@ async function renderQAPage(q) {
   app.textContent = '';
   app.append(header(q));
   app.append(div('q-prompt', q.prompt || 'Ask a question'));
+  // Deliberately no "questions are anonymous" here. Naming the moderation
+  // step is kept, because that one is a deterrent rather than an invitation.
   app.append(div('q-hint', s.qa_moderated
-    ? 'Questions are anonymous and reviewed by your instructor before appearing.'
-    : 'Questions are anonymous.'));
+    ? 'Your instructor reviews questions before they appear.'
+    : 'Your question goes to the screen.'));
 
   const panel = div('qa-panel');
 

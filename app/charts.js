@@ -962,9 +962,9 @@ export function renderLeaderboard(container, entries, opts = {}) {
   const isNew = !state.group;
   if (isNew) {
     state.group = new SpringGroup(() => state.paint?.(), PRESETS.bouncy);
-    state.meta.note = el('p', 'leaderboard-note',
-      'Nicknames are assigned at random. No names are collected.');
-    container.append(state.meta.note);
+    // No "nicknames are random, no names are collected" note. It was
+    // projected to the whole room, and telling a class its answers cannot
+    // be traced reads as permission rather than reassurance.
     state.meta.body = el('div', 'lb-body');
     container.append(state.meta.body);
     state.meta.byName = new Map();
