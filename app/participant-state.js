@@ -22,26 +22,41 @@ const ANSWER_KEY = (sessionId, questionId, round) =>
   `surveyall:answered:${sessionId}:${questionId}:${round}`;
 const UPVOTE_KEY = (sessionId) => `surveyall:upvoted:${sessionId}`;
 
+/**
+ * The stored value is `{ pseudonym, token }`. The token is the server's
+ * signature over the label, replayed on every answer so the server can tell
+ * this device apart from anyone else sending the same label. It is not an
+ * identity: it says "this label was issued here", nothing about who holds it.
+ *
+ * Values written before the token existed are plain strings. Those are
+ * treated as missing so the device re-claims and gets a signed label,
+ * rather than silently failing every submit with a 403.
+ */
 export function storedPseudonym(sessionId) {
   try {
-    return window.sessionStorage.getItem(KEY(sessionId));
+    const raw = window.sessionStorage.getItem(KEY(sessionId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && parsed.pseudonym && parsed.token) return parsed;
+    return null;
   } catch {
-    return null; // private browsing with storage disabled
+    return null; // private browsing, or a legacy plain-string value
   }
 }
 
-export function storePseudonym(sessionId, pseudonym) {
+export function storePseudonym(sessionId, entry) {
   try {
-    window.sessionStorage.setItem(KEY(sessionId), pseudonym);
+    window.sessionStorage.setItem(KEY(sessionId), JSON.stringify(entry));
   } catch {
     /* fall back to in-memory only; the caller keeps its own copy */
   }
-  return pseudonym;
+  return entry;
 }
 
 /**
- * Get the label for this session, asking the server for one if needed.
- * @param {(id: string) => Promise<string>} claim
+ * Get the signed label for this session, asking the server for one if needed.
+ * @param {(id: string) => Promise<{pseudonym: string, token: string}>} claim
+ * @returns {Promise<{pseudonym: string, token: string}>}
  */
 export async function ensurePseudonym(sessionId, claim) {
   const existing = storedPseudonym(sessionId);

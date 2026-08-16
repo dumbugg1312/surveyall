@@ -26,7 +26,7 @@
  */
 
 import { SessionRoom } from './session-room.js';
-import { isInstructor, signIn } from './auth.js';
+import { isInstructor, signIn, signPseudonym, verifyPseudonym } from './auth.js';
 
 export { SessionRoom };
 
@@ -342,7 +342,12 @@ async function participantRoute(request, env, seg, method, body, url) {
         await env.DB.prepare(
           'insert into session_pseudonyms (session_id, pseudonym, claimed_at) values (?, ?, ?)',
         ).bind(session.id, name, now()).run();
-        return json({ pseudonym: name });
+        // The signature is what proves, on every later answer, that this
+        // device is the one that claimed this label. See worker/auth.js.
+        return json({
+          pseudonym: name,
+          token: await signPseudonym(env, session.id, name),
+        });
       } catch {
         // unique violation — that label is taken in this room, try again
       }
@@ -362,6 +367,15 @@ async function participantRoute(request, env, seg, method, body, url) {
       return fail('That round has ended.', 409);
     }
     if (!body.pseudonym) return fail('Missing nickname.', 400);
+
+    // The label is this answer's row key, so anyone who can send a label
+    // can overwrite whatever that row holds. Accept only labels this
+    // server signed, for this session. Without it, a crafted POST carrying
+    // another student's label replaces their answer, which on a graded
+    // quiz means destroying someone's score from a phone in the room.
+    if (!(await verifyPseudonym(env, session.id, String(body.pseudonym), body.pseudonymToken))) {
+      return fail('This device has not joined this session. Reload the page.', 403);
+    }
 
     const slot = Number.isInteger(body.slot) ? body.slot : 0;
     await env.DB.prepare(`

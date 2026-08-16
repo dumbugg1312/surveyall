@@ -34,6 +34,9 @@ const state = {
   session: null,
   question: null,
   pseudonym: null,
+  // The server's signature over `pseudonym`. Sent with every answer so the
+  // server can refuse a label it did not issue. See worker/auth.js.
+  pseudonymToken: null,
   unsubSession: null,
   unsubAQ: null,
   submitted: false,
@@ -76,12 +79,25 @@ async function joinByCode(code) {
   applyTheme(document.documentElement, session.theme);
   syncThemeColor();
 
+  // The label is no longer a nicety: it is the row key for this device's
+  // answers, and the server now only accepts labels it signed. Minting a
+  // local "Guest 4821" here (as this used to on failure) would produce a
+  // label the server never issued, so every submit would 403 and the
+  // student would be told their answer failed with no way to recover.
+  // Retry instead, and let a genuine failure surface at submit time.
   try {
-    state.pseudonym = await ensurePseudonym(session.id, claimPseudonym);
+    const claimed = await ensurePseudonym(session.id, claimPseudonym);
+    state.pseudonym = claimed.pseudonym;
+    state.pseudonymToken = claimed.token;
   } catch {
-    // A leaderboard label is a nicety, not a requirement — never block
-    // a student from answering because of it.
-    state.pseudonym = `Guest ${Math.floor(Math.random() * 9000) + 1000}`;
+    try {
+      const retry = await ensurePseudonym(session.id, claimPseudonym);
+      state.pseudonym = retry.pseudonym;
+      state.pseudonymToken = retry.token;
+    } catch {
+      state.pseudonym = null;
+      state.pseudonymToken = null;
+    }
   }
 
   if (state.unsubSession) state.unsubSession();
@@ -243,6 +259,7 @@ function renderQuestion(q, isNew) {
         questionId: q.id,
         round: q.round,
         pseudonym: state.pseudonym,
+        pseudonymToken: state.pseudonymToken,
         payload: check.payload,
         slot,
       });

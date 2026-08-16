@@ -105,6 +105,51 @@ export async function verifyToken(env, token) {
   }
 }
 
+// =====================================================================
+// Participant labels
+//
+// A student holds no credential and never will. But the random label a
+// device claims IS the row key for its answers: the /respond upsert
+// conflicts on (session_id, question_id, round, pseudonym, slot), so
+// whoever sends a given label owns that row and can overwrite whatever is
+// in it. Without a check, a crafted POST carrying another student's label
+// silently replaces their answer, which matters most on a graded quiz.
+//
+// So the server signs a label when it issues it, and refuses any label it
+// did not sign for this session. That does not identify anybody: the
+// signature is over the label and the session id, both of which are
+// already random and session-scoped, and it is not stored anywhere.
+//
+// The message is domain-prefixed so a participant label can never be
+// replayed as an instructor token, which is signed over a different shape
+// with the same key.
+// =====================================================================
+
+const pseudonymMessage = (sessionId, pseudonym) =>
+  encoder.encode(`surveyall/pseudonym/v1:${sessionId}:${pseudonym}`);
+
+/** Sign a freshly claimed label. Returned to the phone, replayed on every answer. */
+export async function signPseudonym(env, sessionId, pseudonym) {
+  const secret = env.AUTH_SECRET;
+  if (!secret) throw new Error('AUTH_SECRET is not configured');
+  const key = await hmacKey(secret);
+  const sig = await crypto.subtle.sign('HMAC', key, pseudonymMessage(sessionId, pseudonym));
+  return b64url(sig);
+}
+
+/** @returns true when this label was issued by this server for this session. */
+export async function verifyPseudonym(env, sessionId, pseudonym, token) {
+  if (!token || typeof token !== 'string') return false;
+  if (!env.AUTH_SECRET) return false;
+  try {
+    const key = await hmacKey(env.AUTH_SECRET);
+    return await crypto.subtle.verify(
+      'HMAC', key, fromB64url(token), pseudonymMessage(sessionId, pseudonym));
+  } catch {
+    return false;
+  }
+}
+
 /** The subprotocol name that marks the next value as an instructor token. */
 export const WS_TOKEN_PROTOCOL = 'surveyall.bearer';
 

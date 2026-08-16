@@ -242,19 +242,25 @@ export async function fetchLiveQuestion(sessionId) {
 }
 
 /** Claim a distinct random label for this session. No identity involved. */
+/** @returns {Promise<{pseudonym: string, token: string}>} label plus the server's signature over it. */
 export async function claimPseudonym(sessionId) {
   const code = codeFor(sessionId);
   if (!code) throw new Error('Not joined to a session.');
   const res = await api(`/api/join/${code}/pseudonym`, { method: 'POST', body: {} });
-  return res.pseudonym;
+  if (!res || !res.pseudonym || !res.token) throw new Error('Could not join this session.');
+  return { pseudonym: res.pseudonym, token: res.token };
 }
 
-export async function submitResponse({ sessionId, questionId, round, pseudonym, payload, slot = 0 }) {
+export async function submitResponse({
+  sessionId, questionId, round, pseudonym, pseudonymToken, payload, slot = 0,
+}) {
   const code = codeFor(sessionId);
   if (!code) throw new Error('Not joined to a session.');
+  // pseudonymToken is what stops one phone overwriting another's answer by
+  // sending its label; the server refuses any label it did not sign.
   return api(`/api/join/${code}/respond`, {
     method: 'POST',
-    body: { questionId, round, pseudonym, payload, slot },
+    body: { questionId, round, pseudonym, pseudonymToken, payload, slot },
   });
 }
 
