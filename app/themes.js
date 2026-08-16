@@ -409,19 +409,38 @@ export function applyTheme(el, themeId) {
 }
 
 /**
+ * What a deck's background record actually resolves to.
+ *
+ * `{kind:'theme'}` means "whatever this theme ships with", so anything
+ * that needs to know the real shape of the backdrop — the styles below,
+ * and the ambience planner, which picks its motion from the texture —
+ * has to go through here rather than reading `background.kind` directly.
+ */
+export function resolveBackground(background, themeId) {
+  if (!background || background.kind === 'theme') {
+    return getTheme(themeId).background || { kind: 'none' };
+  }
+  return background;
+}
+
+/**
  * Build inline styles for the projector backdrop layer.
  * @param {object} background {kind: 'theme'|'none'|'solid'|'preset'|'image', ...}
  */
 export function backgroundStyles(background, themeId) {
   const theme = getTheme(themeId);
   const t = theme.tokens;
-  let bg = background;
-
-  if (!bg || bg.kind === 'theme') bg = theme.background || { kind: 'none' };
+  const bg = resolveBackground(background, themeId);
 
   switch (bg.kind) {
     case 'solid':
-      return { backgroundColor: bg.color || t['--ground'], backgroundImage: 'none', filter: 'none', opacity: '1' };
+      return {
+        backgroundColor: bg.color || t['--ground'],
+        backgroundImage: 'none',
+        filter: 'none',
+        opacity: '1',
+        transform: 'none',
+      };
 
     case 'image':
       return {
@@ -443,12 +462,16 @@ export function backgroundStyles(background, themeId) {
         backgroundRepeat: preset.size ? 'repeat' : 'no-repeat',
         filter: 'none',
         opacity: '1',
+        // reset explicitly: these objects are Object.assign'd onto a live
+        // element that may have been showing an image a moment ago, and
+        // that branch leaves a scale() behind
+        transform: 'none',
       };
     }
 
     case 'none':
     default:
-      return { backgroundImage: 'none', filter: 'none', opacity: '1' };
+      return { backgroundImage: 'none', filter: 'none', opacity: '1', transform: 'none' };
   }
 }
 

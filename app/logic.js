@@ -66,6 +66,37 @@ export const DEFAULT_JOIN_STEPS = [
   'Leave the page open — questions appear as we go.',
 ];
 
+/**
+ * Deck-wide slide settings, kept here so the editor's preview and the
+ * projector can never drift apart on what a deck is supposed to look like.
+ */
+export const PROMPT_SCALES = {
+  compact: { name: 'Compact', scale: 0.68 },
+  small: { name: 'Small', scale: 0.82 },
+  medium: { name: 'Medium', scale: 1 },
+  large: { name: 'Large', scale: 1.18 },
+};
+
+export const DEFAULT_PROMPT_SCALE = 'medium';
+
+/** The multiplier for a deck's chosen question size. */
+export function promptScale(deck) {
+  const key = deck?.settings?.promptScale;
+  return (PROMPT_SCALES[key] || PROMPT_SCALES[DEFAULT_PROMPT_SCALE]).scale;
+}
+
+/**
+ * Whether to print "Word cloud · Question 1 of 8" above the question.
+ *
+ * On by default because it orients a room that just walked in, and off by
+ * one click because plenty of instructors regard it as clutter on a slide
+ * they are about to talk over. Absent means on — existing decks keep the
+ * look they already had.
+ */
+export function showSlideLabel(deck) {
+  return deck?.settings?.showSlideLabel !== false;
+}
+
 /** Fill %CODE% / %URL% placeholders in an instructions step. */
 export function fillJoinPlaceholders(text, { code = '', url = '' } = {}) {
   return String(text || '')

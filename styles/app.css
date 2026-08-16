@@ -770,7 +770,7 @@
 
 .sp-prompt {
   font-family: var(--display);
-  font-size: 1.05em;
+  font-size: calc(1.05em * var(--prompt-scale, 1));
   font-weight: 650;
   line-height: 1.14;
   margin: 0;
@@ -1078,4 +1078,30 @@
   font-size: .95rem;
   font-weight: 700;
   letter-spacing: .1em;
+}
+
+
+/* ---------------------------------------------------------------------
+   Canvas fidelity.
+
+   A thumbnail and the big canvas are the same markup, but they are not
+   the same job. At 150px wide a slide has to exaggerate its type or it is
+   unreadable, so .sp-slide runs at 5.6cqw. The canvas has no such excuse:
+   it is meant to show you the projected slide, and the projector's own
+   root is clamped to 33px against a ~1920px stage — about 1.7% of width.
+   At 5.6cqw the canvas was rendering the question at roughly three times
+   its true relative size, which is why a two-line prompt looked enormous
+   in the editor and ordinary in the room.
+
+   2.6cqw splits the difference: proportionally close to the projector,
+   still comfortable to read at arm's length on a laptop.
+   --------------------------------------------------------------------- */
+.stage-canvas .sp-slide { font-size: 2.6cqw; }
+
+/* The canvas is the one place a prompt is not clamped to two lines — you
+   are editing it, so you need to see all of it. */
+.stage-canvas .sp-prompt {
+  display: block;
+  -webkit-line-clamp: none;
+  overflow: visible;
 }

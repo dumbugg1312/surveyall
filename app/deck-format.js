@@ -234,7 +234,7 @@ function parseTypeHeader(header) {
 const KNOWN_SETTINGS = new Set([
   'multiple', 'max_choices', 'max_words', 'max_length', 'min', 'max',
   'time', 'scoring', 'allow_skip', 'allow_partial', 'chart', 'theme',
-  'background', 'anonymous_note', 'layout',
+  'background', 'ambience', 'motion', 'anonymous_note', 'layout',
   'mode', 'confidence', 'hold', 'left', 'right', 'labels', 'max_picks',
   'rationale', 'corners', 'anchors',
   'join', 'show_join', 'note',
@@ -255,10 +255,23 @@ function coerce(value) {
   return value;
 }
 
+/**
+ * `ambience` and `background` are two header lines describing one record,
+ * and a deck can list them in either order — so each merges onto whatever
+ * the other already put there rather than replacing it.
+ */
 function applyDeckSetting(deck, key, value) {
   if (key === 'theme') deck.theme = String(value);
-  else if (key === 'background') deck.background = parseBackground(value);
-  else if (key === 'title') deck.title = String(value);
+  else if (key === 'background') {
+    const motion = deck.background && deck.background.motion;
+    deck.background = parseBackground(value);
+    if (motion) deck.background.motion = motion;
+  } else if (key === 'ambience' || key === 'motion') {
+    const v = String(value).trim().toLowerCase();
+    deck.background = { ...(deck.background || { kind: 'theme' }) };
+    if (v === 'off' || v === 'none' || v === 'false') delete deck.background.motion;
+    else if (v === 'subtle' || v === 'lively') deck.background.motion = v;
+  } else if (key === 'title') deck.title = String(value);
 }
 
 function parseBackground(value) {
@@ -388,6 +401,9 @@ export function serialiseDeck(deck, questions) {
     else if (bg.kind === 'image') out.push(`background: ${bg.url}`);
     else if (bg.kind === 'preset') out.push(`background: ${bg.id}`);
   }
+  // independent of the line above: a deck can keep the theme's own
+  // backdrop and still ask it to move
+  if (bg && bg.motion && bg.motion !== 'off') out.push(`ambience: ${bg.motion}`);
   out.push('');
 
   for (const q of questions || []) {

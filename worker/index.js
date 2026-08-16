@@ -458,7 +458,12 @@ async function participantRoute(request, env, seg, method, body, url) {
   if (!tail && method === 'GET') {
     return json({
       id: session.id,
-      join_code: session.join_code,
+      // Echo back the code that actually got them here, not the session's
+      // own. A student who scanned the deck's QR must see the same six
+      // characters the projector is showing — two codes for one room is
+      // precisely the confusion a deck-level code exists to remove. It is
+      // also what the phone re-queries with on refresh, and both resolve.
+      join_code: code,
       theme: session.theme,
       state: session.state,
       current_question_id: session.current_question_id,

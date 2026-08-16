@@ -23,6 +23,7 @@ import {
 } from './db.js';
 import {
   TYPE_LABELS, splitPassage, DEFAULT_JOIN_STEPS, isContentSlide, joinURL,
+  PROMPT_SCALES, DEFAULT_PROMPT_SCALE, promptScale, showSlideLabel,
 } from './logic.js';
 import { TEMPLATES } from './templates.js';
 import {
@@ -30,6 +31,8 @@ import {
   backgroundStyles, scrimOpacity, CHART_STYLES,
   resolveTheme, buildCustomTheme, CUSTOM_FONTS, CUSTOM_RADII, contrastRatio,
 } from './themes.js';
+import { ambiencePlan, ambienceLevel } from './ambience.js';
+import { prefersReducedMotion } from './motion.js';
 import { parseDeck, serialiseDeck } from './deck-format.js';
 import { renderSlide } from './slide-preview.js';
 import { qrSVG, qrInk } from './qr.js';
@@ -77,6 +80,7 @@ async function boot() {
   deck = await getDeck(deckId);
   questions = await listQuestions(deckId);
   selectedId = questions[0]?.id || null;
+  await retireLegacyCodeSteps();
 
   $('deckTitle').value = deck.title;
   $('deckTitle').addEventListener('input', () => {
@@ -93,6 +97,7 @@ async function boot() {
   await refreshJoinArt();
   paintCodeChip();
 
+  wireSlideSettings();
   buildThemeGrid();
   buildMyThemesGrid();
   wireThemeBuilder();
@@ -130,6 +135,39 @@ async function rotateCode() {
   renderRail();
   renderCanvas();
   toast('New code — reprint anything showing the old one');
+}
+
+/**
+ * Retire the old placeholder wording from slides written before decks
+ * carried their own code.
+ *
+ * Back then a deck had no code to print, so the shipped default step read
+ * "…type the code %CODE%" and the token was swapped in at present time.
+ * A deck owns a real code now and the join card prints it, so the token is
+ * just a piece of machinery showing through the paint.
+ *
+ * This only ever rewrites the exact sentence this app shipped — anything
+ * the instructor typed themselves is left alone, %CODE% and all, because
+ * it still resolves and it is not ours to edit.
+ */
+const LEGACY_CODE_STEP = 'Or go to the address on screen and type the code %CODE%.';
+const LEGACY_CODE_STEP_REPLACEMENT = 'Or go to the address on screen and type in the code.';
+
+async function retireLegacyCodeSteps() {
+  const touched = [];
+  for (const q of questions) {
+    if (q.type !== 'instructions' || !Array.isArray(q.config?.steps)) continue;
+    let changed = false;
+    q.config.steps = q.config.steps.map((step) => {
+      if (String(step).trim() !== LEGACY_CODE_STEP) return step;
+      changed = true;
+      return LEGACY_CODE_STEP_REPLACEMENT;
+    });
+    if (changed) touched.push(q);
+  }
+  for (const q of touched) {
+    try { await updateQuestion(q.id, { config: q.config }); } catch { /* shown on next save */ }
+  }
 }
 
 function selected() {
@@ -493,15 +531,22 @@ function renderCanvas() {
   if (!q) {
     host.textContent = '';
     renderSlide(host, { type: null, prompt: deck.title || 'Your deck', config: {} },
-      deck, resolveTheme(deck.theme, deck), { placeholder: true });
+      deck, resolveTheme(deck.theme, deck), { placeholder: true, ambience: true });
     note.textContent = '';
     return;
   }
 
   const index = questions.findIndex((x) => x.id === q.id);
+  // The canvas is a preview, so it obeys the same two deck settings the
+  // projector does — including hiding the label, or you would be trusting
+  // a picture that disagrees with the room.
+  host.style.setProperty('--prompt-scale', String(promptScale(deck)));
   renderSlide(host, q, deck, resolveTheme(deck.theme, deck), {
-    kicker: `${TYPE_LABELS[q.type] || q.type} · Slide ${index + 1} of ${questions.length}`,
+    kicker: showSlideLabel(deck)
+      ? `${TYPE_LABELS[q.type] || q.type} · Slide ${index + 1} of ${questions.length}`
+      : '',
     join: joinArt,
+    ambience: true,
   });
   note.textContent = isContentSlide(q.type)
     ? 'Nothing to answer — this slide just sits on the projector.'
@@ -594,7 +639,7 @@ function stepsEditor(q) {
   wrap.className = 'opt-editor';
   const l = document.createElement('span');
   l.className = 'label';
-  l.textContent = 'Steps — %CODE% becomes this session\'s join code';
+  l.textContent = 'Steps';
   wrap.append(l);
 
   if (!Array.isArray(q.config.steps)) q.config.steps = [...DEFAULT_JOIN_STEPS];
@@ -1092,6 +1137,38 @@ function themeSlide(themeRef) {
   return slide;
 }
 
+/**
+ * Write one deck-wide setting.
+ *
+ * deck.settings also carries the instructor's custom theme, so this
+ * merges — replacing the object wholesale would silently drop a theme
+ * they built.
+ */
+function wireSlideSettings() {
+  const size = $('promptSize');
+  Object.entries(PROMPT_SCALES).forEach(([id, s2]) => {
+    const o = document.createElement('option');
+    o.value = id;
+    o.textContent = s2.name;
+    size.append(o);
+  });
+  size.value = deck.settings?.promptScale || DEFAULT_PROMPT_SCALE;
+  size.addEventListener('change', guard(() => setDeckSetting('promptScale', size.value)));
+
+  const label = $('showSlideLabel');
+  label.checked = showSlideLabel(deck);
+  label.addEventListener('change',
+    guard(() => setDeckSetting('showSlideLabel', label.checked)));
+}
+
+async function setDeckSetting(key, value) {
+  deck.settings = { ...(deck.settings || {}), [key]: value };
+  await updateDeck(deck.id, { settings: deck.settings });
+  renderRail();
+  renderCanvas();
+  touch();
+}
+
 async function applyDeckTheme(themeId, customTheme) {
   deck.theme = themeId;
   if (customTheme) deck.settings = { ...(deck.settings || {}), customTheme };
@@ -1101,6 +1178,9 @@ async function applyDeckTheme(themeId, customTheme) {
   buildThemeGrid();
   buildMyThemesGrid();
   buildBackgroundGrid();
+  // the new theme may resolve the backdrop differently, or refuse motion
+  // outright the way High Contrast does
+  describeAmbience();
   renderRail();
   renderCanvas();
   touch();
@@ -1350,6 +1430,13 @@ function wireBackgroundControls() {
   solid.value = deck.background?.kind === 'solid' ? deck.background.color : '#1e2a24';
   solid.addEventListener('input', () => setBackground({ kind: 'solid', color: solid.value }));
 
+  const motion = $('bgMotion');
+  motion.value = ambienceLevel(deck.background);
+  motion.addEventListener('change', () => {
+    setBackground({ ...(deck.background || { kind: 'theme' }), motion: motion.value });
+  });
+  describeAmbience();
+
   const drop = $('uploadDrop');
   const file = $('bgFile');
   drop.addEventListener('click', () => file.click());
@@ -1406,11 +1493,50 @@ async function handleUpload(file) {
   }
 }
 
+/**
+ * Say — in the panel, for the background actually chosen — what the
+ * ambience setting will do.
+ *
+ * The *character* of the motion isn't a choice; it's picked from the
+ * texture, because drifting blooms across a dot grid and panning a photo
+ * are not interchangeable. That's the right default, but a control whose
+ * effect you can't predict is worse than one more dropdown, so the panel
+ * names what this particular deck will get.
+ */
+function describeAmbience() {
+  const note = $('bgMotionNote');
+  const plan = ambiencePlan(deck.background, resolveTheme(deck.theme, deck));
+
+  if (prefersReducedMotion() && ambienceLevel(deck.background) !== 'off') {
+    note.textContent = 'Your system asks for reduced motion, so nothing will '
+      + 'move on this machine. The setting still travels with the deck.';
+    return;
+  }
+
+  note.textContent = {
+    none: getTheme(resolveTheme(deck.theme, deck)).highContrast
+      ? 'High Contrast never animates — it is an accessibility theme.'
+      : 'The backdrop holds still.',
+    bloom: 'Wide washes of colour drift and breathe across the backdrop, '
+      + 'so the hue in a corner is slowly not the hue it was.',
+    lattice: 'The pattern itself drifts a few pixels, back and forth, over a minute.',
+    image: 'A slow push-in across the photograph, two minutes end to end.',
+  }[plan.kind] || '';
+}
+
 async function setBackground(bg) {
-  deck.background = bg;
-  await updateDeck(deck.id, { background: bg });
-  $('imageControls').hidden = bg.kind !== 'image';
+  // Ambience rides on the background record, so picking a new backdrop
+  // must not silently switch the motion off — carry the current level
+  // across unless the caller is the one setting it.
+  const next = { ...bg };
+  if (next.motion === undefined) next.motion = ambienceLevel(deck.background);
+  if (next.motion === 'off') delete next.motion;
+
+  deck.background = next;
+  await updateDeck(deck.id, { background: next });
+  $('imageControls').hidden = next.kind !== 'image';
   buildBackgroundGrid();
+  describeAmbience();
   await refreshUploads();
   renderRail();
   renderCanvas();
@@ -1482,6 +1608,8 @@ function openTextView() {
       selectedId = questions[0]?.id || null;
       $('deckTitle').value = deck.title;
       buildThemeGrid(); buildBackgroundGrid();
+      $('bgMotion').value = ambienceLevel(deck.background);
+      describeAmbience();
       renderRail(); renderStage();
       backdrop.remove();
       toast('Deck updated');

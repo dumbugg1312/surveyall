@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="styles/fonts.css">
 <link rel="stylesheet" href="styles/base.css">
 <link rel="stylesheet" href="styles/app.css">
+<link rel="stylesheet" href="styles/ambience.css">
 </head>
 <body class="edit-body">
 
@@ -63,6 +64,20 @@
 
   <!-- ----------------------------------------------- design panel ---- -->
   <aside class="side" id="designPanel">
+
+    <!-- Deck-wide slide settings. These change what the room sees, so they
+         sit with Theme and Background rather than on any one slide. -->
+    <div class="panel">
+      <h3>Slides</h3>
+      <div class="field">
+        <label for="promptSize">Question size</label>
+        <select id="promptSize"></select>
+      </div>
+      <label class="checkline">
+        <input type="checkbox" id="showSlideLabel" checked>
+        Show “Word cloud · Question 1 of 8” above each question
+      </label>
+    </div>
 
     <div class="panel">
       <h3>Theme</h3>
@@ -122,6 +137,18 @@
         <label for="bgSolid">Solid colour</label>
         <input type="color" id="bgSolid" style="height:2.4rem;padding:.2rem">
       </div>
+
+      <div class="field">
+        <label for="bgMotion">Ambience</label>
+        <select id="bgMotion">
+          <option value="off">Off</option>
+          <option value="subtle">Subtle</option>
+          <option value="lively">Lively</option>
+        </select>
+      </div>
+      <!-- muted, not .privacy-note: that class hangs a padlock in the
+           margin, and this note is about decoration, not about data. -->
+      <p class="muted" id="bgMotionNote" style="font-size:.72rem;line-height:1.45"></p>
 
       <label class="upload-drop" id="uploadDrop">
         Drop an image here, or click to choose

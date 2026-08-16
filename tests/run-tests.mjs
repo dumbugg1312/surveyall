@@ -16,9 +16,11 @@ import {
   correctIndices, optionLabels, generateJoinCode, joinURL,
   neighbourQuestion, sortedQuestions, MULTI_SUBMIT_TYPES,
   splitPassage, promptKey, isContentSlide, fillJoinPlaceholders, DEFAULT_JOIN_STEPS,
-  questionNumber,
+  questionNumber, promptScale, showSlideLabel, QUESTION_TYPES, CONTENT_TYPES,
 } from '../app/logic.js';
+import { readFileSync } from 'node:fs';
 import { parseDeck, serialiseDeck, SAMPLE_DECK } from '../app/deck-format.js';
+import { ambiencePlan, ambienceLevel } from '../app/ambience.js';
 import {
   Spring, SpringGroup, PRESETS, stagger, easeOutExpo, easeOutCubic,
   toRGB, rgba, mixColor, luminance, readableOn, harmonicSeries,
@@ -761,6 +763,20 @@ join: false`);
     eq(questionNumber(deck, 'a').number, 0, 'a content slide has no number');
   });
 
+  it('reads deck-wide slide settings, defaulting to the old look', () => {
+    // absent settings must not restyle a deck somebody already built
+    eq(promptScale({}), 1);
+    eq(promptScale({ settings: {} }), 1);
+    ok(showSlideLabel({}));
+    ok(showSlideLabel({ settings: {} }));
+    // and an unknown value falls back rather than collapsing the type
+    eq(promptScale({ settings: { promptScale: 'enormous' } }), 1);
+
+    ok(promptScale({ settings: { promptScale: 'compact' } }) < 1);
+    ok(promptScale({ settings: { promptScale: 'large' } }) > 1);
+    notOk(showSlideLabel({ settings: { showSlideLabel: false } }));
+  });
+
   it('contributes no rows to a CSV export', () => {
     const questions = [
       { id: 'i', type: 'instructions', prompt: 'Join', position: 0, config: {} },
@@ -770,6 +786,47 @@ join: false`);
       [{ question_id: 'm', round: 1, pseudonym: 'Jade Kestrel', payload: { choices: [0] } }]);
     eq(rows.length, 1);
     eq(rows[0].question_type, 'Multiple choice');
+  });
+});
+
+// =====================================================================
+// A slide type has to be declared in three places: QUESTION_TYPES here,
+// the CHECK constraint in worker/schema.sql, and CONTENT_SLIDE_TYPES in
+// worker/index.js (which cannot import this file — it is bundled for a
+// different runtime). Nothing makes them agree.
+//
+// They disagreed once. `instructions` was added everywhere except the
+// CHECK, so the editor offered a slide type the database refused, the
+// insert failed with SQLITE_CONSTRAINT, and — because the click handler
+// swallowed the rejection — the button simply looked dead. It cost an
+// afternoon. These read the other two files as text, so the next mismatch
+// fails here instead of in front of a class.
+describe('slide types agree across the three places they are declared', () => {
+  const schema = readFileSync(new URL('../worker/schema.sql', import.meta.url), 'utf8');
+  const worker = readFileSync(new URL('../worker/index.js', import.meta.url), 'utf8');
+
+  it('the questions CHECK constraint lists exactly QUESTION_TYPES', () => {
+    const clause = schema.match(/check\s*\(type in\s*\(([\s\S]*?)\)\)/i);
+    ok(clause, 'could not find the type CHECK constraint in worker/schema.sql');
+    const inSchema = [...clause[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort();
+    eq(inSchema, [...QUESTION_TYPES].sort(),
+      'worker/schema.sql CHECK and QUESTION_TYPES have drifted — a type in one '
+      + 'but not the other is a slide the editor offers and the database rejects');
+  });
+
+  it('the Worker\'s content-slide list matches CONTENT_TYPES', () => {
+    const decl = worker.match(/CONTENT_SLIDE_TYPES\s*=\s*\[([^\]]*)\]/);
+    ok(decl, 'could not find CONTENT_SLIDE_TYPES in worker/index.js');
+    const inWorker = [...decl[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort();
+    eq(inWorker, [...CONTENT_TYPES].sort(),
+      'worker/index.js and CONTENT_TYPES have drifted — question numbering on '
+      + 'the phone would count content slides, or skip real questions');
+  });
+
+  it('every content type is also a known question type', () => {
+    for (const t of CONTENT_TYPES) {
+      ok(QUESTION_TYPES.includes(t), `${t} is a content type but not in QUESTION_TYPES`);
+    }
   });
 });
 
@@ -1380,6 +1437,118 @@ describe('new types stay FERPA-clean in the CSV', () => {
       'Sample 2 — tighter');
     eq(payloadToText('heatmap', { labels: ['claim'] }, { tags: { 0: 0 } }), 'S1=claim');
     eq(payloadToText('heatmap', {}, { picks: [0, 2] }), 'S1 | S3');
+  });
+});
+
+describe('ambience — decorative backdrop motion', () => {
+  const plan = (bg, theme = 'lecture-hall') => ambiencePlan(bg, theme);
+
+  it('is off unless a deck asks for it', () => {
+    eq(ambienceLevel(undefined), 'off');
+    eq(ambienceLevel({ kind: 'theme' }), 'off');
+    eq(ambienceLevel({ kind: 'theme', motion: 'nonsense' }), 'off');
+    eq(ambienceLevel({ kind: 'theme', motion: 'lively' }), 'lively');
+    eq(plan({ kind: 'theme' }).layers.length, 0);
+    eq(plan({ kind: 'theme' }).base, null);
+  });
+
+  it('never animates the High Contrast theme, whatever the deck says', () => {
+    const p = ambiencePlan({ kind: 'theme', motion: 'lively' }, 'high-contrast');
+    eq(p.level, 'off');
+    eq(p.layers.length, 0);
+    eq(p.base, null);
+  });
+
+  it('resolves {kind:theme} to the theme\'s own backdrop before choosing motion', () => {
+    // Neon Night ships grid-glow, a lattice; Midnight ships aurora, a wash.
+    eq(ambiencePlan({ kind: 'theme', motion: 'subtle' }, 'neon-night').kind, 'lattice');
+    eq(ambiencePlan({ kind: 'theme', motion: 'subtle' }, 'midnight').kind, 'bloom');
+  });
+
+  it('drifts a lattice in pixels, scaled to its own cell', () => {
+    const p = plan({ kind: 'preset', id: 'grid', motion: 'subtle' });
+    eq(p.kind, 'lattice');
+    eq(p.layers.length, 0);
+    ok(/px$/.test(p.base.x), `expected a pixel travel, got ${p.base.x}`);
+    // one graph-paper cell is 38px; the drift must stay a fraction of it
+    // or the pattern reads as scrolling rather than breathing
+    ok(parseFloat(p.base.x) < 38 * 0.25, `travel ${p.base.x} is too much of a cell`);
+    eq(p.base.scale, [1, 1]);
+  });
+
+  it('blooms over washes, solids and bare grounds', () => {
+    for (const bg of [
+      { kind: 'preset', id: 'aurora', motion: 'subtle' },
+      { kind: 'solid', color: '#123456', motion: 'subtle' },
+      { kind: 'none', motion: 'subtle' },
+    ]) {
+      const p = plan(bg);
+      eq(p.kind, 'bloom');
+      eq(p.base, null);
+      eq(p.layers.length, 3);
+      ok(p.layers.every((l) => l.image.includes('radial-gradient')), 'blooms are radials');
+    }
+  });
+
+  it('gives every bloom layer a co-prime period, so the set never re-syncs', () => {
+    const p = plan({ kind: 'preset', id: 'aurora', motion: 'subtle' });
+    const periods = p.layers.flatMap((l) => [l.driftDuration, l.breatheDuration]);
+    eq(new Set(periods).size, periods.length);
+    // and drift never equals breathe on the same layer, or that layer
+    // returns to an exact earlier state every cycle
+    p.layers.forEach((l) => ok(l.driftDuration !== l.breatheDuration, 'periods differ'));
+  });
+
+  it('starts a blurred photo past the blur\'s own scale-up', () => {
+    // backgroundStyles() already pushes a blurred image to 1.06 so the
+    // smeared edge sits off screen; a Ken Burns that started below that
+    // would feather the edge into the room
+    const blurred = plan({ kind: 'image', url: 'x.jpg', blur: 12, motion: 'subtle' });
+    eq(blurred.kind, 'image');
+    ok(blurred.base.scale[0] >= 1.06, `starts at ${blurred.base.scale[0]}`);
+    ok(blurred.base.scale[1] > blurred.base.scale[0], 'it has to move');
+
+    const sharp = plan({ kind: 'image', url: 'x.jpg', motion: 'subtle' });
+    eq(sharp.base.scale[0], 1);
+  });
+
+  it('makes lively travel further and cycle faster than subtle', () => {
+    const s = plan({ kind: 'preset', id: 'dots', motion: 'subtle' }).base;
+    const l = plan({ kind: 'preset', id: 'dots', motion: 'lively' }).base;
+    ok(parseFloat(l.x) > parseFloat(s.x), 'lively travels further');
+    ok(l.duration < s.duration, 'lively cycles faster');
+  });
+
+  it('keeps bloom alpha inside the range the static presets already use', () => {
+    for (const theme of ['midnight', 'lecture-hall']) {
+      const p = ambiencePlan({ kind: 'preset', id: 'aurora', motion: 'lively' }, theme);
+      p.layers.forEach((l) => {
+        const a = Number(/rgba\([^)]*,\s*([\d.]+)\)/.exec(l.image)[1]);
+        ok(a > 0 && a <= 0.34, `alpha ${a} on ${theme} is out of range`);
+      });
+    }
+  });
+});
+
+describe('ambience round-trips the plain-text deck format', () => {
+  it('reads and writes an ambience line independent of the background', () => {
+    const d = parseDeck('# Deck\ntheme: midnight\nambience: lively\n\n## poll\nQ?\n- a\n- b\n');
+    eq(d.background.kind, 'theme');
+    eq(d.background.motion, 'lively');
+    ok(serialiseDeck(d, d.questions).includes('ambience: lively'));
+  });
+
+  it('merges with the background line whichever order they arrive in', () => {
+    const before = parseDeck('# D\nambience: subtle\nbackground: aurora\n');
+    eq(before.background, { kind: 'preset', id: 'aurora', motion: 'subtle' });
+    const after = parseDeck('# D\nbackground: aurora\nambience: subtle\n');
+    eq(after.background, { kind: 'preset', id: 'aurora', motion: 'subtle' });
+  });
+
+  it('treats "off" as absent rather than as a stored level', () => {
+    const d = parseDeck('# D\nbackground: aurora\nambience: off\n');
+    eq(d.background.motion, undefined);
+    ok(!serialiseDeck(d, []).includes('ambience'));
   });
 });
 

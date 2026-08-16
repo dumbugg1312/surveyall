@@ -21,6 +21,7 @@ import {
   TYPE_LABELS, optionLabels, DEFAULT_JOIN_STEPS, fillJoinPlaceholders,
 } from './logic.js';
 import { getTheme, applyTheme, backgroundStyles, scrimOpacity } from './themes.js';
+import { ambiencePlan, applyAmbience } from './ambience.js';
 
 /** Deterministic bar lengths — a sketch must not jitter on every repaint. */
 const BAR_WIDTHS = [88, 61, 44, 30, 22, 16];
@@ -46,11 +47,12 @@ function short(s, max = 34) {
  * @param {object} q            question row (may be a bare {type} for the gallery)
  * @param {object} deck         the deck, for background + custom theme
  * @param {string|object} themeRef  resolved theme reference
- * @param {{kicker?: string, placeholder?: boolean,
+ * @param {{kicker?: string, placeholder?: boolean, ambience?: boolean,
  *          join?: {code?: string, qrSVG?: string}}} opts
  *        `join` carries the deck's real code and an encoded QR. A deck owns
  *        its code from creation, so the editor draws the same scannable
  *        thing the room will see — no placeholder, no "it'll be real later".
+ *        `ambience` opts this preview into the deck's backdrop motion.
  */
 export function renderSlide(host, q, deck, themeRef, opts = {}) {
   host.textContent = '';
@@ -63,6 +65,10 @@ export function renderSlide(host, q, deck, themeRef, opts = {}) {
 
   const backdrop = el('div', 'sp-backdrop');
   Object.assign(backdrop.style, backgroundStyles(deck?.background, themeRef));
+  // Only the one big preview animates. The rail draws a thumbnail per
+  // slide and the gallery a tile per type, and forty drifting miniatures
+  // would be both a distraction and a real GPU bill for no information.
+  if (opts.ambience) applyAmbience(backdrop, ambiencePlan(deck?.background, themeRef));
   const scrim = el('div', 'sp-scrim');
   scrim.style.background = theme.tokens['--ground'];
   scrim.style.opacity = String(scrimOpacity(deck?.background));

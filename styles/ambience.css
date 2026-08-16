@@ -1,0 +1,97 @@
+/* =====================================================================
+   SurveyAll — ambience.
+   Decorative backdrop motion. See app/ambience.js for why this is CSS
+   keyframes and not the spring engine.
+
+   Everything below animates ONLY transform and opacity, which the
+   browser can run on the compositor without touching the main thread.
+   That is a hard rule, not a preference: the main thread belongs to the
+   charts, and a background that steals frames from a bar chart is worse
+   than no background at all. Nothing here may animate background-position,
+   filter, or any property that forces layout or paint.
+   ===================================================================== */
+
+/* Ping-pong between two extremes rather than looping start→end. A hard
+   loop has a cut in it, and a cut is the thing that reads as cheap; an
+   alternating ease has no seam to find at any amplitude or duration. */
+@keyframes amb-drift {
+  from {
+    transform: translate3d(calc(var(--amb-x, 0px) * -1), calc(var(--amb-y, 0px) * -1), 0)
+               scale(var(--amb-s0, 1));
+  }
+  to {
+    transform: translate3d(var(--amb-x, 0px), var(--amb-y, 0px), 0)
+               scale(var(--amb-s1, 1));
+  }
+}
+
+@keyframes amb-breathe {
+  from { opacity: var(--amb-o0, .7); }
+  to   { opacity: var(--amb-o1, 1); }
+}
+
+/* The backdrop fades in on mount so switching ambience on — or arriving
+   on a slide — doesn't pop a second image into the room. */
+@keyframes amb-arrive {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* --------------------------------------------------------------- base */
+
+/* Applied to the existing backdrop element itself (lattice drift, Ken
+   Burns). The element is grown past its own edges first: translating an
+   inset:0 layer would otherwise drag a bare strip of --ground in behind
+   it on the trailing side. */
+.stage-backdrop.is-drifting,
+.sp-backdrop.is-drifting {
+  inset: -3%;
+  animation: amb-drift var(--amb-drift-dur, 73s) ease-in-out infinite alternate;
+}
+
+/* -------------------------------------------------------------- stack */
+
+.amb-stack {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  animation: amb-arrive 1.6s ease-out both;
+}
+
+.amb-layer {
+  position: absolute;
+  /* Oversized for the same reason as the base, and by more: these carry
+     the drift AND a scale-up, so the far corner of the travel has to
+     stay outside the frame. */
+  inset: -12%;
+  background-repeat: no-repeat;
+  background-position: center;
+  animation:
+    amb-drift var(--amb-drift-dur, 71s) ease-in-out infinite alternate,
+    amb-breathe var(--amb-breathe-dur, 43s) ease-in-out infinite alternate;
+}
+
+/* Stagger the start so three layers don't set off together on first
+   paint and spend the first minute in lockstep before their co-prime
+   periods pull them apart. Negative delays start each one already
+   part-way through its cycle. */
+.amb-layer:nth-child(2) { animation-delay: -19s, -7s; }
+.amb-layer:nth-child(3) { animation-delay: -41s, -23s; }
+
+/* ------------------------------------------------------- reduced motion */
+
+/* app/ambience.js already refuses to mount any of this when the OS asks
+   for reduced motion. This is the second lock: the preference can change
+   while a deck is being projected, and a media query re-evaluates live
+   where a JS check made at mount time does not. */
+@media (prefers-reduced-motion: reduce) {
+  .stage-backdrop.is-drifting,
+  .sp-backdrop.is-drifting,
+  .amb-stack,
+  .amb-layer {
+    animation: none !important;
+  }
+  .stage-backdrop.is-drifting,
+  .sp-backdrop.is-drifting { inset: 0; }
+}

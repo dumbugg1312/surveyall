@@ -17,11 +17,12 @@ import {
   aggregate, computeDelta, quizLeaderboard, sortedQuestions,
   neighbourQuestion, joinURL, TYPE_LABELS, correctIndices, optionLabels,
   promptKey, isContentSlide, fillJoinPlaceholders, DEFAULT_JOIN_STEPS,
-  questionNumber,
+  questionNumber, promptScale, showSlideLabel,
 } from './logic.js';
 import {
   applyTheme, backgroundStyles, scrimOpacity, resolveTheme,
 } from './themes.js';
+import { ambiencePlan, applyAmbience } from './ambience.js';
 import {
   renderAggregate, renderDelta, renderLeaderboard, renderInstructions,
   celebrate, pulseCount,
@@ -90,6 +91,10 @@ async function boot() {
 
   applyTheme(document.documentElement,
     resolveTheme(state.session.theme || state.deck.theme, state.deck));
+  // Deck-wide slide settings, applied once: the question's size, and
+  // whether the room is told which slide it is looking at.
+  document.documentElement.style.setProperty('--prompt-scale',
+    String(promptScale(state.deck)));
   paintBackground();
   // awaited: an instructions slide stamps the encoded QR straight into the
   // slide, so it has to exist before the first render, not one frame later
@@ -129,6 +134,11 @@ function paintBackground() {
   const styles = backgroundStyles(state.deck.background, theme);
   Object.assign(ui.backdrop.style, styles);
   ui.scrim.style.opacity = String(scrimOpacity(state.deck.background));
+  // Purely decorative drift, on the compositor, below the scrim. Safe to
+  // re-apply on every repaint: it reuses its layers rather than
+  // restarting them, so a theme change re-tints mid-cycle instead of
+  // snapping the whole backdrop back to frame zero.
+  applyAmbience(ui.backdrop, ambiencePlan(state.deck.background, theme));
 }
 
 async function paintJoin() {
@@ -215,6 +225,7 @@ async function render() {
   const content = isContentSlide(q.type);
   const n = questionNumber(state.questions, q.id);
   ui.stage.classList.toggle('is-content-slide', content);
+  ui.kicker.hidden = !showSlideLabel(state.deck);
   ui.kicker.textContent = content
     ? `Slide ${(q.position ?? 0) + 1} of ${state.questions.length}`
     : `${TYPE_LABELS[q.type] || q.type} · Question ${n.number} of ${n.total}`
@@ -470,7 +481,7 @@ function wireCardDeletes(agg) {
   ui.chart.querySelectorAll('.answer-delete').forEach((btn) => {
     if (btn.dataset.wired) return;
     btn.dataset.wired = '1';
-    btn.addEventListener('click', async (e) => {
+    btn.addEventListener('click', ctrl(async (e) => {
       const card = e.target.closest('.answer-card');
       const idx = Number(card?.dataset.index);
       const text = agg.entries?.[idx]?.text;
@@ -479,7 +490,7 @@ function wireCardDeletes(agg) {
       await deleteResponse(row.id);
       state.rows = state.rows.filter((r) => r.id !== row.id);
       paintChart();
-    });
+    }));
   });
 }
 
@@ -604,13 +615,13 @@ function paintCloudCuration(q, agg) {
     chip.id = 'curateChip';
     chip.className = 'curate-chip';
     chip.title = 'Curation is visible: click to undo all merges and hides';
-    chip.addEventListener('click', async () => {
+    chip.addEventListener('click', ctrl(async () => {
       if (!window.confirm('Undo all merges and un-hide all words?')) return;
       const config = { ...state.question.config };
       delete config.word_merges;
       delete config.word_hidden;
       await saveQuestionConfig(config);
-    });
+    }));
     ui.foot.append(chip);
   }
   chip.hidden = !(merged || hidden);
@@ -663,13 +674,13 @@ function showCurateMenu(word) {
   hideBtn.type = 'button';
   hideBtn.className = 'hold-chip';
   hideBtn.textContent = 'Hide';
-  hideBtn.addEventListener('click', async () => {
+  hideBtn.addEventListener('click', ctrl(async () => {
     curateSelection = null;
     clearCurateMenu();
     const config = { ...state.question.config };
     config.word_hidden = [...new Set([...(config.word_hidden || []), word])];
     await saveQuestionConfig(config);
-  });
+  }));
   const mergeNote = document.createElement('span');
   mergeNote.className = 'hold-note';
   mergeNote.textContent = 'or tap another word to merge into it';
@@ -1087,9 +1098,38 @@ function btn(label, cls, fn) {
 // Wiring
 // =====================================================================
 
+/**
+ * Wrap a presenter control so a failure reaches the front of the room.
+ *
+ * go(), patch() and every teaching control are async, and an `async`
+ * listener returns a promise nobody awaits — so a dropped connection or a
+ * rejected write became an unhandled rejection and the button just stopped
+ * working. Mid-lecture that reads as "the projector is broken", with
+ * nothing on screen to say otherwise and no reason to suspect the network.
+ * flash() is already the presenter's transient-message channel; use it.
+ */
+function ctrl(fn) {
+  return (...args) => {
+    try {
+      const out = fn(...args);
+      if (out && typeof out.then === 'function') {
+        out.catch((e) => {
+          console.error(e);
+          flash(e?.message || 'That didn\'t go through — check your connection');
+        });
+      }
+      return out;
+    } catch (e) {
+      console.error(e);
+      flash(e?.message || 'That didn\'t go through — check your connection');
+      return undefined;
+    }
+  };
+}
+
 function wireControls() {
-  $('btnPrev').addEventListener('click', () => go(-1));
-  $('btnNext').addEventListener('click', () => go(1));
+  $('btnPrev').addEventListener('click', ctrl(() => go(-1)));
+  $('btnNext').addEventListener('click', ctrl(() => go(1)));
 
   // Only Previous and Next are on the projector by default. The rest of
   // the teaching controls, and the keyboard crib sheet, open on a click
@@ -1099,13 +1139,13 @@ function wireControls() {
     const open = ui.stage.classList.toggle('is-controls-open');
     $('btnMore').setAttribute('aria-expanded', open ? 'true' : 'false');
   });
-  $('btnHide').addEventListener('click', toggleReveal);
-  $('btnClose').addEventListener('click', toggleAccepting);
-  $('btnTimer').addEventListener('click', toggleTimer);
-  $('btnDiscuss').addEventListener('click', discussStep);
-  $('btnReask').addEventListener('click', reask);
+  $('btnHide').addEventListener('click', ctrl(toggleReveal));
+  $('btnClose').addEventListener('click', ctrl(toggleAccepting));
+  $('btnTimer').addEventListener('click', ctrl(toggleTimer));
+  $('btnDiscuss').addEventListener('click', ctrl(discussStep));
+  $('btnReask').addEventListener('click', ctrl(reask));
   $('btnFull').addEventListener('click', toggleFullscreen);
-  $('btnEnd').addEventListener('click', endSession);
+  $('btnEnd').addEventListener('click', ctrl(endSession));
 
   $('btnDelta').addEventListener('click', () => {
     state.view = state.view === 'delta' ? 'results' : 'delta';
@@ -1115,10 +1155,10 @@ function wireControls() {
     state.view = state.view === 'leaderboard' ? 'results' : 'leaderboard';
     paintControlStates(); paintChart();
   });
-  $('btnShare').addEventListener('click', async () => {
+  $('btnShare').addEventListener('click', ctrl(async () => {
     await patch({ show_on_devices: !state.session.show_on_devices });
     flash(state.session.show_on_devices ? 'Results on phones' : 'Results on screen only');
-  });
+  }));
   $('btnQA').addEventListener('click', () => {
     const open = ui.qaPanel.classList.toggle('is-open');
     $('btnQA').setAttribute('aria-expanded', open ? 'true' : 'false');
@@ -1144,17 +1184,23 @@ function closeQAPanel() {
 }
 
 function wireKeyboard() {
-  window.addEventListener('keydown', (e) => {
-    if (e.target.matches('input, textarea')) return;
+  // The keys, not the buttons, are how a class actually gets advanced —
+  // so they go through ctrl() too. Without it, arrowing forward on a flaky
+  // lecture-hall connection fails silently, which is the single worst
+  // place in this app for something to fail silently.
+  window.addEventListener('keydown', ctrl((e) => {
+    if (e.target.matches('input, textarea')) return undefined;
     const k = e.key.toLowerCase();
 
-    if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); go(1); }
-    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); go(-1); }
-    else if (k === 'h') toggleReveal();
-    else if (k === 'c') toggleAccepting();
-    else if (k === 'p') discussStep();
-    else if (k === 'r') reask();
-    else if (k === 't') toggleTimer();
+    if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); return go(1); }
+    if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); return go(-1); }
+    if (k === 'h') return toggleReveal();
+    if (k === 'c') return toggleAccepting();
+    if (k === 'p') return discussStep();
+    if (k === 'r') return reask();
+    if (k === 'x') return resetQuestion();
+
+    if (k === 't') toggleTimer();
     else if (k === 'd') $('btnDelta').click();
     else if (k === 'l') $('btnBoard').click();
     else if (k === 'q') $('btnQA').click();
@@ -1163,11 +1209,11 @@ function wireKeyboard() {
       ui.joinCorner.classList.toggle('is-hidden', !state.showCorner);
     }
     else if (k === 'f') toggleFullscreen();
-    else if (k === 'x') resetQuestion();
     else if (e.key === '?') $('btnMore').click(); // the crib sheet IS the buttons
     else if (e.key === 'Escape') closeQAPanel();
     else if (/^[1-9]$/.test(e.key)) startTimer(Number(e.key) * 10);
-  });
+    return undefined;
+  }));
 }
 
 function toggleFullscreen() {
