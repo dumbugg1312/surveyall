@@ -28,8 +28,8 @@ export const THEMES = {
       '--accent-2': '#b45309',
       '--good': '#15803d',
       '--bad': '#b91c1c',
-      '--display': "'Iowan Old Style','Palatino Linotype','Book Antiqua',Palatino,Georgia,serif",
-      '--body': "'Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+      '--display': "'Fraunces','Iowan Old Style','Palatino Linotype','Book Antiqua',Palatino,Georgia,serif",
+      '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
       '--bar-radius': '6px',
     },
     background: { kind: 'preset', id: 'paper-warm' },
@@ -50,8 +50,8 @@ export const THEMES = {
       '--accent-2': '#7fd1a3',
       '--good': '#7fd1a3',
       '--bad': '#ff9b8a',
-      '--display': "'Bradley Hand','Segoe Print','Comic Sans MS',cursive",
-      '--body': "'Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+      '--display': "'Caveat','Bradley Hand','Segoe Print','Comic Sans MS',cursive",
+      '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
       '--bar-radius': '4px',
     },
     background: { kind: 'preset', id: 'slate' },
@@ -72,8 +72,8 @@ export const THEMES = {
       '--accent-2': '#7c3aed',
       '--good': '#059669',
       '--bad': '#dc2626',
-      '--display': "'Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
-      '--body': "'Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+      '--display': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+      '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
       '--bar-radius': '4px',
     },
     background: { kind: 'preset', id: 'none' },
@@ -94,8 +94,8 @@ export const THEMES = {
       '--accent-2': '#f472b6',
       '--good': '#4ade80',
       '--bad': '#fb7185',
-      '--display': "'Avenir Next Condensed','Helvetica Neue',Impact,sans-serif",
-      '--body': "'Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+      '--display': "'Oswald','Avenir Next Condensed','Helvetica Neue',Impact,sans-serif",
+      '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
       '--bar-radius': '2px',
     },
     background: { kind: 'preset', id: 'grid-glow' },
@@ -116,8 +116,8 @@ export const THEMES = {
       '--accent-2': '#a8632c',
       '--good': '#2f6d4f',
       '--bad': '#b4472e',
-      '--display': "'Optima','Gill Sans','Gill Sans MT',Candara,sans-serif",
-      '--body': "'Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+      '--display': "'Optima','Gill Sans','Gill Sans MT','Fraunces',serif",
+      '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
       '--bar-radius': '999px',
     },
     background: { kind: 'preset', id: 'topo' },
@@ -138,7 +138,7 @@ export const THEMES = {
       '--accent-2': '#2f5d7c',
       '--good': '#3f6b3a',
       '--bad': '#8c2f28',
-      '--display': "'Hoefler Text','Baskerville','Times New Roman',serif",
+      '--display': "'Fraunces','Hoefler Text','Baskerville','Times New Roman',serif",
       '--body': "'Charter','Georgia',serif",
       '--bar-radius': '0px',
     },
@@ -160,8 +160,8 @@ export const THEMES = {
       '--accent-2': '#818cf8',
       '--good': '#34d399',
       '--bad': '#fb7185',
-      '--display': "'Futura','Century Gothic','Avenir Next',sans-serif",
-      '--body': "'Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+      '--display': "'Oswald','Futura','Century Gothic','Avenir Next',sans-serif",
+      '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
       '--bar-radius': '8px',
     },
     background: { kind: 'preset', id: 'aurora' },
@@ -183,11 +183,99 @@ export const THEMES = {
       '--accent-2': '#7a0000',
       '--good': '#006600',
       '--bad': '#a30000',
-      '--display': "'Inter var',Arial,Helvetica,sans-serif",
-      '--body': "'Inter var',Arial,Helvetica,sans-serif",
+      '--display': "'Inter','Inter var',Arial,Helvetica,sans-serif",
+      '--body': "'Inter','Inter var',Arial,Helvetica,sans-serif",
       '--bar-radius': '0px',
     },
     background: { kind: 'preset', id: 'none' },
+  },
+
+  'citrus-studio': {
+    name: 'Citrus Studio',
+    blurb: 'Tangerine and lime on warm white. Loud enough to wake an 8am section.',
+    dark: false,
+    tokens: {
+      '--ink': '#2b2118',
+      '--ink-soft': '#6f5f4e',
+      '--ground': '#fff8ef',
+      '--surface': '#ffffff',
+      '--edge': '#f0e2cd',
+      '--accent': '#e8590c',
+      '--accent-soft': '#ffe8d9',
+      '--accent-2': '#74b816',
+      '--good': '#2f9e44',
+      '--bad': '#d6336c',
+      '--display': "'Oswald','Avenir Next Condensed','Helvetica Neue',sans-serif",
+      '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+      '--bar-radius': '10px',
+    },
+    background: { kind: 'preset', id: 'gradient-sunrise' },
+  },
+
+  riviera: {
+    name: 'Riviera',
+    blurb: 'Sea teal and coral, an elegant serif. Sunny without being silly.',
+    dark: false,
+    tokens: {
+      '--ink': '#0f3433',
+      '--ink-soft': '#4e7472',
+      '--ground': '#eef7f6',
+      '--surface': '#ffffff',
+      '--edge': '#d3e7e4',
+      '--accent': '#0c8599',
+      '--accent-soft': '#d2f0f2',
+      '--accent-2': '#f76707',
+      '--good': '#2f9e44',
+      '--bad': '#e03131',
+      '--display': "'Fraunces','Iowan Old Style',Palatino,Georgia,serif",
+      '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+      '--bar-radius': '8px',
+    },
+    background: { kind: 'preset', id: 'gradient-dusk' },
+  },
+
+  sorbet: {
+    name: 'Sorbet',
+    blurb: 'Raspberry and apricot with a hand-written headline. Fun, still readable.',
+    dark: false,
+    tokens: {
+      '--ink': '#3d1f33',
+      '--ink-soft': '#7d5570',
+      '--ground': '#fdf2f6',
+      '--surface': '#ffffff',
+      '--edge': '#f3d9e5',
+      '--accent': '#c2255c',
+      '--accent-soft': '#ffdeeb',
+      '--accent-2': '#f08c00',
+      '--good': '#099268',
+      '--bad': '#c92a2a',
+      '--display': "'Caveat','Bradley Hand','Segoe Print',cursive",
+      '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+      '--bar-radius': '12px',
+    },
+    background: { kind: 'preset', id: 'confetti' },
+  },
+
+  arcade: {
+    name: 'Arcade',
+    blurb: 'Deep violet with lime and magenta. Quiz night energy, dark-room friendly.',
+    dark: true,
+    tokens: {
+      '--ink': '#f2eeff',
+      '--ink-soft': '#a79fc9',
+      '--ground': '#12101f',
+      '--surface': '#1c1930',
+      '--edge': '#322c52',
+      '--accent': '#82c91e',
+      '--accent-soft': '#2b3a12',
+      '--accent-2': '#e64980',
+      '--good': '#51cf66',
+      '--bad': '#ff6b6b',
+      '--display': "'Oswald','Avenir Next Condensed','Helvetica Neue',sans-serif",
+      '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+      '--bar-radius': '4px',
+    },
+    background: { kind: 'preset', id: 'grid-glow' },
   },
 };
 
@@ -229,7 +317,8 @@ export const BACKGROUND_PRESETS = {
   aurora: {
     name: 'Aurora',
     css: (t) => `radial-gradient(ellipse 80% 50% at 20% 0%, ${hexA(t['--accent-2'], 0.22)}, transparent 60%),
-                 radial-gradient(ellipse 70% 60% at 85% 30%, ${hexA(t['--accent'], 0.16)}, transparent 60%)`,
+                 radial-gradient(ellipse 70% 60% at 85% 30%, ${hexA(t['--accent'], 0.16)}, transparent 60%),
+                 radial-gradient(ellipse 60% 45% at 55% 105%, ${hexA(t['--good'], 0.10)}, transparent 65%)`,
   },
   dots: {
     name: 'Dot grid',
@@ -246,8 +335,9 @@ export const BACKGROUND_PRESETS = {
     name: 'Glow grid',
     css: (t) => `linear-gradient(${hexA(t['--accent'], 0.10)} 1px, transparent 1px),
                  linear-gradient(90deg, ${hexA(t['--accent'], 0.10)} 1px, transparent 1px),
+                 linear-gradient(180deg, transparent 55%, ${hexA(t['--accent'], 0.06)} 100%),
                  radial-gradient(ellipse at 50% 120%, ${hexA(t['--accent'], 0.18)}, transparent 60%)`,
-    size: '44px 44px, 44px 44px, 100% 100%',
+    size: '44px 44px, 44px 44px, 100% 100%, 100% 100%',
   },
   topo: {
     name: 'Contour',
@@ -277,7 +367,28 @@ export function hexA(hex, alpha) {
 }
 
 export function getTheme(id) {
+  // a resolved custom theme object passes straight through, so every
+  // consumer (applyTheme, backgroundStyles, previews) works unchanged
+  if (id && typeof id === 'object' && id.tokens) return id;
   return THEMES[id] || THEMES[DEFAULT_THEME];
+}
+
+/**
+ * Resolve a deck's theme reference into something getTheme understands.
+ * 'custom' means "the theme saved on this deck" (deck.settings.customTheme,
+ * created by the My Themes builder); anything else is a built-in id.
+ * Falls back to the default theme if a deck says 'custom' but carries no
+ * usable tokens (e.g. hand-edited data).
+ */
+export function resolveTheme(themeId, deck) {
+  if (themeId === 'custom') {
+    const c = deck?.settings?.customTheme;
+    if (c && c.tokens && typeof c.tokens === 'object') {
+      return { id: 'custom', name: c.name || 'My theme', dark: !!c.dark, tokens: c.tokens, background: c.background || { kind: 'none' } };
+    }
+    return THEMES[DEFAULT_THEME];
+  }
+  return themeId;
 }
 
 export function themeList() {
@@ -287,12 +398,13 @@ export function themeList() {
 /**
  * Apply a theme's tokens to an element (usually documentElement).
  * Also stamps data-theme-dark so components can branch on luminance.
+ * Accepts a built-in id or a resolved custom theme object.
  */
 export function applyTheme(el, themeId) {
   const theme = getTheme(themeId);
   for (const [k, v] of Object.entries(theme.tokens)) el.style.setProperty(k, v);
   el.dataset.themeDark = theme.dark ? 'true' : 'false';
-  el.dataset.themeId = THEMES[themeId] ? themeId : DEFAULT_THEME;
+  el.dataset.themeId = THEMES[themeId] ? themeId : (theme.id === 'custom' ? 'custom' : DEFAULT_THEME);
   return theme;
 }
 
@@ -362,3 +474,95 @@ export const CHART_STYLES = {
   donut: 'Donut',
   dots: 'Dot plot',
 };
+
+// =====================================================================
+// My Themes — the custom theme builder (proposal: Mentimeter parity).
+//
+// The instructor picks four colours, a headline face, a corner shape and
+// a backdrop; everything else is DERIVED so the result is always a
+// coherent 13-token theme — surfaces, edges, soft tints and status
+// colours are computed from the picks rather than asked for. The result
+// is stored on the deck (settings.customTheme), so the projector, the
+// results archive and every student phone render it from any machine.
+// =====================================================================
+
+import { mixColor, luminance } from './motion.js';
+
+/** Headline face choices — every option ships in fonts/, so a custom
+ *  theme looks identical on the lectern and the laptop. */
+export const CUSTOM_FONTS = {
+  fraunces: { name: 'Bookish serif', css: "'Fraunces','Iowan Old Style',Palatino,Georgia,serif" },
+  oswald: { name: 'Bold condensed', css: "'Oswald','Avenir Next Condensed','Helvetica Neue',sans-serif" },
+  caveat: { name: 'Hand-written', css: "'Caveat','Bradley Hand','Segoe Print',cursive" },
+  inter: { name: 'Clean sans', css: "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" },
+};
+
+export const CUSTOM_RADII = {
+  square: { name: 'Square', css: '0px' },
+  soft: { name: 'Soft', css: '6px' },
+  round: { name: 'Round', css: '12px' },
+  pill: { name: 'Pill', css: '999px' },
+};
+
+const BODY_STACK = "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif";
+
+/** 'rgb(12, 34, 56)' or '#abc' → '#0c2238' (hexA() only reads hex). */
+function toHex(color) {
+  const s = String(color).trim();
+  if (s.startsWith('#')) {
+    return s.length === 4 ? `#${[...s.slice(1)].map((c) => c + c).join('')}` : s;
+  }
+  const m = s.match(/rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/);
+  if (!m) return '#888888';
+  return `#${[m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, '0')).join('')}`;
+}
+
+const mixHex = (a, b, t) => toHex(mixColor(a, b, t));
+
+/** WCAG contrast ratio between two colours. */
+export function contrastRatio(a, b) {
+  const la = luminance(a);
+  const lb = luminance(b);
+  const [hi, lo] = la > lb ? [la, lb] : [lb, la];
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/**
+ * Derive a full theme from the builder's picks.
+ * @param {object} p {name, ground, ink, accent, accent2, font, radius, backdrop}
+ *   ground/ink/accent/accent2 are hex strings; font is a CUSTOM_FONTS key;
+ *   radius a CUSTOM_RADII key; backdrop a BACKGROUND_PRESETS key or 'none'.
+ */
+export function buildCustomTheme(p) {
+  const ground = toHex(p.ground || '#f7f4ee');
+  const ink = toHex(p.ink || '#1c2434');
+  const accent = toHex(p.accent || '#1d4ed8');
+  const accent2 = toHex(p.accent2 || '#b45309');
+  const dark = luminance(ground) < 0.4;
+
+  return {
+    id: p.id || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())),
+    name: (p.name || 'My theme').slice(0, 40),
+    dark,
+    tokens: {
+      '--ink': ink,
+      '--ink-soft': mixHex(ink, ground, 0.35),
+      '--ground': ground,
+      '--surface': mixHex(ground, dark ? '#ffffff' : '#ffffff', dark ? 0.05 : 0.6),
+      '--edge': dark ? mixHex(ground, '#ffffff', 0.12) : mixHex(ground, ink, 0.12),
+      '--accent': accent,
+      '--accent-soft': mixHex(accent, ground, dark ? 0.72 : 0.82),
+      '--accent-2': accent2,
+      '--good': dark ? '#51cf66' : '#15803d',
+      '--bad': dark ? '#ff6b6b' : '#b91c1c',
+      '--display': (CUSTOM_FONTS[p.font] || CUSTOM_FONTS.inter).css,
+      '--body': BODY_STACK,
+      '--bar-radius': (CUSTOM_RADII[p.radius] || CUSTOM_RADII.soft).css,
+    },
+    background: p.backdrop && p.backdrop !== 'none'
+      ? { kind: 'preset', id: p.backdrop }
+      : { kind: 'none' },
+    // remember the picks so "edit" reopens the builder where it left off
+    picks: { ground, ink, accent, accent2, font: p.font || 'inter', radius: p.radius || 'soft', backdrop: p.backdrop || 'none' },
+  };
+}

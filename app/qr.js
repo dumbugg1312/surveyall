@@ -1,10 +1,13 @@
 /**
  * SurveyAll — QR rendering.
  *
- * Uses the well-tested `qrcode-generator` package from a CDN rather than a
+ * Uses the well-tested `qrcode-generator` package rather than a
  * hand-rolled encoder: a subtly wrong QR code is a silent failure that
- * you'd only discover in front of a class. If the CDN is unreachable the
- * caller falls back to the printed join code, which always works.
+ * you'd only discover in front of a class. The library is vendored into
+ * app/vendor/ (MIT) — it used to load from esm.sh at runtime, which made
+ * the lobby QR quietly disappear whenever the CDN or the room's internet
+ * hiccuped. The dynamic import and failure path remain so a broken file
+ * still degrades to the printed join code rather than a broken page.
  */
 
 let qrcodeLib = null;
@@ -14,7 +17,7 @@ async function loadLib() {
   if (qrcodeLib) return qrcodeLib;
   if (loadFailed) return null;
   try {
-    const mod = await import('https://esm.sh/qrcode-generator@1.4.4');
+    const mod = await import('./vendor/qrcode-generator.js');
     qrcodeLib = mod.default || mod;
     return qrcodeLib;
   } catch {

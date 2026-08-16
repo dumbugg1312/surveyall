@@ -12,10 +12,12 @@ import {
   replaceQuestions, createSession,
   uploadBackground, listBackgrounds, deleteBackground,
 } from './db.js';
-import { TYPE_LABELS } from './logic.js';
+import { TYPE_LABELS, splitPassage } from './logic.js';
+import { TEMPLATES } from './templates.js';
 import {
   THEMES, BACKGROUND_PRESETS, getTheme, applyTheme,
   backgroundStyles, scrimOpacity, CHART_STYLES,
+  resolveTheme, buildCustomTheme, CUSTOM_FONTS, CUSTOM_RADII, contrastRatio,
 } from './themes.js';
 import { parseDeck, serialiseDeck } from './deck-format.js';
 
@@ -48,10 +50,13 @@ async function boot() {
   });
 
   $('addQuestion').addEventListener('click', onAdd);
+  $('addTemplate').addEventListener('click', openTemplatePicker);
   $('textView').addEventListener('click', openTextView);
   $('startSession').addEventListener('click', onStart);
 
   buildThemeGrid();
+  buildMyThemesGrid();
+  wireThemeBuilder();
   buildBackgroundGrid();
   wireBackgroundControls();
   await refreshUploads();
@@ -159,7 +164,14 @@ function questionBody(q, index) {
     body.append(optionsEditor(q, q.type === 'quiz'));
   }
   if (q.type === 'ranking') body.append(listEditor(q, 'items', 'Items to rank'));
-  if (q.type === 'scales') body.append(listEditor(q, 'statements', 'Statements'));
+  if (q.type === 'scales') {
+    body.append(listEditor(q, 'statements', 'Statements'));
+    body.append(anchorsEditor(q));
+  }
+  if (q.type === 'sample_vote') {
+    body.append(listEditor(q, 'samples', 'Samples (anonymous, used with permission)'));
+  }
+  if (q.type === 'heatmap') body.append(passageEditor(q));
 
   body.append(settingsFor(q));
 
@@ -198,7 +210,9 @@ function optionsEditor(q, isQuiz) {
 
   const label = document.createElement('span');
   label.className = 'label';
-  label.textContent = isQuiz ? 'Answers (tick the correct one)' : 'Options';
+  label.textContent = isQuiz ? 'Answers (tick the correct one)'
+    : q.config.mode === 'best' ? 'Options (tick the most defensible)'
+      : 'Options';
   wrap.append(label);
 
   const options = Array.isArray(q.config.options) ? q.config.options : [];
@@ -220,7 +234,7 @@ function optionsEditor(q, isQuiz) {
     });
     line.append(input);
 
-    if (isQuiz || q.config.mark_correct) {
+    if (isQuiz || q.config.mark_correct || q.config.mode === 'best') {
       const wrapCheck = document.createElement('label');
       wrapCheck.className = 'opt-correct';
       const check = document.createElement('input');
@@ -328,33 +342,64 @@ function settingsFor(q) {
 
   const choose = (key, label, options, dflt) => grid.append(field(label, (() => {
     const s = document.createElement('select');
-    Object.entries(options).forEach(([value, text]) => {
+    Object.entries(options).forEach(([value, textLabel]) => {
       const o = document.createElement('option');
-      o.value = value; o.textContent = text;
+      o.value = value; o.textContent = textLabel;
       s.append(o);
     });
     s.value = cfg[key] ?? dflt;
-    s.addEventListener('change', () => { cfg[key] = s.value; save(q, { config: cfg }); renderPreview(); });
+    s.addEventListener('change', () => {
+      cfg[key] = s.value;
+      save(q, { config: cfg });
+      renderPreview();
+      renderQuestions(); // mode switches show/hide dependent fields
+    });
     return s;
   })()));
 
+  const text = (key, label, placeholder) => grid.append(field(label, (() => {
+    const i = document.createElement('input');
+    i.type = 'text';
+    i.placeholder = placeholder || '';
+    i.value = cfg[key] ?? '';
+    i.addEventListener('input', () => {
+      cfg[key] = i.value;
+      save(q, { config: cfg });
+    });
+    return i;
+  })()));
+
+  // like bool, but the unset state reads as `dflt` rather than false
+  const bool2 = (key, label, dflt) => grid.append(checkline(label, cfg[key] ?? dflt, (v) => {
+    cfg[key] = v;
+    save(q, { config: cfg });
+    renderQuestions();
+  }));
+
   switch (q.type) {
     case 'multiple_choice':
+      choose('mode', 'Question mode', {
+        opinion: 'Opinion — no key, the split is the point',
+        best: 'Best answer — mark the most defensible below',
+      }, 'opinion');
       bool('multiple', 'Allow several answers');
       if (cfg.multiple) num('max_choices', 'Max choices', 1, 20, (cfg.options || []).length);
-      bool('mark_correct', 'Mark a reference answer');
+      bool('confidence', 'Ask “how sure are you?”');
       choose('chart', 'Chart', CHART_STYLES, 'bars');
       break;
     case 'quiz':
       num('time', 'Seconds to answer', 5, 300, 20);
       choose('scoring', 'Scoring', { time: 'Faster = more points', fixed: 'Flat points' }, 'time');
+      bool('confidence', 'Ask “how sure are you?”');
       break;
     case 'word_cloud':
       num('max_words', 'Words per person', 1, 10, 1);
       num('max_length', 'Max characters', 5, 60, 25);
+      bool('hold', 'Hold answers for review before they show');
       break;
     case 'open_ended':
       num('max_length', 'Max characters', 20, 1000, 200);
+      bool('hold', 'Hold answers for review before they show');
       break;
     case 'scales':
       num('min', 'Lowest', 0, 10, 1);
@@ -364,11 +409,195 @@ function settingsFor(q) {
     case 'ranking':
       bool('allow_partial', 'Allow ranking only some');
       break;
+    case 'spectrum':
+      text('left_label', 'Left end label', 'Disagree');
+      text('right_label', 'Right end label', 'Agree');
+      bool('corners', 'Show four-corners counts');
+      bool('confidence', 'Ask “how sure are you?”');
+      break;
+    case 'sample_vote':
+      bool2('allow_rationale', 'Ask for a one-line “why”', true);
+      bool('confidence', 'Ask “how sure are you?”');
+      break;
+    case 'heatmap':
+      choose('mode', 'Mode', {
+        highlight: 'Highlight — tap the sentence(s)',
+        classify: 'Classify — label the parts',
+      }, 'highlight');
+      if (cfg.mode === 'classify') {
+        if (!Array.isArray(cfg.labels) || !cfg.labels.length) {
+          cfg.labels = ['claim', 'evidence', 'warrant'];
+        }
+        grid.append(field('Labels (comma-separated)', (() => {
+          const i = document.createElement('input');
+          i.type = 'text';
+          i.value = cfg.labels.join(', ');
+          i.placeholder = 'claim, evidence, warrant';
+          i.addEventListener('input', () => {
+            cfg.labels = i.value.split(',').map((s) => s.trim()).filter(Boolean);
+            save(q, { config: cfg });
+          });
+          return i;
+        })()));
+      } else {
+        num('max_picks', 'Sentences each person may pick', 1, 5, 1);
+      }
+      break;
     default:
       break;
   }
 
   return grid;
+}
+
+/**
+ * Calibration anchors (roadmap feature 5): the instructor's own rating
+ * per statement, revealed against the class distribution for rubric
+ * norming. Stripped from the participant payload server-side.
+ */
+function anchorsEditor(q) {
+  const wrap = document.createElement('div');
+  wrap.className = 'opt-editor';
+  const l = document.createElement('span');
+  l.className = 'label';
+  l.textContent = 'Your anchor ratings (optional — revealed after voting closes)';
+  wrap.append(l);
+
+  const statements = Array.isArray(q.config.statements) ? q.config.statements : [];
+  if (!Array.isArray(q.config.anchors)) q.config.anchors = [];
+
+  statements.forEach((st, i) => {
+    const line = document.createElement('div');
+    line.className = 'opt-line';
+    const name = document.createElement('span');
+    name.className = 'anchor-name';
+    name.textContent = typeof st === 'string' ? st : String(st?.label ?? '');
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.className = 'anchor-input';
+    input.min = String(q.config.min ?? 1);
+    input.max = String(q.config.max ?? 5);
+    input.placeholder = '—';
+    input.value = q.config.anchors[i] ?? '';
+    input.addEventListener('input', () => {
+      const v = Number(input.value);
+      q.config.anchors[i] = input.value === '' || !Number.isFinite(v) ? null : v;
+      save(q, { config: q.config });
+    });
+    line.append(name, input);
+    wrap.append(line);
+  });
+  return wrap;
+}
+
+/** Passage + live segmentation preview for heatmap questions. */
+function passageEditor(q) {
+  const wrap = document.createElement('div');
+  wrap.className = 'opt-editor';
+  const l = document.createElement('span');
+  l.className = 'label';
+  l.textContent = 'Passage — keep it short; use | to override the sentence splits';
+  wrap.append(l);
+
+  const area = document.createElement('textarea');
+  area.className = 'passage-input';
+  area.rows = 4;
+  area.value = q.config.passage || '';
+  const preview = document.createElement('div');
+  preview.className = 'seg-preview';
+
+  const renderSegs = () => {
+    preview.textContent = '';
+    const segs = Array.isArray(q.config.segments) ? q.config.segments : [];
+    segs.forEach((s, i) => {
+      const chip = document.createElement('span');
+      chip.className = 'seg-preview-chip';
+      chip.textContent = `${i + 1} · ${s.length > 36 ? `${s.slice(0, 36)}…` : s}`;
+      preview.append(chip);
+    });
+    const words = (q.config.passage || '').split(/\s+/).filter(Boolean).length;
+    if (words > 120) {
+      const warn = document.createElement('span');
+      warn.className = 'seg-preview-warn';
+      warn.textContent = `${words} words — close reading works best under ~120`;
+      preview.append(warn);
+    }
+  };
+
+  area.addEventListener('input', () => {
+    q.config.passage = area.value;
+    q.config.segments = splitPassage(area.value);
+    save(q, { config: q.config });
+    renderSegs();
+  });
+
+  wrap.append(area, preview);
+  renderSegs();
+  return wrap;
+}
+
+// ------------------------------------------------- the activity library
+
+function openTemplatePicker() {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  const modal = document.createElement('div');
+  modal.className = 'modal template-modal';
+
+  const h = document.createElement('h3');
+  h.textContent = 'Activity library';
+  const sub = document.createElement('p');
+  sub.className = 'muted';
+  sub.style.fontSize = '.8rem';
+  sub.textContent = 'Research-backed classroom moves, inserted as ordinary '
+    + 'editable questions. Each names its source.';
+  modal.append(h, sub);
+
+  const list = document.createElement('div');
+  list.className = 'template-list';
+  TEMPLATES.forEach((t) => {
+    const card = document.createElement('div');
+    card.className = 'template-card';
+    const name = document.createElement('strong');
+    name.textContent = t.name;
+    const blurb = document.createElement('p');
+    blurb.textContent = t.blurb;
+    const source = document.createElement('p');
+    source.className = 'template-source';
+    source.textContent = t.source;
+    const insert = document.createElement('button');
+    insert.type = 'button';
+    insert.className = 'btn btn-sm btn-primary';
+    insert.textContent = `Insert ${t.questions.length === 1 ? '1 question' : `${t.questions.length} questions`}`;
+    insert.addEventListener('click', async () => {
+      insert.disabled = true;
+      for (const tq of t.questions) {
+        const created = await createQuestion(deck.id,
+          { type: tq.type, prompt: tq.prompt, config: JSON.parse(JSON.stringify(tq.config)) },
+          questions.length);
+        questions.push(created);
+      }
+      backdrop.remove();
+      renderQuestions();
+      renderPreview();
+      touch();
+      toast(`${t.name} added`);
+    });
+    card.append(name, blurb, source, insert);
+    list.append(card);
+  });
+  modal.append(list);
+
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'btn';
+  close.textContent = 'Close';
+  close.addEventListener('click', () => backdrop.remove());
+  modal.append(close);
+
+  backdrop.append(modal);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.remove(); });
+  document.body.append(backdrop);
 }
 
 async function move(index, step) {
@@ -385,6 +614,46 @@ async function move(index, step) {
 // Theme + background
 // =====================================================================
 
+/**
+ * A miniature of the actual slide — the theme's own background, display
+ * face and chart colours — so choosing a theme is choosing a look for
+ * the room, not decoding a colour swatch. applyTheme scopes the tokens
+ * onto the tile, so .theme-slide's CSS just uses var(--accent) etc.
+ * @param {string|object} themeRef built-in id or resolved custom object
+ */
+function themeSlide(themeRef) {
+  const theme = getTheme(themeRef);
+  const slide = document.createElement('div');
+  slide.className = 'theme-slide';
+  applyTheme(slide, themeRef);
+  Object.assign(slide.style, backgroundStyles({ kind: 'theme' }, themeRef));
+  slide.style.backgroundColor = theme.tokens['--ground'];
+
+  const name = document.createElement('span');
+  name.className = 'theme-slide-name';
+  name.textContent = theme.name;
+
+  const bars = document.createElement('div');
+  bars.className = 'theme-slide-bars';
+  for (let i = 0; i < 4; i += 1) bars.append(document.createElement('span'));
+
+  slide.append(name, bars);
+  return slide;
+}
+
+async function applyDeckTheme(themeId, customTheme) {
+  deck.theme = themeId;
+  if (customTheme) deck.settings = { ...(deck.settings || {}), customTheme };
+  await updateDeck(deck.id, themeId === 'custom'
+    ? { theme: 'custom', settings: deck.settings }
+    : { theme: themeId });
+  buildThemeGrid();
+  buildMyThemesGrid();
+  buildBackgroundGrid();
+  renderPreview();
+  touch();
+}
+
 function buildThemeGrid() {
   const grid = $('themeGrid');
   grid.textContent = '';
@@ -394,41 +663,174 @@ function buildThemeGrid() {
     tile.type = 'button';
     tile.className = 'theme-tile' + (deck.theme === id ? ' is-active' : '');
     tile.title = theme.blurb;
-
-    const preview = document.createElement('div');
-    preview.className = 'theme-preview';
-    preview.style.background = theme.tokens['--ground'];
-    ['--accent', '--accent-2', '--ink'].forEach((tok) => {
-      const bar = document.createElement('span');
-      bar.className = 'theme-bar';
-      bar.style.background = theme.tokens[tok];
-      preview.append(bar);
-    });
-
-    const name = document.createElement('span');
-    name.className = 'theme-name';
-    name.textContent = theme.name;
-    name.style.background = theme.tokens['--surface'];
-    name.style.color = theme.tokens['--ink'];
-
-    tile.append(preview, name);
-    tile.addEventListener('click', async () => {
-      deck.theme = id;
-      await updateDeck(deck.id, { theme: id });
-      buildThemeGrid();
-      buildBackgroundGrid();
-      renderPreview();
-      touch();
-    });
-
+    tile.append(themeSlide(id));
+    tile.addEventListener('click', () => applyDeckTheme(id));
     grid.append(tile);
+  });
+}
+
+// =====================================================================
+// My themes — instructor-built themes. The applied theme travels on the
+// deck itself (settings.customTheme → projector, results and phones from
+// any machine); this browser additionally keeps a library for reuse
+// across decks.
+// =====================================================================
+
+const MY_THEMES_KEY = 'surveyall:myThemes';
+
+function loadMyThemes() {
+  try { return JSON.parse(localStorage.getItem(MY_THEMES_KEY)) || []; } catch { return []; }
+}
+function saveMyThemes(list) {
+  try { localStorage.setItem(MY_THEMES_KEY, JSON.stringify(list)); } catch { /* full/blocked */ }
+}
+
+function buildMyThemesGrid() {
+  const grid = $('myThemeGrid');
+  grid.textContent = '';
+  const list = loadMyThemes();
+
+  // a custom theme applied to this deck on another machine still shows
+  const applied = deck.theme === 'custom' ? deck.settings?.customTheme : null;
+  if (applied && applied.id && !list.some((t) => t.id === applied.id)) {
+    list.unshift(applied);
+  }
+
+  $('myThemesEmpty').hidden = list.length > 0;
+
+  list.forEach((t) => {
+    const tile = document.createElement('button');
+    tile.type = 'button';
+    const active = deck.theme === 'custom' && deck.settings?.customTheme?.id === t.id;
+    tile.className = 'theme-tile' + (active ? ' is-active' : '');
+    const ref = { id: 'custom', name: t.name, dark: !!t.dark, tokens: t.tokens, background: t.background };
+    const slide = themeSlide(ref);
+
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'theme-edit';
+    edit.textContent = '✎';
+    edit.title = 'Edit this theme';
+    edit.setAttribute('aria-label', `Edit theme ${t.name}`);
+    edit.addEventListener('click', (e) => { e.stopPropagation(); openBuilder(t); });
+    slide.append(edit);
+
+    tile.append(slide);
+    tile.addEventListener('click', () => applyDeckTheme('custom', t));
+    grid.append(tile);
+  });
+}
+
+let editingThemeId = null; // id of the library theme open in the builder
+
+function builderPicks() {
+  return {
+    id: editingThemeId || undefined,
+    name: $('ctName').value.trim() || 'My theme',
+    ground: $('ctGround').value,
+    ink: $('ctInk').value,
+    accent: $('ctAccent').value,
+    accent2: $('ctAccent2').value,
+    font: $('ctFont').value,
+    radius: $('ctRadius').value,
+    backdrop: $('ctBackdrop').value,
+  };
+}
+
+function refreshBuilderPreview() {
+  const t = buildCustomTheme(builderPicks());
+  const host = $('ctPreviewHost');
+  host.textContent = '';
+  host.append(themeSlide({ id: 'custom', ...t }));
+
+  // legibility guard: warn when the projected text would fail WCAG AA
+  const ratio = contrastRatio(t.tokens['--ink'], t.tokens['--ground']);
+  const warn = $('ctWarn');
+  warn.hidden = ratio >= 4.5;
+  if (!warn.hidden) {
+    warn.textContent = `Text on background is ${ratio.toFixed(1)}:1 — `
+      + 'aim for at least 4.5:1 so the back row can read it.';
+  }
+}
+
+function openBuilder(existing) {
+  editingThemeId = existing?.id || null;
+  const p = existing?.picks || {};
+  $('ctName').value = existing?.name || '';
+  $('ctGround').value = p.ground || '#f7f4ee';
+  $('ctInk').value = p.ink || '#1c2434';
+  $('ctAccent').value = p.accent || '#1d4ed8';
+  $('ctAccent2').value = p.accent2 || '#b45309';
+  $('ctFont').value = p.font || 'inter';
+  $('ctRadius').value = p.radius || 'soft';
+  $('ctBackdrop').value = p.backdrop || 'none';
+  $('ctDelete').hidden = !editingThemeId;
+  $('themeBuilder').hidden = false;
+  refreshBuilderPreview();
+  $('ctName').focus();
+}
+
+function closeBuilder() {
+  $('themeBuilder').hidden = true;
+  editingThemeId = null;
+}
+
+function wireThemeBuilder() {
+  const fontSel = $('ctFont');
+  Object.entries(CUSTOM_FONTS).forEach(([id, f]) => {
+    const o = document.createElement('option');
+    o.value = id; o.textContent = f.name;
+    fontSel.append(o);
+  });
+  const radiusSel = $('ctRadius');
+  Object.entries(CUSTOM_RADII).forEach(([id, r]) => {
+    const o = document.createElement('option');
+    o.value = id; o.textContent = r.name;
+    radiusSel.append(o);
+  });
+  const backdropSel = $('ctBackdrop');
+  const none = document.createElement('option');
+  none.value = 'none'; none.textContent = 'None';
+  backdropSel.append(none);
+  Object.entries(BACKGROUND_PRESETS).forEach(([id, b]) => {
+    if (id === 'none') return;
+    const o = document.createElement('option');
+    o.value = id; o.textContent = b.name;
+    backdropSel.append(o);
+  });
+
+  ['ctName', 'ctGround', 'ctInk', 'ctAccent', 'ctAccent2', 'ctFont', 'ctRadius', 'ctBackdrop']
+    .forEach((id) => $(id).addEventListener('input', refreshBuilderPreview));
+
+  $('btnNewTheme').addEventListener('click', () => openBuilder(null));
+  $('ctCancel').addEventListener('click', closeBuilder);
+
+  $('ctSave').addEventListener('click', async () => {
+    const theme = buildCustomTheme(builderPicks());
+    const list = loadMyThemes();
+    const i = list.findIndex((t) => t.id === theme.id);
+    if (i >= 0) list[i] = theme; else list.push(theme);
+    saveMyThemes(list);
+    closeBuilder();
+    await applyDeckTheme('custom', theme);
+  });
+
+  $('ctDelete').addEventListener('click', async () => {
+    if (!editingThemeId) return;
+    if (!window.confirm('Delete this theme? Decks using it fall back to Lecture Hall.')) return;
+    saveMyThemes(loadMyThemes().filter((t) => t.id !== editingThemeId));
+    const wasApplied = deck.theme === 'custom'
+      && deck.settings?.customTheme?.id === editingThemeId;
+    closeBuilder();
+    if (wasApplied) await applyDeckTheme('lecture-hall');
+    else buildMyThemesGrid();
   });
 }
 
 function buildBackgroundGrid() {
   const grid = $('bgGrid');
   grid.textContent = '';
-  const theme = getTheme(deck.theme);
+  const theme = getTheme(resolveTheme(deck.theme, deck));
 
   const tiles = [
     { kind: 'theme', label: 'Theme' },
@@ -444,7 +846,7 @@ function buildBackgroundGrid() {
     tile.className = 'bg-tile' + (active ? ' is-active' : '');
     tile.style.background = theme.tokens['--ground'];
 
-    const styles = backgroundStyles(bg, deck.theme);
+    const styles = backgroundStyles(bg, resolveTheme(deck.theme, deck));
     if (styles.backgroundImage && styles.backgroundImage !== 'none') {
       tile.style.backgroundImage = styles.backgroundImage;
       if (styles.backgroundSize) tile.style.backgroundSize = styles.backgroundSize;
@@ -570,15 +972,16 @@ function renderPreview() {
   const host = $('preview');
   host.textContent = '';
 
+  const themeRef = resolveTheme(deck.theme, deck);
   const frame = document.createElement('div');
   frame.style.cssText = 'position:relative;aspect-ratio:16/9;overflow:hidden;isolation:isolate';
-  applyTheme(frame, deck.theme);
-  const theme = getTheme(deck.theme);
+  applyTheme(frame, themeRef);
+  const theme = getTheme(themeRef);
   frame.style.background = theme.tokens['--ground'];
 
   const backdrop = document.createElement('div');
   backdrop.style.cssText = 'position:absolute;inset:0';
-  Object.assign(backdrop.style, backgroundStyles(deck.background, deck.theme));
+  Object.assign(backdrop.style, backgroundStyles(deck.background, themeRef));
 
   const scrim = document.createElement('div');
   scrim.style.cssText = `position:absolute;inset:0;background:${theme.tokens['--ground']};` +

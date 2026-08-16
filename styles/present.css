@@ -17,7 +17,11 @@
   display: flex;
   flex-direction: column;
   background: var(--ground);
-  font-size: clamp(16px, 1.15vw + 10px, 30px);
+  /* ~6% larger than the original 1.15vw+10px curve at classroom sizes:
+     tuned against a dim 1280×720 projector from the back row, capped a
+     little higher for big panels. Tall content guards itself with
+     height-aware min() caps (lobby, chart, delta). */
+  font-size: clamp(16px, 1.3vw + 9.5px, 33px);
 
   /* Clip here, not just on <body>. The closed Q&A drawer is parked just
      off the right edge with a transform, and a transform still counts
@@ -88,6 +92,24 @@
   text-wrap: balance;
 }
 
+/* ---- per-theme flourishes -------------------------------------------
+   applyTheme() stamps data-theme-id on the root; these hooks give each
+   theme a physical signature beyond its palette. Only CSS-owned
+   properties — charts.js paint() never writes to the prompt or kicker. */
+
+[data-theme-id="neon-night"] .stage-prompt {
+  text-shadow: 0 0 24px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+[data-theme-id="chalkboard"] .stage-prompt {
+  transform: rotate(-.4deg);           /* hand-written on a real board */
+  text-shadow: 0 0 1px color-mix(in srgb, var(--ink) 40%, transparent);
+}
+[data-theme-id="letterpress"] .stage-prompt {
+  padding-block: .22em;
+  border-block: 1px solid var(--edge); /* hairline rules, set like type */
+}
+[data-theme-id="midnight"] .stage-kicker { letter-spacing: .16em; }
+
 /* ---------------------------------------------------------------- body */
 
 .stage-body {
@@ -102,12 +124,23 @@
 }
 
 .stage-body .chart {
-  font-size: 1.5em;
+  /* height-capped so the raised stage scale can never clip a six-option
+     rack at 720p — width buys size only as far as height allows */
+  font-size: min(1.5em, 4.8vh);
   margin: auto 0;
   max-height: 100%;
 }
 .stage-body [data-chart="cloud"],
 .stage-body [data-chart="cards"] { margin: 0; height: 100%; }
+
+/* The compare view is the tallest composed chart: legend, a track per
+   option and the headline sentence. Size it from its own row count
+   (written by renderDelta as --delta-rows) against the viewport height,
+   so the "N% changed their answer" line — the point of the slide — is
+   always on screen, 720p included. Same idea as the lobby's height cap. */
+.stage-body [data-chart="delta"] {
+  font-size: min(1.5em, calc((100vh - 290px) / (var(--delta-rows, 4) * 3.05 + 6.2)));
+}
 
 /* --------------------------------------------------------- join corner
    Proposal P4: the QR never leaves the screen, so a student walking in
@@ -132,7 +165,17 @@
   border: 1px solid var(--edge);
   box-shadow: 0 4px 20px rgba(0, 0, 0, .12);
   backdrop-filter: blur(8px);
-  transition: opacity .3s ease, transform .3s ease;
+  transition: opacity .3s ease, transform .3s ease, font-size .3s ease;
+}
+
+/* While the room is answering and nothing has landed yet, the corner is
+   the most useful thing on screen — step it forward. Font-size, not
+   transform: everything inside is em-sized and the QR is a vector, so it
+   scales crisp, and it eases back down the instant the first vote lands
+   (that shrink is part of the arrival moment). */
+.stage.is-awaiting:not(.is-controls-open) .join-corner:not(.is-big):not(.is-hidden) {
+  font-size: 1.28em;
+  opacity: 1;
 }
 
 .join-corner.is-hidden {
@@ -188,7 +231,7 @@
   align-items: center;
   gap: .8em;
   padding: .5em 1.4em 1em;
-  font-size: .62em;
+  font-size: .66em;
 }
 
 .count-pill {
@@ -196,7 +239,7 @@
   padding: .3em .75em;
   border-radius: 999px;
   background: color-mix(in srgb, var(--ink) 8%, transparent);
-  font-weight: 650;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
@@ -293,6 +336,128 @@
 .ctrl:disabled { opacity: .35; cursor: not-allowed; }
 .ctrl.is-active { background: var(--accent); color: #fff; }
 .ctrl-sep { width: 1px; height: 1.4em; background: var(--edge); }
+
+/* --------------------------------------------- discussion engine (PI) */
+
+/* the pair phase takes the chart area over: one instruction, one clock */
+.pair-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .4em;
+  text-align: center;
+  background: color-mix(in srgb, var(--ground) 94%, transparent);
+  backdrop-filter: blur(3px);
+}
+.pair-kicker {
+  font-size: .6em;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.pair-line {
+  font-family: var(--display);
+  font-size: 2em;
+  font-weight: 650;
+  line-height: 1.1;
+}
+.pair-clock {
+  font-family: var(--display);
+  font-size: 3.2em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--accent) 85%, var(--ink));
+  line-height: 1;
+}
+.pair-clock.is-done { color: var(--bad); animation: timer-tick 1s steps(2) infinite; }
+.pair-sub { font-size: .75em; color: var(--ink-soft); }
+
+/* Mazur's decision band, tray-only */
+.pi-hint {
+  padding: .3em .7em;
+  border-radius: 999px;
+  font-size: .82em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pi-hint[data-band="low"] { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
+.pi-hint[data-band="mid"] { background: var(--accent-soft); color: color-mix(in srgb, var(--accent) 80%, var(--ink)); }
+.pi-hint[data-band="high"] { background: color-mix(in srgb, var(--good) 14%, transparent); color: var(--good); }
+
+.hands-pill { background: var(--accent-soft); }
+
+/* ------------------------------------------------- hold + curation */
+
+.hold-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .4em;
+  padding: .4em 0 0;
+  font-size: .6em;
+}
+.hold-note { color: var(--ink-soft); font-weight: 600; }
+.hold-chip {
+  padding: .3em .7em;
+  border: 1px dashed var(--edge);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  color: var(--ink);
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color .15s ease;
+}
+.hold-chip:hover { border-color: var(--accent); border-style: solid; }
+.hold-all { border-style: solid; background: var(--accent-soft); }
+
+.curate-chip {
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  padding: .3em .75em;
+  background: color-mix(in srgb, var(--accent-2) 10%, transparent);
+  font-weight: 650;
+  font-size: 1em;
+  cursor: pointer;
+}
+.curate-menu {
+  display: inline-flex;
+  align-items: center;
+  gap: .5em;
+  padding: .25em .5em;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: .95em;
+}
+.curate-word { font-weight: 700; }
+
+/* --------------------------------------------------- compare picker */
+
+.compare-bar {
+  display: flex;
+  align-items: center;
+  gap: .5em;
+  align-self: flex-start;
+  font-size: .6em;
+  font-weight: 600;
+  color: var(--ink-soft);
+  padding-bottom: .4em;
+}
+.compare-bar select {
+  font: inherit;
+  padding: .3em .5em;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  max-width: 24em;
+}
 
 /* --------------------------------------------------------------- lobby */
 
@@ -421,4 +586,9 @@ kbd {
   background: var(--surface);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: .9em;
+}
+
+@media (prefers-contrast: more) {
+  .stage-kicker { color: var(--ink); }
+  .stage-controls { opacity: .55; }
 }

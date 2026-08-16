@@ -24,12 +24,126 @@
 
 .chart-empty {
   margin: auto;
-  padding: 2.4em 0;
+  padding: 2em 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .9em;
   color: var(--ink-soft);
-  font-size: .8em;
+  font-family: var(--display);
+  font-size: 1em;
   text-align: center;
   letter-spacing: .01em;
 }
+
+/* ==================================================== waiting state
+   A live question with no answers yet — the state every question opens
+   in, projected for 10–30 seconds in front of the whole room. The empty
+   tracks carry a slow accent light so they read as channels waiting to
+   fill, and the values are hidden: a wall of "0%" is a statement, and it
+   isn't true yet. Everything here is CSS-owned — paint() in charts.js
+   never writes to ::after or .chart-value, so no spring is ever fought. */
+
+[data-awaiting] .chart-value,
+[data-awaiting] .scale-avg,
+[data-awaiting] .rank-points { opacity: 0; }
+.chart-value, .scale-avg, .rank-points {
+  transition: opacity .35s var(--ease-out); /* fade-in on the first vote */
+}
+
+[data-awaiting] .chart-track::after,
+[data-awaiting] .scale-track::after,
+[data-awaiting] .rank-track::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg,
+      transparent 20%,
+      color-mix(in srgb, var(--accent) 13%, transparent) 50%,
+      transparent 80%) no-repeat;
+  background-size: 55% 100%;
+  /* background-position, not transform: the sweep stays clipped to the
+     track's own box and radius without needing overflow rules that the
+     scale marker couldn't live with */
+  background-position: -150% 0;
+  animation: track-await 3.2s var(--ease-in-out) infinite;
+  /* negative delay: rows start phase-offset instead of frozen */
+  animation-delay: calc(var(--row-i, 0) * -.45s);
+  pointer-events: none;
+}
+[data-theme-dark="true"] [data-awaiting] .chart-track::after,
+[data-theme-dark="true"] [data-awaiting] .scale-track::after,
+[data-theme-dark="true"] [data-awaiting] .rank-track::after {
+  background-image: linear-gradient(90deg,
+      transparent 20%,
+      color-mix(in srgb, var(--accent) 24%, transparent) 50%,
+      transparent 80%);
+}
+@keyframes track-await {
+  to { background-position: 250% 0; }
+}
+
+.chart-await-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .55em;
+  margin-top: .5em;
+  font-size: .68em;
+  font-weight: 600;
+  letter-spacing: .02em;
+  color: var(--ink-soft);
+}
+/* views whose container is a row or a fixed-height block park the note
+   just below instead of joining the flow */
+[data-chart="columns"] .chart-await-note,
+[data-chart="donut"] .chart-await-note,
+[data-chart="ranking"] .chart-await-note {
+  position: absolute;
+  left: 0; right: 0;
+  bottom: -2.2em;
+  margin-top: 0;
+}
+
+.await-dots { display: inline-flex; gap: .32em; }
+.await-dots span {
+  width: .42em; height: .42em;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: wait-bounce 1.3s ease-in-out infinite;
+}
+.await-dots span:nth-child(2) { animation-delay: .18s; }
+.await-dots span:nth-child(3) { animation-delay: .36s; }
+@keyframes wait-bounce {
+  0%, 60%, 100% { transform: none; opacity: .45; }
+  30% { transform: translateY(-.45em); opacity: 1; }
+}
+
+/* ---- theme personalities --------------------------------------------
+   Keyed off data-theme-id (stamped by applyTheme on the page root, and
+   on the editor's preview frame). Strictly CSS-owned surfaces: tracks
+   and sheens, never .chart-fill, whose background and shadow are
+   written per-frame by charts.js. */
+
+/* neon-night: unlit tracks read as powered-down neon tubes */
+[data-theme-id="neon-night"] .chart-track {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent),
+    inset 0 1px 2px color-mix(in srgb, var(--ink) 10%, transparent);
+}
+/* letterpress: matte ink takes no specular highlight */
+[data-theme-id="letterpress"] .chart-sheen { display: none; }
+/* chalkboard: chalk is dusty, not glossy */
+[data-theme-id="chalkboard"] .chart-sheen { opacity: .5; }
+/* botanical: its pill bars breathe a little more */
+[data-theme-id="botanical"] .chart { gap: .75em; }
+/* high-contrast: no gradients, no gloss — a 2px rule around every well */
+[data-theme-id="high-contrast"] .chart-track {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--ink);
+}
+[data-theme-id="high-contrast"] .chart-sheen { display: none; }
 
 /* ================================================================ bars */
 
@@ -42,7 +156,7 @@
 
 .chart-label {
   font-size: .82em;
-  font-weight: 560;
+  font-weight: 600;
   line-height: 1.22;
   letter-spacing: -.005em;
   overflow-wrap: anywhere;
@@ -57,9 +171,9 @@
      something that looks lit. */
   background:
     linear-gradient(180deg,
-      color-mix(in srgb, var(--ink) 11%, transparent),
-      color-mix(in srgb, var(--ink) 5%, transparent));
-  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--ink) 10%, transparent);
+      color-mix(in srgb, var(--ink) 13%, transparent),
+      color-mix(in srgb, var(--ink) 6%, transparent));
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--ink) 12%, transparent);
   overflow: hidden;
 }
 
@@ -81,6 +195,26 @@
   pointer-events: none;
 }
 
+/* one-shot flash at the bar's tip when a vote lands on this row.
+   A child of the fill: it rides the spring's width for free, and its
+   opacity is driven only by a one-shot WAAPI animation from charts.js —
+   never by CSS transition, never by the spring. */
+.chart-glint {
+  position: absolute;
+  top: 0; bottom: 0; right: 0;
+  width: .7em;
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .6));
+}
+[data-chart="columns"] .chart-glint {
+  top: 0; left: 0; right: 0; bottom: auto;
+  width: auto;
+  height: .7em;
+  background: linear-gradient(0deg, transparent, rgba(255, 255, 255, .6));
+}
+
 .chart-value {
   display: flex;
   align-items: baseline;
@@ -90,8 +224,8 @@
 }
 
 .chart-pct {
-  font-size: 1.05em;
-  font-weight: 700;
+  font-size: 1.1em;
+  font-weight: 750;
   letter-spacing: -.02em;
   font-variant-numeric: tabular-nums;
 }
@@ -112,6 +246,11 @@
   margin-left: .4em;
   color: var(--good);
   font-weight: 800;
+  animation: check-pop .5s var(--ease-spring) backwards;
+}
+.chart-row.is-correct .chart-pct { color: var(--good); }
+@keyframes check-pop {
+  from { transform: scale(0); opacity: 0; }
 }
 
 /* ------------------------------------------------------------ columns */
@@ -243,6 +382,11 @@ svg.donut {
   transition: color var(--duration-slow) var(--ease-out);
   text-shadow: 0 1px 2px color-mix(in srgb, var(--ground) 55%, transparent);
 }
+/* dark grounds need a heavier plate behind the words to hold them off
+   busy backdrops (grid-glow, aurora) */
+[data-theme-dark="true"] .cloud-word {
+  text-shadow: 0 2px 14px color-mix(in srgb, var(--ground) 85%, transparent);
+}
 
 /* ========================================================== open ended */
 
@@ -353,6 +497,16 @@ svg.donut {
   border: 2px solid var(--surface);
 }
 
+/* ring that ripples off the marker when an answer lands (WAAPI one-shot) */
+.scale-halo {
+  position: absolute;
+  inset: -.4em;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  opacity: 0;
+  pointer-events: none;
+}
+
 .scale-avg {
   min-width: 2.9em;
   text-align: right;
@@ -402,6 +556,9 @@ svg.donut {
 }
 
 .rank-track {
+  /* positioned so the awaiting sweep's inset resolves against the track,
+     not the absolutely-positioned row it lives in */
+  position: relative;
   height: 1.45em;
   border-radius: var(--bar-radius);
   background: color-mix(in srgb, var(--ink) 7%, transparent);
@@ -499,7 +656,7 @@ svg.donut {
 
 .delta-num {
   text-align: right;
-  font-size: .92em;
+  font-size: 1.05em;
   font-weight: 750;
   letter-spacing: -.02em;
   font-variant-numeric: tabular-nums;
@@ -508,14 +665,31 @@ svg.donut {
 .delta-num.is-down { color: var(--bad); }
 .delta-num.is-flat { color: var(--ink-soft); }
 
+/* the headline: display type at chart scale, number in accent.
+   Height-capped the same way the lobby is, so a busy 720p slide can't
+   push the sentence off the bottom. */
 .delta-summary {
-  margin-top: .5em;
-  padding-top: .7em;
+  margin-top: .6em;
+  padding-top: .75em;
   border-top: 1px solid var(--edge);
-  font-size: .84em;
+  display: flex;
+  align-items: baseline;
+  gap: .4em;
+  font-family: var(--display);
+  font-size: min(1.5em, 4.2vh);
   font-weight: 600;
-  color: var(--ink-soft);
+  color: var(--ink);
+  letter-spacing: -.015em;
+  line-height: 1.1;
 }
+.delta-summary-num {
+  font-size: 1.35em;
+  font-weight: 750;
+  color: var(--accent);
+  letter-spacing: -.03em;
+  font-variant-numeric: tabular-nums;
+}
+.delta-summary-num:empty { display: none; }
 
 /* ========================================================= leaderboard */
 
@@ -542,17 +716,28 @@ svg.donut {
 .lb-rank {
   font-family: var(--display);
   font-weight: 700;
+  width: 1.7em; height: 1.7em;
+  margin-inline: auto;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
   text-align: center;
   color: var(--ink-soft);
   font-variant-numeric: tabular-nums;
 }
+/* filled chips make the podium readable from the back row without
+   resorting to medal emoji */
 .lb-row.is-top1 .lb-rank {
-  color: var(--accent);
-  font-size: 1.35em;
-  letter-spacing: -.03em;
+  background: var(--accent);
+  color: var(--surface);
+  font-size: 1.05em;
+  letter-spacing: -.02em;
 }
 .lb-row.is-top2 .lb-rank,
-.lb-row.is-top3 .lb-rank { color: var(--accent-2); font-size: 1.1em; }
+.lb-row.is-top3 .lb-rank {
+  background: color-mix(in srgb, var(--accent-2) 18%, transparent);
+  color: var(--accent-2);
+}
 
 .lb-name {
   font-size: .86em;
@@ -560,9 +745,10 @@ svg.donut {
   letter-spacing: -.01em;
   overflow-wrap: anywhere;
 }
-.lb-row.is-top1 .lb-name { font-weight: 750; }
+.lb-row.is-top1 .lb-name { font-weight: 750; font-size: .95em; }
 
 .lb-track {
+  position: relative; /* same containing-block rule as .rank-track */
   height: 1.25em;
   border-radius: var(--bar-radius);
   background: color-mix(in srgb, var(--ink) 7%, transparent);
@@ -582,6 +768,289 @@ svg.donut {
   font-weight: 750;
   letter-spacing: -.02em;
   font-variant-numeric: tabular-nums;
+}
+
+/* ================================================== confidence strip */
+
+.conf-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45em;
+  margin-top: .4em;
+  font-size: .62em;
+}
+.conf-chip {
+  padding: .22em .6em;
+  border-radius: 999px;
+  border: 1px solid var(--edge);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  color: var(--ink-soft);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.conf-chip.is-alarm {
+  border-color: color-mix(in srgb, var(--bad) 45%, var(--edge));
+  background: color-mix(in srgb, var(--bad) 10%, transparent);
+  color: var(--bad);
+  font-weight: 700;
+}
+
+/* best-answer reveal: a quiet acknowledgement, not a verdict */
+.chart-row.is-best .chart-label { font-weight: 700; }
+.chart-row.is-best .chart-label::after {
+  content: '✦ pick';
+  display: inline-block;
+  margin-left: .5em;
+  padding: .1em .45em;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: color-mix(in srgb, var(--accent) 80%, var(--ink));
+  font-size: .62em;
+  font-weight: 700;
+  letter-spacing: .04em;
+  vertical-align: .12em;
+  animation: check-pop .5s var(--ease-spring) backwards;
+}
+.chart-row.is-best .chart-pct {
+  color: color-mix(in srgb, var(--accent) 85%, var(--ink));
+}
+
+/* ================================================== opinion spectrum */
+
+[data-chart="spectrum"] { display: block; }
+
+.spectrum-wrap { padding: .4em 0 .2em; }
+
+.spectrum-ends {
+  display: flex;
+  justify-content: space-between;
+  font-size: .72em;
+  font-weight: 650;
+  color: var(--ink-soft);
+  margin-bottom: .5em;
+}
+
+.spectrum-field {
+  position: relative;
+  height: 9em;
+  border-radius: calc(var(--bar-radius) + 2px);
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--ink) 7%, transparent),
+      color-mix(in srgb, var(--ink) 4%, transparent));
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--ink) 10%, transparent);
+  overflow: hidden;
+}
+.spectrum-axis {
+  position: absolute;
+  left: 3%; right: 3%; top: 50%;
+  height: 2px;
+  background: color-mix(in srgb, var(--ink) 18%, transparent);
+  pointer-events: none;
+}
+.spectrum-dot {
+  position: absolute;
+  width: .85em; height: .85em;
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+  will-change: transform, left;
+}
+.spectrum-corners {
+  position: absolute;
+  inset: .4em 0 auto 0;
+  pointer-events: none;
+}
+.spectrum-corner {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: .7em;
+  font-weight: 700;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+[data-awaiting] .spectrum-field::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg,
+      transparent 20%,
+      color-mix(in srgb, var(--accent) 13%, transparent) 50%,
+      transparent 80%) no-repeat;
+  background-size: 55% 100%;
+  background-position: -150% 0;
+  animation: track-await 3.2s var(--ease-in-out) infinite;
+}
+
+/* ================================================== writing showdown */
+
+[data-chart="showdown"] { display: block; }
+
+.sample-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14em, 1fr));
+  gap: .8em;
+  align-items: stretch;
+}
+.sample-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: .6em;
+  padding: .9em 1em .8em;
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--ink) 6%, transparent),
+    0 6px 18px color-mix(in srgb, var(--ink) 7%, transparent);
+}
+.sample-tag {
+  position: absolute;
+  top: -.55em; left: .8em;
+  width: 1.5em; height: 1.5em;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--surface);
+  font-family: var(--display);
+  font-size: .72em;
+  font-weight: 700;
+}
+.sample-quote {
+  flex: 1;
+  margin: .2em 0 0;
+  font-family: var(--display);
+  font-size: .82em;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.sample-track {
+  position: relative;
+  height: 1.1em;
+  border-radius: var(--bar-radius);
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--ink) 8%, transparent);
+  overflow: hidden;
+}
+.sample-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 0 min(var(--bar-radius), 7px) min(var(--bar-radius), 7px) 0;
+}
+.sample-meta {
+  display: flex;
+  align-items: baseline;
+  gap: .4em;
+  justify-content: flex-end;
+}
+.sample-pct { font-size: .95em; font-weight: 750; font-variant-numeric: tabular-nums; }
+.sample-count { font-size: .65em; font-weight: 550; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+[data-awaiting] .sample-track::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg,
+      transparent 20%,
+      color-mix(in srgb, var(--accent) 13%, transparent) 50%,
+      transparent 80%) no-repeat;
+  background-size: 55% 100%;
+  background-position: -150% 0;
+  animation: track-await 3.2s var(--ease-in-out) infinite;
+}
+
+.rationale-stream {
+  margin-top: .8em;
+  padding-top: .6em;
+  border-top: 1px solid var(--edge);
+  display: flex;
+  flex-direction: column;
+  gap: .3em;
+  max-height: 9em;
+  overflow-y: auto;
+}
+.rationale-line {
+  margin: 0;
+  font-size: .66em;
+  line-height: 1.4;
+  color: var(--ink-soft);
+}
+.rationale-line::first-letter { font-weight: 700; }
+
+/* =================================================== passage heatmap */
+
+[data-chart="heatmap"] { display: block; }
+
+.passage {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 1em;
+  line-height: 1.75;
+  letter-spacing: .005em;
+  text-wrap: pretty;
+}
+.passage-seg {
+  border-radius: 6px;
+  padding: .08em .18em;
+  margin: 0 -.05em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  /* background + underline are spring-driven from charts.js; colour
+     changes ease so classify-mode re-tints don't pop */
+  transition: color var(--duration-slow) var(--ease-out);
+}
+.seg-count {
+  font-family: var(--body);
+  font-size: .5em;
+  font-weight: 700;
+  color: var(--ink-soft);
+  margin-left: .25em;
+  font-variant-numeric: tabular-nums;
+}
+.heat-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5em;
+  margin-top: .8em;
+  font-size: .62em;
+}
+.heat-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .4em;
+  padding: .22em .6em;
+  border-radius: 999px;
+  border: 1px solid var(--edge);
+  font-weight: 650;
+}
+.heat-legend-chip::before {
+  content: '';
+  width: .8em; height: .8em;
+  border-radius: 3px;
+  background: var(--chip-color, var(--accent));
+}
+
+/* ============================================== calibration anchor */
+
+.scale-anchor {
+  position: absolute;
+  top: -.35em;
+  width: .8em; height: .8em;
+  margin-left: -.4em;
+  background: var(--ink);
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  opacity: 0;
+  transition: opacity .35s var(--ease-out);
+  pointer-events: none;
+}
+.scale-anchor.is-visible { opacity: 1; }
+.anchor-note {
+  margin: .3em 0 0;
+  font-size: .62em;
+  font-weight: 600;
+  color: var(--ink-soft);
 }
 
 /* ============================================================ confetti */
@@ -607,6 +1076,19 @@ svg.donut {
   }
 }
 
+/* =================================================== prefers-contrast */
+
+/* the high-contrast theme's treatment, available to any theme when the
+   OS asks for more contrast: rules instead of washes, no gloss */
+@media (prefers-contrast: more) {
+  .chart-track {
+    background: transparent;
+    box-shadow: inset 0 0 0 2px var(--ink);
+  }
+  .chart-sheen { display: none; }
+  .chart-count { color: var(--ink); }
+}
+
 /* ===================================================== reduced motion */
 
 @media (prefers-reduced-motion: reduce) {
@@ -614,4 +1096,8 @@ svg.donut {
   .answer-card:hover { transform: none; }
   .confetti-layer { display: none; }
   .cloud-word { transition: none; }
+  [data-awaiting] .chart-track::after,
+  [data-awaiting] .scale-track::after,
+  [data-awaiting] .rank-track::after { display: none; }
+  .await-dots span { animation: none; }
 }

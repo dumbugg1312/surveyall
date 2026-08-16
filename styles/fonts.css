@@ -1,0 +1,52 @@
+/* =====================================================================
+   Self-hosted variable fonts (SIL OFL — see fonts/OFL-licenses.txt).
+
+   Before these shipped, every theme's type stack leaned on faces that
+   only exist on a Mac ('Iowan Old Style', Futura, 'Bradley Hand') or on
+   nothing at all ('Inter var' was named but never loaded), so the same
+   deck projected different type in every classroom, and the in-between
+   weights this CSS asks for (550, 650, 750) silently snapped to 400/700.
+   Four variable files, ~220KB total, make the design real everywhere:
+
+     Inter    — body text everywhere; display for the plainest themes
+     Fraunces — the bookish serif (lecture-hall, letterpress)
+     Oswald   — the tall condensed grotesque (neon-night, midnight)
+     Caveat   — the chalk hand (chalkboard)
+
+   `font-weight: 100 900` declares the variable range; font-display:
+   swap keeps first paint instant (present.html additionally preloads
+   the two faces the default theme needs, so the projector never flashes
+   fallback type in front of a class).
+   ===================================================================== */
+
+@font-face {
+  font-family: 'Inter';
+  src: url('../fonts/Inter-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Fraunces';
+  src: url('../fonts/Fraunces-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Oswald';
+  src: url('../fonts/Oswald-Variable.woff2') format('woff2');
+  font-weight: 200 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Caveat';
+  src: url('../fonts/Caveat-Variable.woff2') format('woff2');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}

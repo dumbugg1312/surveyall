@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>Present — SurveyAll</title>
+<link rel="preload" as="font" type="font/woff2" crossorigin href="fonts/Inter-Variable.woff2">
+<link rel="preload" as="font" type="font/woff2" crossorigin href="fonts/Fraunces-Variable.woff2">
+<link rel="stylesheet" href="styles/fonts.css">
 <link rel="stylesheet" href="styles/base.css">
 <link rel="stylesheet" href="styles/charts.css">
 <link rel="stylesheet" href="styles/present.css">
@@ -57,9 +60,16 @@
       <span class="dot-live" aria-hidden="true"></span>
       <span id="countText">0 responses</span>
     </span>
+    <!-- volunteer pool: how many would say more aloud — a count, never names -->
+    <span class="count-pill hands-pill" id="handsPill" hidden>🖐 <span id="handsText">0</span></span>
     <span class="muted" id="stateNote"></span>
     <span class="spacer"></span>
     <div class="progress-dots" id="dots"></div>
+    <!-- Screen-reader narration of the room: question changes, voting
+         state, the reveal, and a rate-limited response count. Inside the
+         footer on purpose — .stage-foot is already in the overlay-lift
+         list, so no new direct child of .stage is introduced. -->
+    <div class="sr-only" role="status" aria-live="polite" id="srStatus"></div>
   </div>
 
   <!-- always-available join corner (proposal P4) -------------------- -->
@@ -107,6 +117,12 @@
       <button class="ctrl" id="btnTimer" type="button" title="Timer — or press 1-9 for that many ×10 seconds">
         <span class="ctrl-label">Timer</span><kbd>T</kbd></button>
       <span class="ctrl-sep"></span>
+      <button class="ctrl" id="btnDiscuss" type="button"
+              title="Peer instruction: close, discuss, vote again, reveal the change">
+        <span class="ctrl-label">Discuss</span><kbd>P</kbd></button>
+      <!-- Mazur's decision band, computed from round one. Lives in this
+           transient tray rather than on the open slide. -->
+      <span class="pi-hint" id="piHint" hidden></span>
       <button class="ctrl" id="btnReask" type="button" title="Ask again, keeping the first round">
         <span class="ctrl-label">Re-ask</span><kbd>R</kbd></button>
       <button class="ctrl" id="btnDelta" type="button" title="Compare rounds">
@@ -116,7 +132,8 @@
       <span class="ctrl-sep"></span>
       <button class="ctrl" id="btnShare" type="button" title="Show results on phones">
         <span class="ctrl-label">Push to phones</span></button>
-      <button class="ctrl" id="btnQA" type="button" title="Questions from the room">
+      <button class="ctrl" id="btnQA" type="button" title="Questions from the room"
+              aria-expanded="false" aria-controls="qaPanel">
         <span class="ctrl-label">Q&amp;A</span><kbd>Q</kbd></button>
       <button class="ctrl" id="btnFull" type="button" title="Fullscreen">
         <span class="ctrl-label">Fullscreen</span><kbd>F</kbd></button>

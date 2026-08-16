@@ -193,6 +193,153 @@
   padding: .2rem 0;
 }
 
+/* ------------------------------------------- pedagogy: new controls */
+
+.conf-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem;
+  padding-bottom: .5rem;
+}
+.conf-label { font-size: .78rem; font-weight: 600; color: var(--ink-soft); white-space: nowrap; }
+.conf-btns { display: flex; gap: .35rem; }
+.conf-btn {
+  padding: .4rem .6rem;
+  border: 2px solid var(--edge);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: .74rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.conf-btn.is-selected {
+  border-color: var(--accent);
+  color: color-mix(in srgb, var(--accent) 80%, var(--ink));
+  background: var(--accent-soft);
+}
+
+.hand-btn {
+  margin-top: .5rem;
+  width: 100%;
+  padding: .6rem;
+  border: 2px dashed var(--edge);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: .85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.hand-btn.is-raised {
+  border-style: solid;
+  border-color: var(--good);
+  color: var(--good);
+}
+
+.spectrum-control { padding: 1rem 0; }
+.spectrum-control-ends {
+  display: flex;
+  justify-content: space-between;
+  font-size: .82rem;
+  font-weight: 650;
+  color: var(--ink-soft);
+  margin-bottom: .8rem;
+}
+.spectrum-slider {
+  width: 100%;
+  height: 2.6rem;
+  accent-color: var(--accent);
+  touch-action: pan-y;
+}
+
+.sample-pick {
+  display: flex;
+  gap: .7rem;
+  align-items: flex-start;
+  width: 100%;
+  text-align: left;
+  padding: .8rem .9rem;
+  border: 2px solid var(--edge);
+  border-radius: 14px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease;
+}
+.sample-pick.is-selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+.sample-pick-tag {
+  flex-shrink: 0;
+  width: 1.6rem; height: 1.6rem;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  font-weight: 700;
+  font-size: .8rem;
+}
+.sample-pick.is-selected .sample-pick-tag { background: var(--accent); color: #fff; }
+.sample-pick-text {
+  font-family: var(--display);
+  font-size: .92rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.rationale-input {
+  width: 100%;
+  padding: .7rem .8rem;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: .9rem;
+}
+
+.heatmap-control .seg-row {
+  border-radius: 12px;
+  overflow: hidden;
+}
+.seg-body {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: .7rem .85rem;
+  border: 2px solid var(--edge);
+  border-radius: 12px;
+  background: var(--surface);
+  font-family: var(--display);
+  font-size: .92rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+button.seg-body { cursor: pointer; transition: border-color .15s ease, background .15s ease; }
+.seg-row.is-picked > .seg-body {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+.seg-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+  padding: .4rem .2rem 0;
+}
+.seg-chip {
+  padding: .32rem .6rem;
+  border: 1.5px solid var(--edge);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: .74rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.seg-chip.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: color-mix(in srgb, var(--accent) 80%, var(--ink));
+}
+
 /* ------------------------------------------------------------- ranking */
 
 .rank-item {
@@ -202,7 +349,9 @@
   border: 2px solid var(--edge);
   border-radius: 14px;
   background: var(--surface);
-  transition: border-color .15s ease, transform .18s ease;
+  /* movement is FLIP-animated in join-page.js (the list is rebuilt on
+     every change, so a transform transition here never fired) */
+  transition: border-color .15s ease;
 }
 .rank-item.is-ranked { border-color: var(--accent); }
 

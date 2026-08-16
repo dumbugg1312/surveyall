@@ -23,6 +23,7 @@ import {
 import { validateResponse, aggregate, optionLabels, MULTI_SUBMIT_TYPES } from './logic.js';
 import { applyTheme } from './themes.js';
 import { renderAggregate } from './charts.js';
+import { prefersReducedMotion } from './motion.js';
 import {
   ensurePseudonym, rememberAnswer, recallAnswer,
   codeFromLocation, upvotedIds, markUpvoted,
@@ -76,7 +77,11 @@ async function joinByCode(code) {
   }
 
   state.session = session;
-  applyTheme(document.documentElement, session.theme);
+  // an instructor-built theme arrives as tokens on the join payload;
+  // built-in themes are just an id
+  applyTheme(document.documentElement, session.custom_theme?.tokens
+    ? { id: 'custom', dark: !!session.custom_theme.dark, tokens: session.custom_theme.tokens }
+    : session.theme);
   syncThemeColor();
 
   // The label is no longer a nicety: it is the row key for this device's
@@ -152,6 +157,7 @@ function onSessionChange(next) {
   if (movedOn) {
     state.submitted = false;
     state.slot = 0;
+    state.volunteered = false;
   }
   refresh();
 }
@@ -234,14 +240,44 @@ function renderQuestion(q, isNew) {
   btn.className = 'submit-btn';
   btn.textContent = submitLabel(q, state.submitted);
 
-  if (!s.accepting) {
-    btn.disabled = true;
-    btn.textContent = 'Voting is closed';
+  // confidence rider (anonymous, optional, off unless the question asks)
+  let conf = null;
+  const cfg = q.config || {};
+  if (cfg.confidence && ['multiple_choice', 'quiz', 'sample_vote', 'spectrum'].includes(q.type)) {
+    const row = div('conf-row');
+    row.append(div('conf-label', 'How sure are you?'));
+    const group = div('conf-btns');
+    ['Guessing', 'Fairly sure', 'Certain'].forEach((label, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'conf-btn';
+      b.textContent = label;
+      b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', () => {
+        conf = conf === i + 1 ? null : i + 1;
+        [...group.children].forEach((c, k) => {
+          c.classList.toggle('is-selected', conf === k + 1);
+          c.setAttribute('aria-pressed', conf === k + 1 ? 'true' : 'false');
+        });
+      });
+      group.append(b);
+    });
+    row.append(group);
+    actions.append(row);
   }
+
+  // hand-raise: revealed after a successful answer; re-sends the same
+  // payload with the volunteer flag (same slot, so it's an update)
+  const hand = document.createElement('button');
+  hand.type = 'button';
+  hand.className = 'hand-btn';
+  hand.textContent = '🖐 I’d say more about mine aloud';
+  hand.hidden = true;
 
   btn.addEventListener('click', async () => {
     error.textContent = '';
     const raw = control.value();
+    if (conf) raw.conf = conf;
     const check = validateResponse(q.type, q.config, raw);
     if (!check.ok) {
       error.textContent = check.error;
@@ -273,11 +309,24 @@ function renderQuestion(q, isNew) {
 
       btn.classList.add('is-sent');
       btn.textContent = multi ? 'Sent — add another' : 'Answer sent ✓';
+      // one small physical beat on success — the green text alone is
+      // easy to miss mid-lecture with the phone at arm's length
+      if (!prefersReducedMotion()) {
+        btn.animate(
+          [{ transform: 'scale(1)' }, { transform: 'scale(1.04)' }, { transform: 'scale(1)' }],
+          { duration: 380, easing: 'cubic-bezier(.34, 1.56, .64, 1)' },
+        );
+      }
       setTimeout(() => {
         btn.classList.remove('is-sent');
         btn.disabled = !state.session.accepting;
         btn.textContent = submitLabel(q, state.submitted);
       }, 1400);
+
+      if (!multi && !state.volunteered) {
+        hand.hidden = false;
+        hand.__payload = check.payload;
+      }
 
       maybeShowSharedResults();
     } catch (err) {
@@ -291,10 +340,31 @@ function renderQuestion(q, isNew) {
     }
   });
 
-  actions.append(error, btn);
+  hand.addEventListener('click', async () => {
+    if (!hand.__payload) return;
+    hand.disabled = true;
+    try {
+      await submitResponse({
+        sessionId: s.id,
+        questionId: q.id,
+        round: q.round,
+        pseudonym: state.pseudonym,
+        pseudonymToken: state.pseudonymToken,
+        payload: { ...hand.__payload, volunteer: true },
+        slot: 0,
+      });
+      state.volunteered = true;
+      hand.textContent = 'Hand raised ✓';
+      hand.classList.add('is-raised');
+    } catch {
+      hand.disabled = false;
+    }
+  });
+
+  actions.append(error, btn, hand);
   app.append(actions);
 
-  if (isNew) prompt.animate?.(
+  if (isNew && !prefersReducedMotion()) prompt.animate?.(
     [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }],
     { duration: 260, easing: 'cubic-bezier(.22,.8,.3,1)' });
 
@@ -323,6 +393,14 @@ function hintFor(q) {
       return 'Tap to add to your ranking, then reorder';
     case 'quiz':
       return 'Answer fast — quicker correct answers score more';
+    case 'spectrum':
+      return 'Slide to where you stand — there\'s no wrong position';
+    case 'sample_vote':
+      return 'Read all of them, then pick the strongest';
+    case 'heatmap':
+      return cfg.mode === 'classify'
+        ? 'Label the parts you can identify'
+        : '';
     default:
       return '';
   }
@@ -366,11 +444,158 @@ function buildControl(q, prior) {
     case 'open_ended': return textControl(q, prior);
     case 'scales': return scalesControl(q, prior);
     case 'ranking': return rankingControl(q, prior);
+    case 'spectrum': return spectrumControl(q, prior);
+    case 'sample_vote': return showdownControl(q, prior);
+    case 'heatmap': return heatmapControl(q, prior);
     default: {
       const el = div('state-text', 'This question type isn\'t supported on your device.');
       return { el, value: () => ({}) };
     }
   }
+}
+
+// Where do you stand? A single big slider; the answer is the position.
+function spectrumControl(q, prior) {
+  const cfg = q.config || {};
+  const wrap = div('spectrum-control');
+  let moved = prior?.pos != null;
+
+  const ends = div('spectrum-control-ends');
+  ends.append(
+    div('spectrum-control-end', cfg.left_label || 'Disagree'),
+    div('spectrum-control-end', cfg.right_label || 'Agree'),
+  );
+
+  const slider = document.createElement('input');
+  slider.type = 'range';
+  slider.min = '0';
+  slider.max = '100';
+  slider.step = '1';
+  slider.value = String(prior?.pos ?? 50);
+  slider.className = 'spectrum-slider';
+  slider.setAttribute('aria-label',
+    `${cfg.left_label || 'Disagree'} to ${cfg.right_label || 'Agree'}`);
+  slider.addEventListener('input', () => { moved = true; });
+
+  wrap.append(ends, slider);
+  return {
+    el: wrap,
+    value: () => ({ pos: moved ? Number(slider.value) : NaN }),
+  };
+}
+
+// Anonymous samples as tappable quotation cards + an optional one-liner.
+function showdownControl(q, prior) {
+  const cfg = q.config || {};
+  const samples = Array.isArray(cfg.samples) ? cfg.samples : [];
+  const wrap = div('stack-sm');
+  let choice = Number.isInteger(prior?.choice) ? prior.choice : null;
+
+  const cards = samples.map((text, i) => {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'sample-pick' + (choice === i ? ' is-selected' : '');
+    card.setAttribute('aria-pressed', choice === i ? 'true' : 'false');
+    card.append(div('sample-pick-tag', String.fromCharCode(65 + i)));
+    card.append(div('sample-pick-text', text));
+    card.addEventListener('click', () => {
+      choice = i;
+      cards.forEach((c, k) => {
+        c.classList.toggle('is-selected', k === i);
+        c.setAttribute('aria-pressed', k === i ? 'true' : 'false');
+      });
+    });
+    wrap.append(card);
+    return card;
+  });
+
+  let rationale = null;
+  if (cfg.allow_rationale !== false) {
+    rationale = document.createElement('input');
+    rationale.type = 'text';
+    rationale.maxLength = 140;
+    rationale.placeholder = 'One line: why? (optional)';
+    rationale.className = 'rationale-input';
+    rationale.value = prior?.rationale || '';
+    wrap.append(rationale);
+  }
+
+  return {
+    el: wrap,
+    value: () => ({
+      choice: choice ?? -1,
+      rationale: rationale ? rationale.value : '',
+    }),
+  };
+}
+
+// The passage, sentence by sentence: tap to highlight, or tap a label
+// chip under a sentence in classify mode.
+function heatmapControl(q, prior) {
+  const cfg = q.config || {};
+  const segs = Array.isArray(cfg.segments) ? cfg.segments : [];
+  const labels = cfg.mode === 'classify' && Array.isArray(cfg.labels) ? cfg.labels : null;
+  const maxPicks = Math.max(1, Math.min(5, Number(cfg.max_picks) || 1));
+  const wrap = div('stack-sm heatmap-control');
+
+  const picks = new Set(Array.isArray(prior?.picks) ? prior.picks : []);
+  const tags = new Map(prior?.tags
+    ? Object.entries(prior.tags).map(([k, v]) => [Number(k), Number(v)]) : []);
+
+  if (!labels) {
+    const note = div('q-hint',
+      maxPicks > 1 ? `Tap up to ${maxPicks} sentences` : 'Tap one sentence');
+    wrap.append(note);
+  }
+
+  segs.forEach((text, si) => {
+    const row = div('seg-row' + (picks.has(si) ? ' is-picked' : ''));
+    const body = document.createElement(labels ? 'div' : 'button');
+    if (!labels) {
+      body.type = 'button';
+      body.setAttribute('aria-pressed', picks.has(si) ? 'true' : 'false');
+      body.addEventListener('click', () => {
+        if (picks.has(si)) picks.delete(si);
+        else {
+          if (picks.size >= maxPicks && maxPicks === 1) picks.clear();
+          if (picks.size < maxPicks) picks.add(si);
+        }
+        row.classList.toggle('is-picked', picks.has(si));
+        body.setAttribute('aria-pressed', picks.has(si) ? 'true' : 'false');
+      });
+    }
+    body.className = 'seg-body';
+    body.textContent = text;
+    row.append(body);
+
+    if (labels) {
+      const chips = div('seg-chips');
+      labels.forEach((label, li) => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'seg-chip' + (tags.get(si) === li ? ' is-selected' : '');
+        chip.textContent = label;
+        chip.setAttribute('aria-pressed', tags.get(si) === li ? 'true' : 'false');
+        chip.addEventListener('click', () => {
+          if (tags.get(si) === li) tags.delete(si); else tags.set(si, li);
+          [...chips.children].forEach((c, k) => {
+            c.classList.toggle('is-selected', tags.get(si) === k);
+            c.setAttribute('aria-pressed', tags.get(si) === k ? 'true' : 'false');
+          });
+        });
+        chips.append(chip);
+      });
+      row.append(chips);
+    }
+    wrap.append(row);
+  });
+
+  return {
+    el: wrap,
+    value: () => (labels
+      ? { tags: Object.fromEntries(tags) }
+      : { picks: [...picks] }),
+  };
 }
 
 function choiceControl(q, prior, isQuiz) {
@@ -542,6 +767,16 @@ function rankingControl(q, prior) {
   const wrap = div('stack-sm');
 
   const draw = () => {
+    // FLIP: the list is rebuilt wholesale, so remember where each item
+    // sat and animate the survivors from their old position — reordering
+    // reads as movement instead of a teleport.
+    const prevTop = new Map();
+    [...wrap.children].forEach((child) => {
+      if (child.dataset && child.dataset.i) {
+        prevTop.set(child.dataset.i, child.getBoundingClientRect().top);
+      }
+    });
+
     wrap.textContent = '';
     // ranked items first, in order; then the unranked pool
     const ranked = order.map((i) => ({ i, rank: order.indexOf(i) + 1 }));
@@ -549,6 +784,7 @@ function rankingControl(q, prior) {
 
     ranked.forEach(({ i, rank }, pos) => {
       const row = div('rank-item is-ranked');
+      row.dataset.i = String(i);
       row.append(div('rank-badge', String(rank)));
       row.append(div('rank-text', label(items[i])));
 
@@ -586,10 +822,25 @@ function rankingControl(q, prior) {
       const row = document.createElement('button');
       row.type = 'button';
       row.className = 'rank-item';
+      row.dataset.i = String(i);
       row.append(div('rank-badge', '+'), div('rank-text', label(items[i])));
       row.addEventListener('click', () => { order.push(i); draw(); });
       wrap.append(row);
     });
+
+    if (prevTop.size && !prefersReducedMotion()) {
+      [...wrap.children].forEach((child) => {
+        const old = child.dataset && prevTop.get(child.dataset.i);
+        if (old == null) return;
+        const dy = old - child.getBoundingClientRect().top;
+        if (Math.abs(dy) > 2) {
+          child.animate(
+            [{ transform: `translateY(${dy}px)` }, { transform: 'none' }],
+            { duration: 280, easing: 'cubic-bezier(.2, 0, 0, 1)' },
+          );
+        }
+      });
+    }
   };
 
   const moveBtn = (glyph, disabled, fn) => {

@@ -8,7 +8,7 @@ import {
   configured, currentUser, signOut, listDecks, createDeck, deleteDeck,
   listSessions, createSession, deleteSession, listQuestions, replaceQuestions,
 } from './db.js';
-import { getTheme } from './themes.js';
+import { getTheme, resolveTheme } from './themes.js';
 import { parseDeck, SAMPLE_DECK } from './deck-format.js';
 
 const $ = (id) => document.getElementById(id);
@@ -63,7 +63,7 @@ async function loadDecks() {
   grid.className = 'deck-grid';
 
   for (const deck of decks) {
-    const theme = getTheme(deck.theme);
+    const theme = getTheme(resolveTheme(deck.theme, deck));
     const card = document.createElement('div');
     card.className = 'deck-card';
 

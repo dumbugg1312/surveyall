@@ -15,6 +15,7 @@ import {
   buildCSV, toCSVValue, sessionToCSVRows, CSV_HEADERS, payloadToText,
   correctIndices, optionLabels, generateJoinCode, joinURL,
   neighbourQuestion, sortedQuestions, MULTI_SUBMIT_TYPES,
+  splitPassage, promptKey,
 } from '../app/logic.js';
 import { parseDeck, serialiseDeck, SAMPLE_DECK } from '../app/deck-format.js';
 import {
@@ -1024,6 +1025,257 @@ describe('colour', () => {
     const Ls = p.map((c) => srgbToOklab(c)[0]);
     const spread = Math.max(...Ls) - Math.min(...Ls);
     ok(spread < 0.22, `lightness spread ${spread.toFixed(3)} is too wide`);
+  });
+});
+
+// =====================================================================
+// Pedagogy features (roadmap): riders, new types, curation, identity
+// =====================================================================
+
+describe('answer riders — confidence and volunteer', () => {
+  const cfg = { options: ['A', 'B', 'C'] };
+
+  it('carries a 1–3 confidence self-report on a choice', () => {
+    const r = validateResponse('multiple_choice', cfg, { choices: [1], conf: 3 });
+    ok(r.ok);
+    eq(r.payload.conf, 3);
+  });
+
+  it('drops out-of-range confidence silently', () => {
+    const r = validateResponse('multiple_choice', cfg, { choices: [1], conf: 7 });
+    ok(r.ok);
+    eq(r.payload.conf, undefined);
+  });
+
+  it('carries the volunteer hand-raise only when literally true', () => {
+    const a = validateResponse('open_ended', {}, { text: 'hi', volunteer: true });
+    const b = validateResponse('open_ended', {}, { text: 'hi', volunteer: 'yes' });
+    ok(a.ok && b.ok);
+    eq(a.payload.volunteer, true);
+    eq(b.payload.volunteer, undefined);
+  });
+
+  it('aggregates the confidence quadrant against the answer key', () => {
+    const qcfg = { options: ['A', 'B'], correct: [0] };
+    const rows = [
+      { payload: { choice: 0, conf: 3 } },  // sure + right
+      { payload: { choice: 1, conf: 3 } },  // sure + wrong (the signal)
+      { payload: { choice: 0, conf: 1 } },  // guessing + right
+      { payload: { choice: 1, conf: 2 } },  // fairly sure + wrong
+      { payload: { choice: 0 } },           // no confidence reported
+    ];
+    const agg = aggregate('quiz', qcfg, rows);
+    eq(agg.confidence.n, 4);
+    eq(agg.confidence.quad.sureRight, 1);
+    eq(agg.confidence.quad.sureWrong, 1);
+    eq(agg.confidence.quad.unsureRight, 1);
+    eq(agg.confidence.quad.unsureWrong, 1);
+  });
+
+  it('reports null confidence when nobody offered one', () => {
+    const agg = aggregate('quiz', { options: ['A'], correct: [0] },
+      [{ payload: { choice: 0 } }]);
+    eq(agg.confidence, null);
+  });
+});
+
+describe('opinion spectrum', () => {
+  it('clamps and rounds the position', () => {
+    eq(validateResponse('spectrum', {}, { pos: 61.4 }).payload.pos, 61);
+    eq(validateResponse('spectrum', {}, { pos: 400 }).payload.pos, 100);
+    eq(validateResponse('spectrum', {}, { pos: -3 }).payload.pos, 0);
+    notOk(validateResponse('spectrum', {}, {}).ok);
+  });
+
+  it('aggregates individual points with pseudonyms for dot identity', () => {
+    const rows = [
+      { pseudonym: 'Amber Falcon', payload: { pos: 10 } },
+      { pseudonym: 'Teal Harbor', payload: { pos: 90 } },
+    ];
+    const agg = aggregate('spectrum', {}, rows);
+    eq(agg.total, 2);
+    eq(agg.points[0].pos, 10);
+    eq(agg.points[0].pseudonym, 'Amber Falcon');
+    eq(agg.corners.join(','), '1,0,0,1');
+  });
+});
+
+describe('writing showdown (sample_vote)', () => {
+  const cfg = { samples: ['Thesis A', 'Thesis B'], allow_rationale: true };
+
+  it('validates the pick and trims the rationale', () => {
+    const r = validateResponse('sample_vote', cfg,
+      { choice: 1, rationale: '  commits to  an argument  ' });
+    ok(r.ok);
+    eq(r.payload.choice, 1);
+    eq(r.payload.rationale, 'commits to an argument');
+    notOk(validateResponse('sample_vote', cfg, { choice: 5 }).ok);
+  });
+
+  it('aggregates counts and keeps rationales attached to their sample', () => {
+    const rows = [
+      { payload: { choice: 0 } },
+      { payload: { choice: 1, rationale: 'stronger claim' } },
+      { payload: { choice: 1 } },
+    ];
+    const agg = aggregate('sample_vote', cfg, rows);
+    eq(agg.total, 3);
+    eq(agg.samples[1].count, 2);
+    close(agg.samples[1].pct, 66.67, 0.1);
+    eq(agg.rationales.length, 1);
+    eq(agg.rationales[0].choice, 1);
+  });
+});
+
+describe('passage heatmap', () => {
+  it('splits sentences conservatively and honours manual | splits', () => {
+    eq(splitPassage('One. Two! Three?').length, 3);
+    eq(splitPassage('All animals are equal | but some animals | are more equal').length, 3);
+    eq(splitPassage('Ends without punctuation').length, 1);
+    eq(splitPassage('').length, 0);
+  });
+
+  const cfg = { segments: ['S1.', 'S2.', 'S3.'], max_picks: 2 };
+
+  it('validates highlight picks within bounds', () => {
+    const r = validateResponse('heatmap', cfg, { picks: [2, 0, 2] });
+    ok(r.ok);
+    eq(r.payload.picks.join(','), '0,2');
+    notOk(validateResponse('heatmap', cfg, { picks: [9] }).ok);
+    notOk(validateResponse('heatmap', cfg, { picks: [0, 1, 2] }).ok);
+  });
+
+  it('validates classify tags against segments and labels', () => {
+    const ccfg = { ...cfg, mode: 'classify', labels: ['claim', 'evidence'] };
+    const r = validateResponse('heatmap', ccfg, { tags: { 1: 0, 9: 1, 2: 5 } });
+    ok(r.ok);
+    eq(JSON.stringify(r.payload.tags), '{"1":0}');
+  });
+
+  it('aggregates heat normalised to the hottest segment', () => {
+    const rows = [
+      { payload: { picks: [1] } },
+      { payload: { picks: [1] } },
+      { payload: { picks: [0] } },
+    ];
+    const agg = aggregate('heatmap', cfg, rows);
+    eq(agg.total, 3);
+    eq(agg.segments[1].count, 2);
+    eq(agg.segments[1].heat, 1);
+    close(agg.segments[0].heat, 0.5, 0.001);
+    eq(agg.mode, 'highlight');
+  });
+
+  it('aggregates per-label tag counts in classify mode', () => {
+    const ccfg = { ...cfg, mode: 'classify', labels: ['claim', 'warrant'] };
+    const rows = [
+      { payload: { tags: { 0: 0, 1: 1 } } },
+      { payload: { tags: { 0: 0 } } },
+      { payload: { tags: { 0: 1 } } },
+    ];
+    const agg = aggregate('heatmap', ccfg, rows);
+    eq(agg.mode, 'classify');
+    eq(agg.segments[0].tags.join(','), '2,1');
+    eq(agg.segments[1].tags.join(','), '0,1');
+  });
+});
+
+describe('word cloud curation — merge and hide, visibly counted', () => {
+  const rows = [
+    { payload: { words: ['arguing'] } },
+    { payload: { words: ['argue'] } },
+    { payload: { words: ['argument'] } },
+    { payload: { words: ['rude'] } },
+  ];
+
+  it('folds merged variants into one word and counts the merge', () => {
+    const cfg = { word_merges: { arguing: 'argue', argument: 'argue' } };
+    const agg = aggregate('word_cloud', cfg, rows);
+    const argue = agg.words.find((w) => w.word === 'argue');
+    eq(argue.count, 3);
+    eq(agg.merged, 2);
+    eq(agg.words.some((w) => w.word === 'arguing'), false);
+  });
+
+  it('hides words without pretending they never happened', () => {
+    const agg = aggregate('word_cloud', { word_hidden: ['rude'] }, rows);
+    eq(agg.hidden, 1);
+    eq(agg.words.some((w) => w.word === 'rude'), false);
+    eq(agg.total, 4); // respondent count is untouched by curation
+  });
+
+  it('a merge that lands on a hidden word stays hidden and counted', () => {
+    const cfg = { word_merges: { arguing: 'rude' }, word_hidden: ['rude'] };
+    const agg = aggregate('word_cloud', cfg, rows);
+    eq(agg.hidden, 2);
+  });
+});
+
+describe('question identity across sessions (promptKey)', () => {
+  it('normalises case, punctuation and spacing', () => {
+    eq(promptKey('  What is a warrant?  '), promptKey('what IS a warrant'));
+    ok(promptKey('What is a warrant?') !== promptKey('What is a claim?'));
+    eq(promptKey(''), '');
+  });
+});
+
+describe('new types round-trip the plain-text deck format', () => {
+  const src = `# Deck
+## spectrum
+Uniforms are a justifiable rule
+left: Strongly disagree
+right: Strongly agree
+
+## showdown
+Which thesis is strongest?
+- Social media harms attention spans.
+- Social media reshapes attention rather than destroying it.
+rationale: false
+
+## heatmap
+Tap the claim
+> All animals are equal. | But some are more equal. | That is the joke.
+labels: claim, evidence
+max_picks: 2
+`;
+
+  it('parses all three with their configs', () => {
+    const deck = parseDeck(src);
+    eq(deck.errors.length, 0);
+    eq(deck.questions.length, 3);
+    const [sp, sv, hm] = deck.questions;
+    eq(sp.type, 'spectrum');
+    eq(sp.config.left_label, 'Strongly disagree');
+    eq(sv.type, 'sample_vote');
+    eq(sv.config.samples.length, 2);
+    eq(sv.config.allow_rationale, false);
+    eq(hm.type, 'heatmap');
+    eq(hm.config.segments.length, 3);
+    eq(hm.config.mode, 'classify');
+    eq(hm.config.labels.join(','), 'claim,evidence');
+    eq(hm.config.max_picks, 2);
+  });
+
+  it('serialise → parse round-trips segmentation and settings', () => {
+    const deck = parseDeck(src);
+    const again = parseDeck(serialiseDeck({ title: 'Deck', theme: 'lecture-hall' }, deck.questions));
+    eq(again.errors.length, 0);
+    const [sp, sv, hm] = again.questions;
+    eq(sp.config.right_label, 'Strongly agree');
+    eq(sv.config.allow_rationale, false);
+    eq(hm.config.segments.join('|'), deck.questions[2].config.segments.join('|'));
+    eq(hm.config.mode, 'classify');
+  });
+});
+
+describe('new types stay FERPA-clean in the CSV', () => {
+  it('renders readable answer cells for every new type', () => {
+    eq(payloadToText('spectrum', { left_label: 'No', right_label: 'Yes' }, { pos: 62 }),
+      '62 (0=No, 100=Yes)');
+    eq(payloadToText('sample_vote', {}, { choice: 1, rationale: 'tighter' }),
+      'Sample 2 — tighter');
+    eq(payloadToText('heatmap', { labels: ['claim'] }, { tags: { 0: 0 } }), 'S1=claim');
+    eq(payloadToText('heatmap', {}, { picks: [0, 2] }), 'S1 | S3');
   });
 });
 

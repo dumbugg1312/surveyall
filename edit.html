@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Edit deck — SurveyAll</title>
+<link rel="stylesheet" href="styles/fonts.css">
 <link rel="stylesheet" href="styles/base.css">
 <link rel="stylesheet" href="styles/app.css">
 </head>
@@ -33,8 +34,13 @@
           <option value="ranking">Ranking</option>
           <option value="quiz">Quiz</option>
           <option value="qa">Q&amp;A</option>
+          <option value="spectrum">Opinion spectrum</option>
+          <option value="sample_vote">Writing showdown</option>
+          <option value="heatmap">Passage heatmap</option>
         </select>
         <button class="btn btn-primary" id="addQuestion" type="button">Add</button>
+        <button class="btn" id="addTemplate" type="button"
+                title="Insert a research-backed classroom activity">Templates</button>
       </div>
 
       <div class="q-list" id="qList"></div>
@@ -45,6 +51,51 @@
       <div class="panel">
         <h3>Theme</h3>
         <div class="theme-grid" id="themeGrid"></div>
+
+        <div class="mythemes-head">
+          <h4>My themes</h4>
+          <button class="btn btn-sm" id="btnNewTheme" type="button">+ New theme</button>
+        </div>
+        <p class="mythemes-empty" id="myThemesEmpty">
+          Build your own look — pick four colours and a headline face,
+          the rest is derived so it always stays readable.
+        </p>
+        <div class="theme-grid" id="myThemeGrid"></div>
+
+        <div class="theme-builder" id="themeBuilder" hidden>
+          <div class="field">
+            <label for="ctName">Name</label>
+            <input id="ctName" type="text" maxlength="40" placeholder="My theme">
+          </div>
+          <div class="ct-colors">
+            <div class="field"><label for="ctGround">Background</label>
+              <input id="ctGround" type="color" value="#f7f4ee"></div>
+            <div class="field"><label for="ctInk">Text</label>
+              <input id="ctInk" type="color" value="#1c2434"></div>
+            <div class="field"><label for="ctAccent">Accent</label>
+              <input id="ctAccent" type="color" value="#1d4ed8"></div>
+            <div class="field"><label for="ctAccent2">Second accent</label>
+              <input id="ctAccent2" type="color" value="#b45309"></div>
+          </div>
+          <div class="ct-row">
+            <div class="field"><label for="ctFont">Headline</label>
+              <select id="ctFont"></select></div>
+            <div class="field"><label for="ctRadius">Corners</label>
+              <select id="ctRadius"></select></div>
+          </div>
+          <div class="field">
+            <label for="ctBackdrop">Backdrop</label>
+            <select id="ctBackdrop"></select>
+          </div>
+          <div id="ctPreviewHost"></div>
+          <p class="ct-warn" id="ctWarn" hidden></p>
+          <div class="ct-actions">
+            <button class="btn btn-primary" id="ctSave" type="button">Save &amp; apply</button>
+            <button class="btn" id="ctCancel" type="button">Cancel</button>
+            <span class="spacer"></span>
+            <button class="btn btn-danger" id="ctDelete" type="button" hidden>Delete</button>
+          </div>
+        </div>
       </div>
 
       <div class="panel">

@@ -8,17 +8,23 @@
  */
 
 import {
-  currentUser, getSession, getDeck, listQuestions,
-  updateSession, fetchResponses, subscribeToResponses, subscribeToSession,
-  clearResponses, maxRound, deleteResponse,
+  currentUser, getSession, getDeck, listQuestions, listSessions,
+  updateSession, updateQuestion, fetchResponses, subscribeToResponses,
+  subscribeToSession, clearResponses, maxRound, deleteResponse,
   listAudienceQuestions, moderateAudienceQuestion, subscribeToAudienceQuestions,
 } from './db.js';
 import {
   aggregate, computeDelta, quizLeaderboard, sortedQuestions,
-  neighbourQuestion, joinURL, TYPE_LABELS,
+  neighbourQuestion, joinURL, TYPE_LABELS, correctIndices, optionLabels,
+  promptKey,
 } from './logic.js';
-import { applyTheme, backgroundStyles, scrimOpacity } from './themes.js';
-import { renderAggregate, renderDelta, renderLeaderboard, celebrate } from './charts.js';
+import {
+  applyTheme, backgroundStyles, scrimOpacity, resolveTheme,
+} from './themes.js';
+import {
+  renderAggregate, renderDelta, renderLeaderboard, celebrate, pulseCount,
+} from './charts.js';
+import { countTo, delay } from './motion.js';
 import { renderQR } from './qr.js';
 import { joinBase } from './config.js';
 
@@ -49,6 +55,12 @@ const state = {
   timerEnds: 0,
   unsubs: [],
   repaintQueued: false,
+  chartPaintQueued: false,
+  // footer odometer state: what the count pill currently displays
+  shownRows: null,
+  shownPeople: null,
+  lastPeople: null,
+  countTween: null,
 };
 
 boot().catch((err) => {
@@ -74,7 +86,8 @@ async function boot() {
   state.deck = await getDeck(state.session.deck_id);
   state.questions = sortedQuestions(await listQuestions(state.deck.id));
 
-  applyTheme(document.documentElement, state.session.theme || state.deck.theme);
+  applyTheme(document.documentElement,
+    resolveTheme(state.session.theme || state.deck.theme, state.deck));
   paintBackground();
   paintJoin();
   wireControls();
@@ -106,8 +119,8 @@ function fatal(msg) {
 // =====================================================================
 
 function paintBackground() {
-  const themeId = state.session.theme || state.deck.theme;
-  const styles = backgroundStyles(state.deck.background, themeId);
+  const theme = resolveTheme(state.session.theme || state.deck.theme, state.deck);
+  const styles = backgroundStyles(state.deck.background, theme);
   Object.assign(ui.backdrop.style, styles);
   ui.scrim.style.opacity = String(scrimOpacity(state.deck.background));
 }
@@ -136,6 +149,17 @@ function queueRepaint() {
   requestAnimationFrame(() => { state.repaintQueued = false; render(); });
 }
 
+/**
+ * Narrate the room for screen-reader users. Every competitor's documented
+ * accessibility failure is exactly this: state changes (votes arriving,
+ * voting closing, the reveal) happen silently. One polite live region,
+ * plain sentences, no per-student anything.
+ */
+function announce(text) {
+  const el = $('srStatus');
+  if (el) el.textContent = text;
+}
+
 async function render() {
   const s = state.session;
 
@@ -143,6 +167,7 @@ async function render() {
     ui.lobby.hidden = false;
     ui.head.hidden = ui.body.hidden = ui.foot.hidden = true;
     ui.joinCorner.hidden = true;
+    ui.stage.classList.remove('is-awaiting');
     ui.lobbyTitle.textContent = s.state === 'ended'
       ? 'Session ended'
       : (state.deck.title || 'Ready when you are');
@@ -152,7 +177,11 @@ async function render() {
 
   ui.lobby.hidden = true;
   ui.head.hidden = ui.body.hidden = ui.foot.hidden = false;
-  ui.joinCorner.hidden = !state.showCorner;
+  // The `hidden` attribute answers only "is a question on screen"; whether
+  // the instructor tucked the corner away (J) is the class, one source of
+  // truth, so the J toggle survives re-renders instead of being overwritten.
+  ui.joinCorner.hidden = false;
+  ui.joinCorner.classList.toggle('is-hidden', !state.showCorner);
 
   const q = state.questions.find((x) => x.id === s.current_question_id);
   const changed = state.question?.id !== q?.id || state.question?.__round !== s.current_round;
@@ -170,8 +199,22 @@ async function render() {
   if (changed) {
     state.view = 'results';
     state.rows = [];
-    ui.chart.textContent = '';
+    resetChart();
     stopTimer();
+    endPairPhase(false);
+    state.compareWith = null;
+    curateSelection = null;
+    clearCurateMenu();
+    document.getElementById('compareBar')?.remove();
+    setCtrlLabel('btnDiscuss', 'Discuss');
+    // a fresh question starts its count from scratch, no count-down tween
+    state.countTween?.();
+    state.countTween = null;
+    state.shownRows = state.shownPeople = state.lastPeople = null;
+    state.srCount = null;
+    state.srCountAt = 0;
+    announce(`Question ${(q.position ?? 0) + 1}: ${q.prompt || ''}. `
+      + (s.accepting ? 'Voting is open.' : 'Voting is closed.'));
   }
 
   await loadRows();
@@ -234,7 +277,42 @@ function onResponseEvent(row, eventType) {
     const i = state.rows.findIndex((r) => r.id === row.id);
     if (i >= 0) state.rows[i] = row; else state.rows.push(row);
   }
-  paintChart();
+  queuePaintChart();
+}
+
+/**
+ * Coalesce response events into one repaint per frame. Sixty phones
+ * answering inside a second used to mean sixty synchronous renders; the
+ * springs are built to retarget mid-flight, so one paint per frame gives
+ * the same motion for a fraction of the work.
+ */
+function queuePaintChart() {
+  if (state.chartPaintQueued) return;
+  state.chartPaintQueued = true;
+  requestAnimationFrame(() => {
+    state.chartPaintQueued = false;
+    paintChart();
+  });
+}
+
+/**
+ * Full chart teardown. Emptying textContent alone is a trap: useChart's
+ * per-container state survives, still holding references to the now
+ * detached rows, and the next render updates nodes nobody can see. Any
+ * wipe of #chart must also drop that state.
+ */
+function resetChart() {
+  ui.chart.__chart?.group?.destroy();
+  delete ui.chart.__chart;
+  delete ui.chart.dataset.chart;
+  ui.chart.removeAttribute('data-awaiting');
+  ui.chart.textContent = '';
+}
+
+function formatCount(q, nRows, nPeople) {
+  return q.type === 'open_ended' || q.type === 'word_cloud'
+    ? `${nRows} ${nRows === 1 ? 'response' : 'responses'} · ${nPeople} people`
+    : `${nPeople} ${nPeople === 1 ? 'response' : 'responses'}`;
 }
 
 function paintChart() {
@@ -242,20 +320,82 @@ function paintChart() {
   if (!q) return;
 
   const respondents = new Set(state.rows.map((r) => r.pseudonym)).size;
-  ui.countText.textContent = q.type === 'open_ended' || q.type === 'word_cloud'
-    ? `${state.rows.length} ${state.rows.length === 1 ? 'response' : 'responses'} · ${respondents} people`
-    : `${respondents} ${respondents === 1 ? 'response' : 'responses'}`;
+  const nRows = state.rows.length;
+
+  // The count pill is peripheral vision's chart: the number rolls to its
+  // new value (a tween, not a spring — counters must never overshoot) and
+  // the pill physically pulses when another person's first answer lands.
+  if (respondents > (state.lastPeople ?? respondents)) pulseCount($('countPill'));
+  state.lastPeople = respondents;
+
+  // rate-limited so a screen reader hears the room filling without
+  // being machine-gunned by sixty arrivals
+  if (respondents !== state.srCount
+      && performance.now() - (state.srCountAt || 0) > 8000) {
+    state.srCount = respondents;
+    state.srCountAt = performance.now();
+    if (respondents > 0) {
+      announce(`${respondents} ${respondents === 1 ? 'response' : 'responses'} so far.`);
+    }
+  }
+
+  if (state.shownRows == null || (nRows === state.shownRows && respondents === state.shownPeople)) {
+    state.shownRows = nRows;
+    state.shownPeople = respondents;
+    ui.countText.textContent = formatCount(q, nRows, respondents);
+  } else {
+    const fromRows = state.shownRows;
+    const fromPeople = state.shownPeople;
+    state.countTween?.();
+    state.countTween = countTo(0, 1, 0.5, (t) => {
+      state.shownRows = Math.round(fromRows + (nRows - fromRows) * t);
+      state.shownPeople = Math.round(fromPeople + (respondents - fromPeople) * t);
+      ui.countText.textContent = formatCount(q, state.shownRows, state.shownPeople);
+    });
+  }
+
+  // Nobody has answered yet and answers are possible: the join corner
+  // steps forward (see .stage.is-awaiting in present.css) and steps back
+  // the moment the first vote lands.
+  ui.stage.classList.toggle('is-awaiting',
+    state.view === 'results' && respondents === 0
+    && !!state.session.accepting && !!state.session.reveal);
+
+  paintHands();
+  paintPIHint();
 
   if (state.view === 'leaderboard') return paintLeaderboard();
   if (state.view === 'delta') return paintDelta();
+  document.getElementById('compareBar')?.remove();
 
-  const agg = aggregate(q.type, q.config, state.rows);
+  // hold-for-review (roadmap feature 8): unapproved open text stays off
+  // the projector until the presenter waves it through
+  const rows = holdActive(q)
+    ? state.rows.filter((r) => holdApprovals(q).has(String(r.id)))
+    : state.rows;
+  paintHoldStrip(q);
+
+  const s = state.session;
+  const revealKey = (q.type === 'quiz' || q.config?.mode === 'best')
+    && !s.accepting && s.reveal;
+  const agg = aggregate(q.type, q.config, rows);
   renderAggregate(ui.chart, q.type, agg, {
     style: q.config?.chart || 'bars',
-    hidden: !state.session.reveal,
-    revealCorrect: q.type === 'quiz' && !state.session.accepting && state.session.reveal,
+    hidden: !s.reveal,
+    revealCorrect: revealKey,
+    revealStyle: q.type === 'quiz' ? 'correct' : 'best',
     showPercent: q.config?.show_counts !== true,
+    // voting closed on zero answers is "no responses", not "waiting"
+    awaiting: !!s.accepting,
+    leftLabel: q.config?.left_label,
+    rightLabel: q.config?.right_label,
+    corners: !!q.config?.corners,
+    showRationales: !s.accepting && s.reveal,
+    anchors: q.config?.anchors,
+    showAnchors: !s.accepting && s.reveal,
   });
+
+  paintCloudCuration(q, agg);
 
   // let the instructor bin an inappropriate open response on the spot
   if (q.type === 'open_ended') wireCardDeletes(agg);
@@ -278,20 +418,406 @@ function wireCardDeletes(agg) {
   });
 }
 
+// ---------------------------------------------------------- volunteers
+
+function paintHands() {
+  const hands = new Set(
+    state.rows.filter((r) => r.payload?.volunteer).map((r) => r.pseudonym)).size;
+  $('handsPill').hidden = hands === 0;
+  if (hands > 0) $('handsText').textContent = String(hands);
+}
+
+// ------------------------------------------------- decision hint (PI)
+// Mazur's band, from ten years of Peer Instruction data: under ~35%
+// correct, reteach; 35–70%, discuss and re-ask (the sweet spot); over
+// 70%, confirm and move on. Shown only in the transient ⋯ tray, and only
+// while results are hidden — it IS the round-one number.
+
+function paintPIHint() {
+  const q = state.question;
+  const hint = $('piHint');
+  const marks = q ? correctIndices(q.config || {}) : [];
+  const eligible = q && marks.length
+    && (q.type === 'quiz' || q.type === 'multiple_choice')
+    && !state.session.reveal;
+  if (!eligible) { hint.hidden = true; return; }
+
+  const byPerson = new Map();
+  for (const r of state.rows) {
+    const p = r.payload || {};
+    const picks = Number.isInteger(p.choice) ? [p.choice]
+      : (Array.isArray(p.choices) ? p.choices : []);
+    if (picks.length) byPerson.set(r.pseudonym, picks.every((i) => marks.includes(i)));
+  }
+  if (!byPerson.size) { hint.hidden = true; return; }
+
+  const right = [...byPerson.values()].filter(Boolean).length;
+  const pct = Math.round((right / byPerson.size) * 100);
+  const band = pct < 35 ? 'reteach' : pct <= 70 ? 'discuss & re-ask' : 'move on';
+  hint.textContent = `${pct}% · ${band}`;
+  hint.dataset.band = pct < 35 ? 'low' : pct <= 70 ? 'mid' : 'high';
+  hint.hidden = false;
+}
+
+// ------------------------------------------------------ hold for review
+
+function holdActive(q) {
+  return !!q.config?.hold && (q.type === 'word_cloud' || q.type === 'open_ended');
+}
+
+function holdKey(q) {
+  return `sa:hold:${state.session.id}:${q.id}:${state.session.current_round}`;
+}
+
+function holdApprovals(q) {
+  try { return new Set(JSON.parse(localStorage.getItem(holdKey(q))) || []); } catch { return new Set(); }
+}
+
+function approveRows(q, ids) {
+  const set = holdApprovals(q);
+  ids.forEach((id) => set.add(String(id)));
+  try { localStorage.setItem(holdKey(q), JSON.stringify([...set])); } catch { /* full */ }
+  paintChart();
+}
+
+function paintHoldStrip(q) {
+  let strip = $('holdStrip');
+  if (!holdActive(q)) { if (strip) strip.remove(); return; }
+  const approved = holdApprovals(q);
+  const pending = state.rows.filter((r) => !approved.has(String(r.id)));
+
+  if (!strip) {
+    strip = document.createElement('div');
+    strip.id = 'holdStrip';
+    strip.className = 'hold-strip';
+    ui.body.append(strip);
+  }
+  strip.textContent = '';
+  if (!pending.length) {
+    strip.append(Object.assign(document.createElement('span'),
+      { className: 'hold-note', textContent: 'Hold is on — new answers wait here.' }));
+    return;
+  }
+  const note = document.createElement('span');
+  note.className = 'hold-note';
+  note.textContent = `${pending.length} waiting:`;
+  strip.append(note);
+  pending.slice(0, 12).forEach((r) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'hold-chip';
+    const text = (r.payload?.words || []).join(', ') || r.payload?.text || '…';
+    chip.textContent = text.length > 40 ? `${text.slice(0, 40)}…` : text;
+    chip.title = 'Show this answer';
+    chip.addEventListener('click', () => approveRows(q, [r.id]));
+    strip.append(chip);
+  });
+  const all = document.createElement('button');
+  all.type = 'button';
+  all.className = 'hold-chip hold-all';
+  all.textContent = 'Show all';
+  all.addEventListener('click', () => approveRows(q, pending.map((r) => r.id)));
+  strip.append(all);
+}
+
+// --------------------------------------------------- cloud curation
+// Tap a word → hide it or merge it into another word. Every act of
+// curation is counted on-screen ("2 merged · 1 hidden"): the instructor
+// shapes the aggregate, never silently rewrites it.
+
+function paintCloudCuration(q, agg) {
+  let chip = $('curateChip');
+  if (q.type !== 'word_cloud') {
+    if (chip) chip.remove();
+    return;
+  }
+  const merged = agg.merged || 0;
+  const hidden = agg.hidden || 0;
+  if (!chip) {
+    chip = document.createElement('button');
+    chip.type = 'button';
+    chip.id = 'curateChip';
+    chip.className = 'curate-chip';
+    chip.title = 'Curation is visible: click to undo all merges and hides';
+    chip.addEventListener('click', async () => {
+      if (!window.confirm('Undo all merges and un-hide all words?')) return;
+      const config = { ...state.question.config };
+      delete config.word_merges;
+      delete config.word_hidden;
+      await saveQuestionConfig(config);
+    });
+    ui.foot.append(chip);
+  }
+  chip.hidden = !(merged || hidden);
+  if (merged || hidden) {
+    chip.textContent = [
+      merged ? `${merged} merged` : '',
+      hidden ? `${hidden} hidden` : '',
+    ].filter(Boolean).join(' · ');
+  }
+  wireCloudWordTaps(q);
+}
+
+let curateSelection = null; // the word awaiting a merge target
+
+function wireCloudWordTaps(q) {
+  ui.chart.querySelectorAll('.cloud-word').forEach((node) => {
+    if (node.dataset.curateWired) return;
+    node.dataset.curateWired = '1';
+    node.style.cursor = 'pointer';
+    node.addEventListener('click', () => onCloudWordTap(node.dataset.word));
+  });
+}
+
+async function onCloudWordTap(word) {
+  if (!word) return;
+  if (curateSelection && curateSelection !== word) {
+    // second tap = merge target
+    const from = curateSelection;
+    curateSelection = null;
+    clearCurateMenu();
+    const config = { ...state.question.config };
+    config.word_merges = { ...(config.word_merges || {}), [from]: word };
+    await saveQuestionConfig(config);
+    flash(`“${from}” → “${word}”`);
+    return;
+  }
+  curateSelection = word;
+  showCurateMenu(word);
+}
+
+function showCurateMenu(word) {
+  clearCurateMenu();
+  const menu = document.createElement('div');
+  menu.id = 'curateMenu';
+  menu.className = 'curate-menu';
+  const label = document.createElement('span');
+  label.className = 'curate-word';
+  label.textContent = `“${word}”`;
+  const hideBtn = document.createElement('button');
+  hideBtn.type = 'button';
+  hideBtn.className = 'hold-chip';
+  hideBtn.textContent = 'Hide';
+  hideBtn.addEventListener('click', async () => {
+    curateSelection = null;
+    clearCurateMenu();
+    const config = { ...state.question.config };
+    config.word_hidden = [...new Set([...(config.word_hidden || []), word])];
+    await saveQuestionConfig(config);
+  });
+  const mergeNote = document.createElement('span');
+  mergeNote.className = 'hold-note';
+  mergeNote.textContent = 'or tap another word to merge into it';
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'hold-chip';
+  cancel.textContent = 'Cancel';
+  cancel.addEventListener('click', () => { curateSelection = null; clearCurateMenu(); });
+  menu.append(label, hideBtn, mergeNote, cancel);
+  ui.foot.append(menu);
+}
+
+function clearCurateMenu() {
+  document.getElementById('curateMenu')?.remove();
+}
+
+async function saveQuestionConfig(config) {
+  state.question.config = config;
+  const idx = state.questions.findIndex((x) => x.id === state.question.id);
+  if (idx >= 0) state.questions[idx].config = config;
+  await updateQuestion(state.question.id, { config });
+  paintChart();
+}
+
+// ------------------------------------------- discussion engine (PI)
+// One button, three beats: close & discuss → vote again → reveal the
+// change. Every beat is also reachable through the existing single keys;
+// this only sequences them and never auto-advances — the instructor
+// always fires the next step.
+
+async function discussStep() {
+  const q = state.question;
+  if (!q || q.type === 'qa') { flash('Pick a question first'); return; }
+
+  if (state.pairUntil) { await endPairPhase(true); return; }
+
+  const s = state.session;
+  if (s.accepting && s.current_round >= 2) {
+    // final beat: close round two and reveal what moved
+    await patch({ accepting: false, reveal: true });
+    state.view = 'delta';
+    paintControlStates();
+    paintChart();
+    announce('Both rounds revealed.');
+    return;
+  }
+  if (s.accepting) {
+    // first beat: commit answers, hide the histogram, talk
+    await patch({ accepting: false, reveal: false });
+    startPairPhase(q.config?.discuss_time || 180);
+    return;
+  }
+  // voting closed: open a hidden-results round to start the cycle
+  await patch({ accepting: true, reveal: false });
+  flash('Voting open');
+  announce('Voting open. Results are hidden until the reveal.');
+}
+
+function ensurePairOverlay() {
+  let ov = $('pairOverlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'pairOverlay';
+    ov.className = 'pair-overlay';
+    ov.innerHTML = '<p class="pair-kicker">Discuss</p>'
+      + '<p class="pair-line">Convince your neighbor.</p>'
+      + '<p class="pair-clock" id="pairClock"></p>'
+      + '<p class="pair-sub">Then we vote again.</p>';
+    ui.body.append(ov);
+  }
+  return ov;
+}
+
+function startPairPhase(seconds) {
+  const ov = ensurePairOverlay();
+  ov.hidden = false;
+  state.pairUntil = Date.now() + seconds * 1000;
+  const clock = $('pairClock');
+  const tick = () => {
+    const left = Math.max(0, Math.ceil((state.pairUntil - Date.now()) / 1000));
+    clock.textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+    clock.classList.toggle('is-done', left <= 0);
+  };
+  tick();
+  state.pairTimer = setInterval(tick, 250);
+  setCtrlLabel('btnDiscuss', 'Vote again');
+  flash('Discuss');
+  announce(`Discussion time: ${Math.round(seconds / 60)} minutes. Convince your neighbor.`);
+}
+
+async function endPairPhase(advance) {
+  if (state.pairTimer) clearInterval(state.pairTimer);
+  state.pairTimer = null;
+  state.pairUntil = null;
+  const ov = $('pairOverlay');
+  if (ov) ov.hidden = true;
+  setCtrlLabel('btnDiscuss', 'Discuss');
+  if (!advance) return;
+  const q = state.question;
+  const highest = await maxRound(state.session.id, q.id);
+  const next = Math.max(state.session.current_round, highest) + 1;
+  await patch({ current_round: next, accepting: true, reveal: false });
+  setCtrlLabel('btnDiscuss', 'Reveal');
+  flash('Vote again');
+  announce('Round two. Vote again — did the discussion move you?');
+}
+
+// -------------------------------------- compare picker (time travel)
+
+async function ensureCompareBar() {
+  let bar = $('compareBar');
+  if (bar) return bar;
+  bar = document.createElement('div');
+  bar.id = 'compareBar';
+  bar.className = 'compare-bar';
+  const label = document.createElement('span');
+  label.textContent = 'Compare with';
+  const sel = document.createElement('select');
+  sel.id = 'compareSel';
+  sel.append(new Option('Previous round (this session)', ''));
+  try {
+    const sessions = await listSessions();
+    state.compareSessions = (sessions || [])
+      .filter((s2) => s2.id !== state.session.id);
+    state.compareSessions.forEach((s2) => {
+      const when = s2.created_at ? new Date(s2.created_at).toLocaleDateString() : '';
+      sel.append(new Option(
+        `${s2.label || s2.join_code} · ${when}${s2.deck_id !== state.deck.id ? ' (other deck)' : ''}`,
+        s2.id));
+    });
+  } catch { /* list is a bonus */ }
+  sel.addEventListener('change', () => {
+    state.compareWith = sel.value || null;
+    paintChart();
+  });
+  bar.append(label, sel);
+  ui.body.prepend(bar);
+  return bar;
+}
+
+/** Rows from the compared session for this question (matched by prompt
+ *  when the deck differs), or null when there is nothing to compare. */
+async function compareBeforeRows(q) {
+  const other = (state.compareSessions || []).find((s2) => s2.id === state.compareWith);
+  if (!other) return null;
+  let qid = q.id;
+  if (other.deck_id !== state.deck.id) {
+    const qs = await listQuestions(other.deck_id);
+    const match = qs.find((x) => promptKey(x.prompt) === promptKey(q.prompt));
+    if (!match) { toastOnce('No matching question in that session\'s deck.'); return null; }
+    qid = match.id;
+  }
+  const r = await maxRound(other.id, qid);
+  return fetchResponses(other.id, qid, r || 1);
+}
+
+let toastShown = new Set();
+function toastOnce(msg) {
+  if (toastShown.has(msg)) return;
+  toastShown.add(msg);
+  flash(msg);
+}
+
 async function paintDelta() {
   const q = state.question;
   const round = state.session.current_round;
-  if (round < 2) {
+  await ensureCompareBar();
+
+  let before = null;
+  if (state.compareWith) {
+    before = await compareBeforeRows(q);
+  } else if (round >= 2) {
+    before = await fetchResponses(state.session.id, q.id, round - 1);
+  }
+  if (!before) {
     renderDelta(ui.chart, null);
     return;
   }
-  const [before, after] = await Promise.all([
-    fetchResponses(state.session.id, q.id, round - 1),
-    fetchResponses(state.session.id, q.id, round),
-  ]);
-  const delta = computeDelta(
-    aggregate(q.type, q.config, before),
-    aggregate(q.type, q.config, after));
+  const after = await fetchResponses(state.session.id, q.id, round);
+  const beforeAgg = aggregate(q.type, q.config, before);
+  const afterAgg = aggregate(q.type, q.config, after);
+
+  // clouds morph rather than ghost: paint the old counts, then let the
+  // springs carry every word to its new size and place. The fresh
+  // teardown is what makes the replay possible — otherwise the current
+  // round is already on screen and there is nothing to travel from.
+  if (q.type === 'word_cloud') {
+    resetChart();
+    renderAggregate(ui.chart, q.type, beforeAgg, { awaiting: false });
+    delay(0.9, () => {
+      if (state.view !== 'delta') return;
+      renderAggregate(ui.chart, q.type, afterAgg, { awaiting: false });
+    });
+    return;
+  }
+  // spectra migrate: same dots, old position to new
+  if (q.type === 'spectrum') {
+    resetChart();
+    renderAggregate(ui.chart, q.type, afterAgg, {
+      awaiting: false,
+      beforePoints: beforeAgg.points,
+      leftLabel: q.config?.left_label,
+      rightLabel: q.config?.right_label,
+      corners: !!q.config?.corners,
+    });
+    return;
+  }
+  const delta = computeDelta(beforeAgg, afterAgg);
+  if (delta && state.compareWith) {
+    const other = (state.compareSessions || []).find((s2) => s2.id === state.compareWith);
+    delta.beforeLabel = other?.label || other?.join_code || 'Then';
+    delta.afterLabel = 'This session';
+  }
   renderDelta(ui.chart, delta);
 }
 
@@ -330,13 +856,27 @@ async function patch(fields) {
   await render();
 }
 
-async function toggleReveal() { await patch({ reveal: !state.session.reveal }); }
+async function toggleReveal() {
+  await patch({ reveal: !state.session.reveal });
+  announce(state.session.reveal ? 'Results are showing.' : 'Results are hidden.');
+}
 
 async function toggleAccepting() {
   const closing = state.session.accepting;
   await patch({ accepting: !closing });
-  if (closing && state.question?.type === 'quiz' && state.session.reveal) {
-    celebrate(ui.stage);
+  const q = state.question;
+  if (closing && q?.type === 'quiz' && state.session.reveal) {
+    // third beat of the reveal: breath (0ms) → verdict (450ms) → confetti
+    delay(0.7, () => celebrate(ui.stage));
+    const labels = optionLabels(q.config || {});
+    const right = correctIndices(q.config || {}).map((i) => labels[i]).filter(Boolean);
+    const correctSet = new Set(correctIndices(q.config || {}));
+    const respondents = new Set(state.rows.map((r) => r.pseudonym)).size;
+    const gotIt = state.rows.filter((r) => correctSet.has(r.payload?.choice)).length;
+    announce(`Voting closed. Correct answer: ${right.join(', ')}. `
+      + `${gotIt} of ${respondents} answered correctly.`);
+  } else {
+    announce(closing ? 'Voting closed.' : 'Voting open.');
   }
 }
 
@@ -383,10 +923,12 @@ function startTimer(seconds) {
       stopTimer();
       patch({ accepting: false });
       flash('Time');
+      announce("Time's up. Voting closed.");
     }
   };
   tick();
   state.timer = setInterval(tick, 250);
+  announce(`Timer started: ${seconds} seconds.`);
 }
 
 function stopTimer() {
@@ -408,6 +950,9 @@ async function loadQA() {
   let rows = [];
   try { rows = await listAudienceQuestions(state.session.id); } catch { return; }
 
+  // the body is rebuilt wholesale; keep the instructor's place in a
+  // long question list across live refreshes
+  const scrollTop = ui.qaBody.scrollTop;
   ui.qaBody.textContent = '';
   const pending = rows.filter((r) => !r.approved).length;
   setCtrlLabel('btnQA', pending ? `Q&A (${pending})` : 'Q&A');
@@ -458,6 +1003,7 @@ async function loadQA() {
     item.append(actions);
     ui.qaBody.append(item);
   });
+  ui.qaBody.scrollTop = scrollTop;
 }
 
 function btn(label, cls, fn) {
@@ -488,6 +1034,7 @@ function wireControls() {
   $('btnHide').addEventListener('click', toggleReveal);
   $('btnClose').addEventListener('click', toggleAccepting);
   $('btnTimer').addEventListener('click', toggleTimer);
+  $('btnDiscuss').addEventListener('click', discussStep);
   $('btnReask').addEventListener('click', reask);
   $('btnFull').addEventListener('click', toggleFullscreen);
   $('btnEnd').addEventListener('click', endSession);
@@ -505,10 +1052,27 @@ function wireControls() {
     flash(state.session.show_on_devices ? 'Results on phones' : 'Results on screen only');
   });
   $('btnQA').addEventListener('click', () => {
-    ui.qaPanel.classList.toggle('is-open');
-    if (ui.qaPanel.classList.contains('is-open')) loadQA();
+    const open = ui.qaPanel.classList.toggle('is-open');
+    $('btnQA').setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) {
+      loadQA();
+      ui.qaClose.focus();
+    } else {
+      $('btnQA').focus();
+    }
   });
-  ui.qaClose.addEventListener('click', () => ui.qaPanel.classList.remove('is-open'));
+  ui.qaClose.addEventListener('click', closeQAPanel);
+}
+
+function closeQAPanel() {
+  if (!ui.qaPanel.classList.contains('is-open')) return;
+  ui.qaPanel.classList.remove('is-open');
+  $('btnQA').setAttribute('aria-expanded', 'false');
+  // hand focus back to where the drawer came from. btnQA lives in the
+  // collapsible ⋯ tray; a display:none element silently refuses focus,
+  // which would strand it on the now-hidden close button.
+  const back = $('btnQA').offsetParent ? $('btnQA') : $('btnMore');
+  back.focus();
 }
 
 function wireKeyboard() {
@@ -520,6 +1084,7 @@ function wireKeyboard() {
     else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); go(-1); }
     else if (k === 'h') toggleReveal();
     else if (k === 'c') toggleAccepting();
+    else if (k === 'p') discussStep();
     else if (k === 'r') reask();
     else if (k === 't') toggleTimer();
     else if (k === 'd') $('btnDelta').click();
@@ -531,7 +1096,8 @@ function wireKeyboard() {
     }
     else if (k === 'f') toggleFullscreen();
     else if (k === 'x') resetQuestion();
-    else if (e.key === 'Escape') ui.qaPanel.classList.remove('is-open');
+    else if (e.key === '?') $('btnMore').click(); // the crib sheet IS the buttons
+    else if (e.key === 'Escape') closeQAPanel();
     else if (/^[1-9]$/.test(e.key)) startTimer(Number(e.key) * 10);
   });
 }

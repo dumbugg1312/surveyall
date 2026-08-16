@@ -15,7 +15,7 @@ import {
   aggregate, sortedQuestions, quizLeaderboard, computeDelta,
   sessionToCSVRows, buildCSV, CSV_HEADERS, TYPE_LABELS,
 } from './logic.js';
-import { applyTheme } from './themes.js';
+import { applyTheme, resolveTheme } from './themes.js';
 import { renderAggregate, renderLeaderboard, renderDelta } from './charts.js';
 
 const $ = (id) => document.getElementById(id);
@@ -50,7 +50,7 @@ async function boot() {
   questions = sortedQuestions(await listQuestions(deck.id));
   allResponses = await fetchResponses(session.id);
 
-  applyTheme(document.documentElement, session.theme || deck.theme);
+  applyTheme(document.documentElement, resolveTheme(session.theme || deck.theme, deck));
 
   $('crumb').textContent = `${deck.title} · ${session.label || session.join_code}`;
   $('downloadCSV').addEventListener('click', onDownload);
@@ -159,6 +159,7 @@ async function renderBlocks() {
       chart.className = 'chart';
       block.append(chart);
       renderAggregate(chart, q.type, aggregate(q.type, q.config, roundRows), {
+        awaiting: false, // archived data: zero responses is a fact, not a wait
         style: q.config?.chart || 'bars',
         revealCorrect: q.type === 'quiz',
       });

@@ -89,6 +89,9 @@ function sanitiseQuestion(question) {
   delete config.correct;
   delete config.correct_answers;
   delete config.answer_key;
+  // calibration anchors (the instructor's own rubric rating) would bias
+  // the student ratings they exist to be compared against
+  delete config.anchors;
 
   // options may themselves carry a per-option correctness flag
   if (Array.isArray(config.options)) {
@@ -182,6 +185,27 @@ async function deckHasQuiz(env, sessionId) {
     where s.id = ? and q.type = 'quiz' limit 1
   `).bind(sessionId).first();
   return !!row;
+}
+
+/**
+ * Custom-theme tokens for a participant. Decks can carry an
+ * instructor-built theme (settings.customTheme, session.theme='custom');
+ * phones don't load decks, so the join payload delivers the colours.
+ * Sanitised to plain `--token: string` pairs — this is served to every
+ * student device, so nothing else from settings may leak through.
+ */
+async function customThemeFor(env, deckId) {
+  const row = await env.DB.prepare('select settings from decks where id = ?')
+    .bind(deckId).first();
+  let settings = {};
+  try { settings = JSON.parse(row?.settings || '{}'); } catch { /* ignore */ }
+  const c = settings.customTheme;
+  if (!c || typeof c.tokens !== 'object') return null;
+  const tokens = {};
+  for (const [k, v] of Object.entries(c.tokens)) {
+    if (k.startsWith('--') && typeof v === 'string' && v.length <= 200) tokens[k] = v;
+  }
+  return Object.keys(tokens).length ? { tokens, dark: !!c.dark } : null;
 }
 
 /** Ask the session's Durable Object to push an event to its room. */
@@ -313,6 +337,9 @@ async function participantRoute(request, env, seg, method, body, url) {
       // deckHasQuiz(): on a deck nobody is being scored on, a nickname is
       // an invitation to adopt a persona and nothing else.
       has_quiz: await deckHasQuiz(env, session.id),
+      // instructor-built theme colours, when the deck uses one
+      custom_theme: session.theme === 'custom'
+        ? await customThemeFor(env, session.deck_id) : null,
     });
   }
 

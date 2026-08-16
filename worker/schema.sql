@@ -102,7 +102,8 @@ create table if not exists questions (
   position   integer not null default 0,
   type       text not null check (type in (
                'multiple_choice','word_cloud','open_ended',
-               'scales','ranking','quiz','qa')),
+               'scales','ranking','quiz','qa',
+               'spectrum','sample_vote','heatmap')),
   prompt     text not null default '',
   config     text not null default '{}',
   created_at integer not null

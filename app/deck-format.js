@@ -49,7 +49,7 @@
  *   Open floor
  */
 
-import { QUESTION_TYPES } from './logic.js';
+import { QUESTION_TYPES, splitPassage } from './logic.js';
 
 const TYPE_ALIASES = {
   mc: 'multiple_choice', choice: 'multiple_choice', multiple_choice: 'multiple_choice',
@@ -59,6 +59,9 @@ const TYPE_ALIASES = {
   rank: 'ranking', ranking: 'ranking',
   quiz: 'quiz', competition: 'quiz',
   qa: 'qa', questions: 'qa',
+  spectrum: 'spectrum', opinion: 'spectrum',
+  sample_vote: 'sample_vote', showdown: 'sample_vote', samples: 'sample_vote',
+  heatmap: 'heatmap', passage: 'heatmap',
 };
 
 /**
@@ -116,6 +119,7 @@ export function parseDeck(source) {
         prompt: '',
         options: [],
         statements: [],
+        passage: [],
         config: { ...parsed.config },
       };
       return;
@@ -147,6 +151,13 @@ export function parseDeck(source) {
     const numMatch = trimmed.match(/^\d+[.)]\s+(.*)$/);
     if (numMatch && (current.type === 'ranking' || current.type === 'multiple_choice')) {
       current.options.push({ label: numMatch[1].trim(), correct: false });
+      return;
+    }
+
+    // passage lines for heatmap questions ("> The text under study.")
+    const passMatch = trimmed.match(/^>\s?(.*)$/);
+    if (passMatch && current.type === 'heatmap') {
+      if (passMatch[1].trim()) current.passage.push(passMatch[1].trim());
       return;
     }
 
@@ -214,6 +225,8 @@ const KNOWN_SETTINGS = new Set([
   'multiple', 'max_choices', 'max_words', 'max_length', 'min', 'max',
   'time', 'scoring', 'allow_skip', 'allow_partial', 'chart', 'theme',
   'background', 'anonymous_note', 'layout',
+  'mode', 'confidence', 'hold', 'left', 'right', 'labels', 'max_picks',
+  'rationale', 'corners', 'anchors',
 ]);
 
 function isKnownSetting(key) { return KNOWN_SETTINGS.has(key); }
@@ -246,6 +259,19 @@ function parseBackground(value) {
 }
 
 function applyQuestionSetting(q, key, value) {
+  if (key === 'left') { q.config.left_label = String(value); return; }
+  if (key === 'right') { q.config.right_label = String(value); return; }
+  if (key === 'rationale') { q.config.allow_rationale = coerce(value) !== false; return; }
+  if (key === 'labels') {
+    q.config.labels = String(value).split(',').map((s) => s.trim()).filter(Boolean);
+    return;
+  }
+  if (key === 'anchors') {
+    q.config.anchors = String(value).split(',')
+      .map((s) => Number(s.trim()))
+      .map((n) => (Number.isFinite(n) ? n : null));
+    return;
+  }
   q.config[key] = coerce(value);
 }
 
@@ -298,6 +324,30 @@ function finaliseQuestion(q, errors, number) {
       if (config.max_length == null) config.max_length = 200;
       break;
     }
+    case 'spectrum': {
+      if (!config.left_label) config.left_label = 'Disagree';
+      if (!config.right_label) config.right_label = 'Agree';
+      break;
+    }
+    case 'sample_vote': {
+      config.samples = q.options.map((o) => o.label);
+      if (config.samples.length < 2) {
+        errors.push(`Question ${number}: a showdown needs at least two samples (lines starting with "-").`);
+      }
+      if (config.allow_rationale == null) config.allow_rationale = true;
+      break;
+    }
+    case 'heatmap': {
+      const passage = q.passage.join(' ');
+      if (!passage) {
+        errors.push(`Question ${number}: a heatmap needs a passage (lines starting with ">").`);
+      }
+      config.passage = passage.replace(/\s*\|\s*/g, ' | ');
+      config.segments = splitPassage(passage);
+      if (Array.isArray(config.labels) && config.labels.length) config.mode = 'classify';
+      if (config.max_picks == null) config.max_picks = 1;
+      break;
+    }
     default:
       break;
   }
@@ -339,11 +389,31 @@ export function serialiseDeck(deck, questions) {
       });
     }
     if (Array.isArray(cfg.items)) cfg.items.forEach((it) => out.push(`- ${it}`));
+    if (Array.isArray(cfg.samples)) cfg.samples.forEach((s) => out.push(`- ${s}`));
     if (Array.isArray(cfg.statements)) cfg.statements.forEach((s) => out.push(`~ ${s}`));
+    // segments joined with ' | ' round-trip to the exact same segmentation
+    if (q.type === 'heatmap' && (cfg.segments || cfg.passage)) {
+      out.push(`> ${Array.isArray(cfg.segments) && cfg.segments.length
+        ? cfg.segments.join(' | ') : cfg.passage}`);
+    }
+
+    if (cfg.left_label) out.push(`left: ${cfg.left_label}`);
+    if (cfg.right_label) out.push(`right: ${cfg.right_label}`);
+    if (Array.isArray(cfg.labels) && cfg.labels.length) out.push(`labels: ${cfg.labels.join(', ')}`);
+    if (Array.isArray(cfg.anchors) && cfg.anchors.some((a) => a != null)) {
+      out.push(`anchors: ${cfg.anchors.map((a) => (a == null ? '' : a)).join(', ')}`);
+    }
+    if (cfg.allow_rationale === false) out.push('rationale: false');
 
     for (const key of ['multiple', 'max_choices', 'max_words', 'max_length',
                        'scoring', 'allow_skip', 'allow_partial', 'chart']) {
       if (cfg[key] != null && cfg[key] !== '') out.push(`${key}: ${cfg[key]}`);
+    }
+    // newer settings: only serialised when meaningfully set
+    for (const key of ['mode', 'confidence', 'hold', 'max_picks', 'corners']) {
+      if (cfg[key] != null && cfg[key] !== '' && cfg[key] !== false) {
+        out.push(`${key}: ${cfg[key]}`);
+      }
     }
     out.push('');
   }

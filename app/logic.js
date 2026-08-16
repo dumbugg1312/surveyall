@@ -16,6 +16,7 @@
 export const QUESTION_TYPES = [
   'multiple_choice', 'word_cloud', 'open_ended',
   'scales', 'ranking', 'quiz', 'qa',
+  'spectrum', 'sample_vote', 'heatmap',
 ];
 
 /** Types where one device may submit many rows (each gets its own slot). */
@@ -30,7 +31,19 @@ export const TYPE_LABELS = {
   ranking: 'Ranking',
   quiz: 'Quiz',
   qa: 'Q&A',
+  spectrum: 'Opinion spectrum',
+  sample_vote: 'Writing showdown',
+  heatmap: 'Passage heatmap',
 };
+
+/**
+ * Multiple-choice discussion modes (pedagogy roadmap, feature 1).
+ * 'correct' — quiz semantics; 'best' — several defensible options, one or
+ * more marked most defensible (humanities Peer Instruction; the reveal is
+ * a quiet ring, not a green verdict); 'opinion' — no key at all, the
+ * distribution is the discussion object.
+ */
+export const CHOICE_MODES = { correct: 'Has a right answer', best: 'Best answer', opinion: 'Opinion' };
 
 // =====================================================================
 // Normalisation helpers
@@ -57,6 +70,21 @@ export function normaliseWord(raw) {
 export function cleanText(raw, max = 200) {
   if (typeof raw !== 'string') return '';
   return raw.replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
+/**
+ * Split a heatmap passage into tappable segments. A '|' anywhere is a
+ * manual split and wins outright (the editor previews the split, and the
+ * instructor can always override the guesser); otherwise a conservative
+ * sentence split on ./!/? runs, keeping trailing quotes and brackets with
+ * their sentence.
+ */
+export function splitPassage(text) {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!t) return [];
+  if (t.includes('|')) return t.split('|').map((s) => s.trim()).filter(Boolean);
+  const parts = t.match(/[^.!?]+[.!?]+["'”’)\]]*|[^.!?]+$/g) || [t];
+  return parts.map((s) => s.trim()).filter(Boolean);
 }
 
 /** Options may be plain strings or {label, correct} objects. */
@@ -93,6 +121,19 @@ export function correctIndices(config) {
 // =====================================================================
 
 /**
+ * Optional anonymous riders any answer may carry (pedagogy roadmap
+ * features 1 and 2): a 1–3 confidence self-report ("guessing / fairly
+ * sure / certain") and a hand-raise ("I'd say more about mine aloud").
+ * Both are content about the answer, never about the person.
+ */
+function withRiders(payload, raw) {
+  const conf = Number(raw?.conf);
+  if (conf === 1 || conf === 2 || conf === 3) payload.conf = conf;
+  if (raw?.volunteer === true) payload.volunteer = true;
+  return payload;
+}
+
+/**
  * @returns {{ok: true, payload: object} | {ok: false, error: string}}
  */
 export function validateResponse(type, config, raw) {
@@ -110,7 +151,7 @@ export function validateResponse(type, config, raw) {
       if (clean.length > max) {
         return { ok: false, error: `Pick at most ${max} option${max === 1 ? '' : 's'}.` };
       }
-      return { ok: true, payload: { choices: clean } };
+      return { ok: true, payload: withRiders({ choices: clean }, raw) };
     }
 
     case 'quiz': {
@@ -120,7 +161,55 @@ export function validateResponse(type, config, raw) {
         return { ok: false, error: 'Pick an answer first.' };
       }
       const ms = Number.isFinite(raw?.ms) && raw.ms >= 0 ? Math.round(raw.ms) : null;
-      return { ok: true, payload: { choice, ms } };
+      return { ok: true, payload: withRiders({ choice, ms }, raw) };
+    }
+
+    case 'spectrum': {
+      const n = Number(raw?.pos);
+      if (!Number.isFinite(n)) return { ok: false, error: 'Slide to where you stand first.' };
+      const pos = Math.min(100, Math.max(0, Math.round(n)));
+      return { ok: true, payload: withRiders({ pos }, raw) };
+    }
+
+    case 'sample_vote': {
+      const samples = Array.isArray(cfg.samples) ? cfg.samples : [];
+      const choice = raw?.choice;
+      if (!Number.isInteger(choice) || choice < 0 || choice >= samples.length) {
+        return { ok: false, error: 'Pick a sample first.' };
+      }
+      const payload = { choice };
+      const rationale = cleanText(raw?.rationale, 140);
+      if (rationale) payload.rationale = rationale;
+      return { ok: true, payload: withRiders(payload, raw) };
+    }
+
+    case 'heatmap': {
+      const segs = Array.isArray(cfg.segments) ? cfg.segments : [];
+      if (!segs.length) return { ok: false, error: 'This question has no passage yet.' };
+      if (cfg.mode === 'classify') {
+        const labels = Array.isArray(cfg.labels) ? cfg.labels : [];
+        const rawTags = raw?.tags && typeof raw.tags === 'object' ? raw.tags : {};
+        const tags = {};
+        for (const [k, v] of Object.entries(rawTags)) {
+          const si = Number(k);
+          const li = Number(v);
+          if (Number.isInteger(si) && si >= 0 && si < segs.length
+              && Number.isInteger(li) && li >= 0 && li < labels.length) {
+            tags[si] = li;
+          }
+        }
+        if (!Object.keys(tags).length) return { ok: false, error: 'Tag at least one part.' };
+        return { ok: true, payload: withRiders({ tags }, raw) };
+      }
+      const maxPicks = clampInt(cfg.max_picks, 1, 5, 1);
+      const picks = [...new Set((Array.isArray(raw?.picks) ? raw.picks : [])
+        .filter((i) => Number.isInteger(i) && i >= 0 && i < segs.length))]
+        .sort((a, b) => a - b);
+      if (!picks.length) return { ok: false, error: 'Tap a sentence first.' };
+      if (picks.length > maxPicks) {
+        return { ok: false, error: `Pick at most ${maxPicks} sentence${maxPicks === 1 ? '' : 's'}.` };
+      }
+      return { ok: true, payload: withRiders({ picks }, raw) };
     }
 
     case 'word_cloud': {
@@ -134,14 +223,14 @@ export function validateResponse(type, config, raw) {
       if (unique.length > maxWords) {
         return { ok: false, error: `Up to ${maxWords} word${maxWords === 1 ? '' : 's'}.` };
       }
-      return { ok: true, payload: { words: unique } };
+      return { ok: true, payload: withRiders({ words: unique }, raw) };
     }
 
     case 'open_ended': {
       const limit = clampInt(cfg.max_length, 20, 1000, 200);
       const text = cleanText(raw?.text, limit);
       if (!text) return { ok: false, error: 'Write something first.' };
-      return { ok: true, payload: { text } };
+      return { ok: true, payload: withRiders({ text }, raw) };
     }
 
     case 'scales': {
@@ -161,7 +250,7 @@ export function validateResponse(type, config, raw) {
       if (!cfg.allow_skip && answered < statements.length) {
         return { ok: false, error: 'Rate every statement.' };
       }
-      return { ok: true, payload: { values } };
+      return { ok: true, payload: withRiders({ values }, raw) };
     }
 
     case 'ranking': {
@@ -175,7 +264,7 @@ export function validateResponse(type, config, raw) {
       if (!cfg.allow_partial && clean.length !== items.length) {
         return { ok: false, error: 'Rank every item.' };
       }
-      return { ok: true, payload: { order: clean } };
+      return { ok: true, payload: withRiders({ order: clean }, raw) };
     }
 
     case 'qa':
@@ -222,19 +311,36 @@ export function aggregate(type, config, rows) {
         pct: total ? (counts[i] / total) * 100 : 0,
       }));
       const out = { type, total, options };
-      if (type === 'quiz') out.correct = correctIndices(cfg);
+      if (type === 'quiz' || cfg.mode === 'best') out.correct = correctIndices(cfg);
+      out.confidence = confidenceSplit(payloads, correctIndices(cfg), type);
       return out;
     }
 
     case 'word_cloud': {
+      // Presenter curation (pedagogy roadmap, feature 8): merges fold
+      // variants together ("arguing" → "argue"), hides drop a word from
+      // display. Both are counted and returned so the projector can show
+      // an honest "2 merged · 1 hidden" chip — curation is visible, never
+      // silent.
+      const merges = cfg.word_merges && typeof cfg.word_merges === 'object'
+        ? cfg.word_merges : null;
+      const hiddenSet = new Set(
+        (Array.isArray(cfg.word_hidden) ? cfg.word_hidden : []).map(normaliseWord));
       const tally = new Map();
+      const mergedFrom = new Set();
+      let hiddenCount = 0;
       let total = 0;
       for (const p of payloads) {
         const words = Array.isArray(p.words) ? p.words : [];
         if (words.length) total += 1;
         for (const w of words) {
-          const k = normaliseWord(w);
+          let k = normaliseWord(w);
           if (!k) continue;
+          if (merges && typeof merges[k] === 'string') {
+            const to = normaliseWord(merges[k]);
+            if (to && to !== k) { mergedFrom.add(k); k = to; }
+          }
+          if (hiddenSet.has(k)) { hiddenCount += 1; continue; }
           tally.set(k, (tally.get(k) || 0) + 1);
         }
       }
@@ -242,7 +348,10 @@ export function aggregate(type, config, rows) {
         .map(([word, count]) => ({ word, count }))
         .sort((a, b) => b.count - a.count || a.word.localeCompare(b.word))
         .slice(0, 400); // same display ceiling Mentimeter uses
-      return { type, total, words, distinct: tally.size };
+      return {
+        type, total, words, distinct: tally.size,
+        merged: mergedFrom.size, hidden: hiddenCount,
+      };
     }
 
     case 'open_ended': {
@@ -311,9 +420,120 @@ export function aggregate(type, config, rows) {
       return { type, total, items: ranked };
     }
 
+    case 'spectrum': {
+      // Positions as individuals, deliberately NOT averaged — an average
+      // opinion is a meaningless artifact; the shape is the content.
+      // Pseudonyms ride along (the sanctioned label, never displayed) so
+      // the same anonymous dot can migrate on a re-ask.
+      const points = [];
+      for (const r of rows || []) {
+        const p = r && r.payload ? r.payload : r;
+        const pos = Number(p?.pos);
+        if (!Number.isFinite(pos)) continue;
+        points.push({
+          pos: Math.min(100, Math.max(0, pos)),
+          pseudonym: r?.pseudonym || null,
+        });
+      }
+      const corners = [0, 0, 0, 0]; // strongly-left, left, right, strongly-right
+      for (const pt of points) corners[Math.min(3, Math.floor(pt.pos / 25))] += 1;
+      return { type, total: points.length, points, corners };
+    }
+
+    case 'sample_vote': {
+      const samples = (Array.isArray(cfg.samples) ? cfg.samples : []).map((s) => String(s ?? ''));
+      const counts = new Array(samples.length).fill(0);
+      const rationales = [];
+      let total = 0;
+      for (const p of payloads) {
+        if (!Number.isInteger(p.choice) || p.choice < 0 || p.choice >= samples.length) continue;
+        counts[p.choice] += 1;
+        total += 1;
+        const r = cleanText(p.rationale, 140);
+        if (r) rationales.push({ choice: p.choice, text: r });
+      }
+      return {
+        type, total,
+        samples: samples.map((text, i) => ({
+          text, count: counts[i], pct: total ? (counts[i] / total) * 100 : 0,
+        })),
+        rationales,
+      };
+    }
+
+    case 'heatmap': {
+      const segs = Array.isArray(cfg.segments) ? cfg.segments : [];
+      const labels = cfg.mode === 'classify' && Array.isArray(cfg.labels) ? cfg.labels : null;
+      const picks = new Array(segs.length).fill(0);
+      const tagCounts = labels ? segs.map(() => new Array(labels.length).fill(0)) : null;
+      let total = 0;
+      for (const p of payloads) {
+        let any = false;
+        if (labels && p.tags && typeof p.tags === 'object') {
+          for (const [k, v] of Object.entries(p.tags)) {
+            const si = Number(k);
+            const li = Number(v);
+            if (tagCounts[si] && tagCounts[si][li] != null) {
+              tagCounts[si][li] += 1;
+              picks[si] += 1;
+              any = true;
+            }
+          }
+        } else if (Array.isArray(p.picks)) {
+          for (const i of p.picks) {
+            if (i >= 0 && i < segs.length) { picks[i] += 1; any = true; }
+          }
+        }
+        if (any) total += 1;
+      }
+      const peak = Math.max(1, ...picks);
+      return {
+        type, total,
+        mode: labels ? 'classify' : 'highlight',
+        labels: labels ? labels.map((l) => String(l ?? '')) : [],
+        segments: segs.map((text, i) => ({
+          text: String(text ?? ''),
+          count: picks[i],
+          heat: picks[i] / peak,
+          tags: tagCounts ? tagCounts[i] : null,
+        })),
+      };
+    }
+
     default:
       return { type, total: 0 };
   }
+}
+
+/**
+ * The confidence quadrant (pedagogy roadmap, feature 2): crossing
+ * right/wrong with sure/unsure. "Confident and wrong" is the misconception
+ * signal — the highest-value read-out a formative question can produce
+ * (Gardner-Medwin's certainty-based marking, used diagnostically).
+ * Returns null when nobody reported confidence or there is no answer key.
+ */
+function confidenceSplit(payloads, correct, type) {
+  const withConf = payloads.filter((p) => p.conf === 1 || p.conf === 2 || p.conf === 3);
+  if (!withConf.length) return null;
+  const counts = [0, 0, 0]; // guessing / fairly sure / certain
+  for (const p of withConf) counts[p.conf - 1] += 1;
+  const out = { counts, n: withConf.length };
+  if (correct && correct.length) {
+    const quad = { sureRight: 0, sureWrong: 0, unsureRight: 0, unsureWrong: 0 };
+    for (const p of withConf) {
+      const picks = Number.isInteger(p.choice) ? [p.choice]
+        : (Array.isArray(p.choices) ? p.choices : []);
+      if (!picks.length) continue;
+      const right = picks.every((i) => correct.includes(i));
+      const sure = p.conf === 3;
+      if (sure && right) quad.sureRight += 1;
+      else if (sure && !right) quad.sureWrong += 1;
+      else if (!sure && right) quad.unsureRight += 1;
+      else quad.unsureWrong += 1;
+    }
+    out.quad = quad;
+  }
+  return out;
 }
 
 // =====================================================================
@@ -450,6 +670,24 @@ export function payloadToText(type, config, payload) {
       const items = Array.isArray(cfg.items) ? cfg.items : [];
       return (payload.order || []).map((i, place) => `${place + 1}. ${optionLabel(items[i]) || `#${i}`}`).join(' | ');
     }
+    case 'spectrum': {
+      const left = cfg.left_label || 'left';
+      const right = cfg.right_label || 'right';
+      return payload.pos == null ? '' : `${payload.pos} (0=${left}, 100=${right})`;
+    }
+    case 'sample_vote': {
+      const base = Number.isInteger(payload.choice) ? `Sample ${payload.choice + 1}` : '';
+      return payload.rationale ? `${base} — ${payload.rationale}` : base;
+    }
+    case 'heatmap': {
+      const labels = Array.isArray(cfg.labels) ? cfg.labels : [];
+      if (payload.tags && typeof payload.tags === 'object') {
+        return Object.entries(payload.tags)
+          .map(([si, li]) => `S${Number(si) + 1}=${labels[li] ?? `L${li}`}`)
+          .join(' | ');
+      }
+      return (payload.picks || []).map((i) => `S${i + 1}`).join(' | ');
+    }
     default:
       return JSON.stringify(payload);
   }
@@ -494,6 +732,23 @@ export const CSV_HEADERS = [
   'session', 'question_number', 'question_type', 'question', 'round',
   'respondent', 'answer', 'correct', 'points', 'submitted_at',
 ];
+
+// =====================================================================
+// Question identity across sessions (pedagogy roadmap, features 5–6)
+//
+// The plain-text deck format deliberately has no persistent question ids
+// (decks are duplicated by copying files), so "the same question asked in
+// another session" is identified by its normalized prompt text. Editing a
+// prompt breaks the link — acceptable, and visible to the instructor.
+// =====================================================================
+
+export function promptKey(prompt) {
+  return String(prompt || '')
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+}
 
 // =====================================================================
 // Session navigation

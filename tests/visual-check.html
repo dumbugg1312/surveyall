@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Visual check — SurveyAll</title>
+<link rel="stylesheet" href="../styles/fonts.css">
 <link rel="stylesheet" href="../styles/base.css">
 <link rel="stylesheet" href="../styles/charts.css">
 <link rel="stylesheet" href="../styles/app.css">
@@ -57,6 +58,17 @@ import { THEMES, applyTheme } from '../app/themes.js';
 const grid = document.getElementById('grid');
 const errors = [];
 const panels = {};
+
+// Theme must be applied BEFORE the panels render: series colours are
+// captured at render time (the projector applies its theme at boot for
+// the same reason), so switching themes reloads with the choice stored —
+// otherwise this page would show last theme's bars under the new tokens.
+const storedTheme = sessionStorage.getItem('vc-theme');
+if (storedTheme && THEMES[storedTheme]) {
+  applyTheme(document.documentElement, storedTheme);
+  document.body.style.background =
+    getComputedStyle(document.documentElement).getPropertyValue('--ground');
+}
 
 function demo(title, fn) {
   const box = document.createElement('div');
@@ -154,6 +166,63 @@ panels.delta = demo('Re-ask — what changed (P1)', (c) => renderDelta(c, null))
 panels.empty = demo('Empty — no responses yet', (c) =>
   renderAggregate(c, 'word_cloud', aggregate('word_cloud', {}, []), {}));
 
+panels.spectrum = demo('Opinion spectrum', (c) =>
+  renderAggregate(c, 'spectrum', aggregate('spectrum', {},
+    rows(Array.from({ length: 24 }, (_, i) => ({ pos: (i * 37 + (i % 5) * 11) % 101 })))),
+  { leftLabel: 'Gregor is a victim', rightLabel: 'Gregor is complicit', corners: true }));
+
+panels.showdown = demo('Writing showdown', (c) =>
+  renderAggregate(c, 'sample_vote', aggregate('sample_vote',
+    { samples: [
+      'Social media is bad for teenagers and something should be done about it.',
+      'By rewarding outrage over accuracy, engagement-driven feeds teach teenagers that attention is the only argument that matters.',
+    ] },
+    rows([
+      { choice: 1, rationale: 'B commits to an argument' },
+      { choice: 1, rationale: 'names a mechanism' },
+      { choice: 0 }, { choice: 1 }, { choice: 1 }, { choice: 0 },
+    ])), { showRationales: true }));
+
+panels.heatmap = demo('Passage heatmap — highlight', (c) =>
+  renderAggregate(c, 'heatmap', aggregate('heatmap',
+    { segments: [
+      'All animals are equal.',
+      'But some animals are more equal than others.',
+      'The creatures outside looked from pig to man, and from man to pig.',
+      'It was impossible to say which was which.',
+    ] },
+    rows([{ picks: [1] }, { picks: [1] }, { picks: [3] }, { picks: [1] }, { picks: [2] }])), {}));
+
+panels.heatmapClassify = demo('Passage heatmap — Toulmin classify', (c) =>
+  renderAggregate(c, 'heatmap', aggregate('heatmap',
+    { segments: [
+      'Schools should adopt later start times.',
+      'Adolescent circadian rhythms shift sleep two hours later.',
+      'Policy should follow the biology of the students it governs.',
+    ],
+      mode: 'classify',
+      labels: ['claim', 'evidence', 'warrant'] },
+    rows([
+      { tags: { 0: 0, 1: 1, 2: 2 } },
+      { tags: { 0: 0, 1: 1, 2: 1 } },
+      { tags: { 0: 0, 1: 1, 2: 2 } },
+      { tags: { 0: 2, 1: 1, 2: 0 } },
+    ])), {}));
+
+panels.confidence = demo('Confidence quadrant (revealed quiz)', (c) =>
+  renderAggregate(c, 'quiz', aggregate('quiz',
+    { options: ['Durkheim', 'Weber', 'Marx'], correct: [1] },
+    rows([
+      { choice: 1, conf: 3 }, { choice: 1, conf: 3 }, { choice: 0, conf: 3 },
+      { choice: 0, conf: 3 }, { choice: 1, conf: 1 }, { choice: 2, conf: 2 },
+    ])), { style: 'bars', revealCorrect: true }));
+
+panels.awaitBars = demo('Waiting — multiple choice, no responses yet', (c) =>
+  renderAggregate(c, 'multiple_choice', aggregate('multiple_choice', mcCfg, []), { style: 'bars' }));
+
+panels.awaitScales = demo('Waiting — scales, no responses yet', (c) =>
+  renderAggregate(c, 'scales', aggregate('scales', scCfg, []), {}));
+
 demo('Regression: bars → donut → cloud → bars', (c) => {
   const agg = aggregate('multiple_choice', mcCfg, mcRows([12,19,8,3]));
   renderAggregate(c, 'multiple_choice', agg, { style: 'bars' });
@@ -231,10 +300,10 @@ Object.entries(THEMES).forEach(([id, t]) => {
   o.value = id; o.textContent = t.name;
   sel.append(o);
 });
+if (storedTheme && THEMES[storedTheme]) sel.value = storedTheme;
 sel.addEventListener('change', () => {
-  applyTheme(document.documentElement, sel.value);
-  document.body.style.background =
-    getComputedStyle(document.documentElement).getPropertyValue('--ground');
+  sessionStorage.setItem('vc-theme', sel.value);
+  location.reload(); // charts must re-render under the new tokens
 });
 
 // ------------------------------------------------------ self-audit
