@@ -5,6 +5,25 @@
    nothing ever flashes unstyled.
    ===================================================================== */
 
+/* ---------------------------------------------------------------------
+   The `hidden` attribute must actually hide.
+
+   Every page here switches views by toggling `el.hidden` (the lobby vs a
+   live question, sign-in vs setup, the phone's waiting state). That
+   relies on the browser's `[hidden] { display: none }` rule, which lives
+   in the UA stylesheet, and ANY author rule that sets `display` on the
+   same element beats it, regardless of specificity. Several do:
+   `.lobby`, `.stage-head`, `.join-corner`, `.join-state`, `.pulse-wait`
+   and `.bg-controls` are all `display: flex`.
+
+   Without this rule those elements stay visible, so the projector drew
+   the lobby QR, the live question, the corner QR and the Q&A drawer all
+   at once, stacked, pushing the question off the bottom of the screen.
+   `!important` is deliberate: `hidden` is a statement of fact about the
+   document, and no layout rule should be able to argue with it.
+   --------------------------------------------------------------------- */
+[hidden] { display: none !important; }
+
 :root {
   --ink: #1c2434;
   --ink-soft: #4a5568;

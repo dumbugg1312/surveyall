@@ -82,28 +82,46 @@
 
   <div class="stage-flash" id="flash" aria-hidden="true"></div>
 
-  <p class="hint-bar">
-    <kbd>→</kbd> next · <kbd>H</kbd> hide · <kbd>C</kbd> close voting ·
-    <kbd>R</kbd> re-ask · <kbd>D</kbd> compare · <kbd>L</kbd> leaderboard ·
-    <kbd>Q</kbd> questions · <kbd>F</kbd> fullscreen
-  </p>
-
   <!-- control bar -------------------------------------------------- -->
+  <!-- Only Previous and Next stay on screen. Everything else lives behind
+       the ⋯ button, because this bar is projected in front of a class and
+       a row of teaching controls competing with the question is noise. -->
   <div class="stage-controls" id="controls">
     <button class="ctrl" id="btnPrev" type="button" title="Previous (←)">←</button>
     <button class="ctrl" id="btnNext" type="button" title="Next (→)">→</button>
-    <span class="ctrl-sep"></span>
-    <button class="ctrl" id="btnHide" type="button" title="Hide/show results (H)">Hide</button>
-    <button class="ctrl" id="btnClose" type="button" title="Close/open voting (C)">Close voting</button>
-    <button class="ctrl" id="btnTimer" type="button" title="Timer (T)">Timer</button>
-    <span class="ctrl-sep"></span>
-    <button class="ctrl" id="btnReask" type="button" title="Ask again (R)">Re-ask</button>
-    <button class="ctrl" id="btnDelta" type="button" title="Compare rounds (D)">Compare</button>
-    <button class="ctrl" id="btnBoard" type="button" title="Leaderboard (L)">Leaderboard</button>
-    <span class="ctrl-sep"></span>
-    <button class="ctrl" id="btnShare" type="button" title="Show results on phones">Push to phones</button>
-    <button class="ctrl" id="btnQA" type="button" title="Questions (Q)">Q&amp;A</button>
-    <button class="ctrl" id="btnEnd" type="button" title="End session">End</button>
+    <button class="ctrl ctrl-toggle" id="btnMore" type="button"
+            aria-expanded="false" aria-controls="ctrlMore"
+            title="More controls">⋯</button>
+
+    <!-- Each shortcut is printed on the button it triggers. There used to
+         be a separate keyboard crib bar above this one listing the same
+         eight shortcuts a second time. -->
+    <div class="ctrl-more" id="ctrlMore">
+      <span class="ctrl-sep"></span>
+      <button class="ctrl" id="btnHide" type="button" title="Hide/show results">
+        <span class="ctrl-label">Hide</span><kbd>H</kbd></button>
+      <button class="ctrl" id="btnClose" type="button" title="Close/open voting">
+        <span class="ctrl-label">Close voting</span><kbd>C</kbd></button>
+      <button class="ctrl" id="btnTimer" type="button" title="Timer — or press 1-9 for that many ×10 seconds">
+        <span class="ctrl-label">Timer</span><kbd>T</kbd></button>
+      <span class="ctrl-sep"></span>
+      <button class="ctrl" id="btnReask" type="button" title="Ask again, keeping the first round">
+        <span class="ctrl-label">Re-ask</span><kbd>R</kbd></button>
+      <button class="ctrl" id="btnDelta" type="button" title="Compare rounds">
+        <span class="ctrl-label">Compare</span><kbd>D</kbd></button>
+      <button class="ctrl" id="btnBoard" type="button" title="Leaderboard">
+        <span class="ctrl-label">Leaderboard</span><kbd>L</kbd></button>
+      <span class="ctrl-sep"></span>
+      <button class="ctrl" id="btnShare" type="button" title="Show results on phones">
+        <span class="ctrl-label">Push to phones</span></button>
+      <button class="ctrl" id="btnQA" type="button" title="Questions from the room">
+        <span class="ctrl-label">Q&amp;A</span><kbd>Q</kbd></button>
+      <button class="ctrl" id="btnFull" type="button" title="Fullscreen">
+        <span class="ctrl-label">Fullscreen</span><kbd>F</kbd></button>
+      <span class="ctrl-sep"></span>
+      <button class="ctrl" id="btnEnd" type="button" title="End session">
+        <span class="ctrl-label">End</span></button>
+    </div>
   </div>
 </div>
 

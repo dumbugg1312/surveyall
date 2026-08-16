@@ -18,6 +18,14 @@
   flex-direction: column;
   background: var(--ground);
   font-size: clamp(16px, 1.15vw + 10px, 30px);
+
+  /* Clip here, not just on <body>. The closed Q&A drawer is parked just
+     off the right edge with a transform, and a transform still counts
+     toward the document's scrollable width. <body> was already hidden but
+     the root element was not, so the page could still be scrolled
+     sideways — clicking a control near the edge was enough to slide the
+     whole slide 45px left and cut the answer labels off. */
+  overflow: hidden;
 }
 
 /* backdrop + scrim sit behind everything */
@@ -37,7 +45,19 @@
   pointer-events: none;
 }
 
-.stage > *:not(.stage-backdrop):not(.stage-scrim) { position: relative; z-index: 2; }
+/* Lift the slide content above the backdrop and scrim.
+   This lists the in-flow blocks by name on purpose. It used to be
+   `.stage > *:not(.stage-backdrop):not(.stage-scrim)`, but `:not()`
+   carries the specificity of its argument, so that selector scored
+   (0,3,0) and beat the (0,1,0) `position: absolute` on every overlay:
+   the corner QR, the Q&A drawer, the control bar, the keyboard hints
+   and the flash. All five were forced back into normal flow and stacked
+   down the page instead of floating over the slide. The overlays set
+   their own position and z-index below; leave them alone. */
+.stage > .lobby,
+.stage > .stage-head,
+.stage > .stage-body,
+.stage > .stage-foot { position: relative; z-index: 2; }
 
 /* ---------------------------------------------------------------- head */
 
@@ -74,7 +94,10 @@
   flex: 1;
   min-height: 0;
   display: flex;
-  padding: .4em 1.4em;
+  /* Bottom room is reserved for the floating join card and the control
+     bar, both of which are absolutely positioned over this area. Without
+     it the last row of a chart is drawn underneath them. */
+  padding: .4em 1.4em 3.4em;
   overflow: hidden;
 }
 
@@ -93,12 +116,17 @@
 
 .join-corner {
   position: absolute;
-  right: 1.1em; bottom: 1.1em;
+  right: .8em; bottom: .8em;
   z-index: 6;
   display: flex;
   align-items: center;
-  gap: .7em;
-  padding: .55em .7em;
+  gap: .45em;
+  /* Deliberately small and slightly recessive. This is a latecomer's
+     lifeline, not the point of the slide, and at its old size it sat on
+     top of the last row of the chart. .stage-body reserves room for it
+     so nothing is ever drawn underneath. */
+  opacity: .93;
+  padding: .35em .5em;
   border-radius: 14px;
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   border: 1px solid var(--edge);
@@ -114,7 +142,7 @@
 }
 
 .join-qr {
-  width: 5.2em; height: 5.2em;
+  width: 3.1em; height: 3.1em;
   border-radius: 8px;
   overflow: hidden;
   background: #fff;
@@ -129,10 +157,10 @@
   letter-spacing: .08em; text-transform: uppercase;
   color: var(--ink-soft);
 }
-.join-url { font-size: .58em; color: var(--ink-soft); }
+.join-url { font-size: .46em; color: var(--ink-soft); }
 .join-code {
   font-family: var(--display);
-  font-size: 1.15em;
+  font-size: .95em;
   font-weight: 700;
   letter-spacing: .12em;
   line-height: 1.1;
@@ -143,6 +171,7 @@
   position: static;
   flex-direction: column;
   gap: 1em;
+  opacity: 1;          /* the lobby card IS the point of the slide */
   padding: 1.6em 2em;
   text-align: center;
   align-self: center;
@@ -200,10 +229,15 @@
 
 /* ------------------------------------------------------------ controls */
 
+/* The bar is projected in front of a class, so it stays quiet: faint, and
+   showing only Previous and Next. The teaching controls sit behind the ⋯
+   button and open on a click. It used to slide into view on any mouse
+   movement over the stage, which meant a full row of buttons appeared on
+   the projector every time the instructor nudged the mouse. */
 .stage-controls {
   position: absolute;
   left: 50%; bottom: 1em;
-  transform: translateX(-50%) translateY(140%);
+  transform: translateX(-50%);
   z-index: 7;
   display: flex; align-items: center; gap: .4em;
   padding: .5em .7em;
@@ -212,16 +246,37 @@
   border: 1px solid var(--edge);
   box-shadow: 0 8px 30px rgba(0, 0, 0, .18);
   backdrop-filter: blur(10px);
-  transition: transform .28s cubic-bezier(.22, .8, .3, 1), opacity .28s ease;
-  opacity: 0;
+  transition: opacity .28s ease;
+  opacity: .2;
   font-size: .6em;
 }
 
-.stage:hover .stage-controls,
+/* Hovering or focusing makes it legible; only a click opens the tools. */
+.stage-controls:hover,
 .stage-controls:focus-within,
-.stage-controls.is-pinned {
-  transform: translateX(-50%) translateY(0);
-  opacity: 1;
+.stage.is-controls-open .stage-controls { opacity: 1; }
+
+.ctrl-more { display: none; align-items: center; gap: .4em; }
+.stage.is-controls-open .ctrl-more { display: flex; }
+
+/* Open, the toolbar needs the whole bottom strip, so the join card steps
+   aside rather than being half-covered by it. This is a transient state:
+   every control also has a keyboard shortcut, so the toolbar is usually
+   shut, and the card comes straight back when it closes. */
+.stage.is-controls-open .join-corner:not(.is-big) {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Open, the bar is wide enough to reach the response-count pill in the
+   footer, so it rises above that row. The bottom padding on .stage-body
+   is what it rises into. */
+.stage.is-controls-open .stage-controls { bottom: 3.1em; }
+
+.ctrl-toggle { font-size: 1.1em; line-height: 1; letter-spacing: .05em; }
+.stage.is-controls-open .ctrl-toggle {
+  background: var(--accent-soft);
+  color: color-mix(in srgb, var(--accent) 80%, var(--ink));
 }
 
 .ctrl {
@@ -242,6 +297,21 @@
 /* --------------------------------------------------------------- lobby */
 
 .lobby {
+  /* The lobby is the tallest thing this view ever draws: kicker, title,
+     subtitle, a 13em QR, the join code and the privacy note, all stacked.
+     The stage font-size scales with viewport WIDTH only, which is right
+     for a question but wrong here: on a wide-but-short projector (1280x720
+     is the common one) the stack came to ~957px inside a 720px screen, so
+     `overflow: hidden` cut off the bottom — including the join code, which
+     sits under the QR image. A room full of students could see the QR and
+     not the code.
+
+     Scaling the lobby by height as well keeps the whole stack on screen at
+     720p, 1080p and small windows alike, and leaves the question view's
+     sizing untouched. `1em` here resolves against .stage, so this only
+     ever shrinks, never enlarges. */
+  font-size: min(1em, 2.5vh);
+
   flex: 1;
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
@@ -322,16 +392,25 @@
 }
 .stage-flash.is-visible { opacity: 1; }
 
-.hint-bar {
-  position: absolute;
-  left: 1.1em; bottom: 1.1em;
-  z-index: 6;
-  font-size: .52em;
+/* The keyboard shortcut is printed on the control it triggers, so there
+   is no separate hint bar. It used to list the same eight shortcuts a
+   second time, directly above the buttons that already named them. */
+.ctrl kbd {
+  margin-left: .45em;
+  padding: .12em .38em;
+  border-radius: 5px;
+  border: 1px solid var(--edge);
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
   color: var(--ink-soft);
-  opacity: 0;
-  transition: opacity .3s ease;
+  font-family: var(--body);
+  font-size: .82em;
+  font-weight: 600;
+  line-height: 1.35;
 }
-.stage:hover .hint-bar { opacity: .8; }
+.ctrl:hover kbd { border-color: color-mix(in srgb, var(--accent) 35%, var(--edge)); }
+.ctrl.is-active kbd { border-color: currentColor; color: inherit; }
+/* The keyboard crib sheet belongs with the tools, not on the projector.
+   It appears only once the instructor has opened the controls. */
 
 kbd {
   display: inline-block;

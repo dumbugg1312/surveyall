@@ -20,10 +20,13 @@
     </div>
   </main>
 
-  <footer class="join-footer">
-    Anonymous. No account, no name, no tracking.<br>
-    Your answers cannot be traced back to you.
-  </footer>
+  <!-- Deliberately no "your answers cannot be traced back to you" footer.
+       The app IS anonymous by design (see worker/schema.sql), but telling a
+       room of students that on the answer screen reads as an invitation to
+       misbehave rather than as a privacy assurance. The instructor explains
+       the privacy model to the class; the answer box does not advertise it.
+       The placeholder text still says "no need to include your name", which
+       is the part a student actually needs at the moment of typing. -->
 
   <script type="module" src="app/join-page.js"></script>
 </body>

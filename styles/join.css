@@ -357,13 +357,6 @@
 
 /* -------------------------------------------------------------- footer */
 
-.join-footer {
-  padding: 1rem 1rem max(1rem, env(safe-area-inset-bottom));
-  text-align: center;
-  font-size: .7rem;
-  color: var(--ink-soft);
-  line-height: 1.5;
-}
 
 @media (min-width: 640px) {
   .q-prompt { font-size: 1.7rem; }

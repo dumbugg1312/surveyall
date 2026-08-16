@@ -189,11 +189,17 @@ function paintDots() {
   });
 }
 
+/** Write a control's caption without disturbing the <kbd> key printed on it. */
+function setCtrlLabel(id, text) {
+  const el = $(id).querySelector('.ctrl-label') || $(id);
+  el.textContent = text;
+}
+
 function paintControlStates() {
   const s = state.session;
-  $('btnHide').textContent = s.reveal ? 'Hide' : 'Show';
+  setCtrlLabel('btnHide', s.reveal ? 'Hide' : 'Show');
   $('btnHide').classList.toggle('is-active', !s.reveal);
-  $('btnClose').textContent = s.accepting ? 'Close voting' : 'Open voting';
+  setCtrlLabel('btnClose', s.accepting ? 'Close voting' : 'Open voting');
   $('btnClose').classList.toggle('is-active', !s.accepting);
   $('btnShare').classList.toggle('is-active', s.show_on_devices);
   $('btnDelta').classList.toggle('is-active', state.view === 'delta');
@@ -404,7 +410,7 @@ async function loadQA() {
 
   ui.qaBody.textContent = '';
   const pending = rows.filter((r) => !r.approved).length;
-  $('btnQA').textContent = pending ? `Q&A (${pending})` : 'Q&A';
+  setCtrlLabel('btnQA', pending ? `Q&A (${pending})` : 'Q&A');
 
   if (!rows.length) {
     const p = document.createElement('p');
@@ -470,10 +476,20 @@ function btn(label, cls, fn) {
 function wireControls() {
   $('btnPrev').addEventListener('click', () => go(-1));
   $('btnNext').addEventListener('click', () => go(1));
+
+  // Only Previous and Next are on the projector by default. The rest of
+  // the teaching controls, and the keyboard crib sheet, open on a click
+  // and stay open until dismissed. Every one of them also has a keyboard
+  // shortcut, so this hides buttons, never capability.
+  $('btnMore').addEventListener('click', () => {
+    const open = ui.stage.classList.toggle('is-controls-open');
+    $('btnMore').setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
   $('btnHide').addEventListener('click', toggleReveal);
   $('btnClose').addEventListener('click', toggleAccepting);
   $('btnTimer').addEventListener('click', toggleTimer);
   $('btnReask').addEventListener('click', reask);
+  $('btnFull').addEventListener('click', toggleFullscreen);
   $('btnEnd').addEventListener('click', endSession);
 
   $('btnDelta').addEventListener('click', () => {
