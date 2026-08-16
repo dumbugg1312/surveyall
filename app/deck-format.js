@@ -17,7 +17,7 @@
  *   ## instructions
  *   Join in before we start
  *   - Point your phone's camera at the QR code.
- *   - Or go to the address on screen and type %CODE%.
+ *   - Or go to the address on screen and type in the code.
  *
  *   ## multiple_choice
  *   Which of these is a social institution?
@@ -452,7 +452,7 @@ background: gradient-dusk
 ## instructions
 Join in before we start
 - Open the camera on your phone and point it at the QR code.
-- Or go to the address on screen and type the code %CODE%.
+- Or go to the address on screen and type in the code.
 - Leave the page open — questions appear as we go.
 
 ## word_cloud

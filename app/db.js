@@ -185,6 +185,10 @@ export const updateDeck = (id, patch) =>
 export const deleteDeck = (id) =>
   api(`/api/decks/${id}`, { method: 'DELETE', auth: true });
 
+/** Rotate a deck's permanent join code. @returns {Promise<{join_code: string}>} */
+export const regenerateDeckCode = (id) =>
+  api(`/api/decks/${id}/code`, { method: 'POST', auth: true });
+
 // =====================================================================
 // Questions
 // =====================================================================

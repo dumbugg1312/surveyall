@@ -17,7 +17,9 @@
  * to scale the projector.
  */
 
-import { TYPE_LABELS, optionLabels, DEFAULT_JOIN_STEPS } from './logic.js';
+import {
+  TYPE_LABELS, optionLabels, DEFAULT_JOIN_STEPS, fillJoinPlaceholders,
+} from './logic.js';
 import { getTheme, applyTheme, backgroundStyles, scrimOpacity } from './themes.js';
 
 /** Deterministic bar lengths — a sketch must not jitter on every repaint. */
@@ -44,7 +46,11 @@ function short(s, max = 34) {
  * @param {object} q            question row (may be a bare {type} for the gallery)
  * @param {object} deck         the deck, for background + custom theme
  * @param {string|object} themeRef  resolved theme reference
- * @param {{kicker?: string, placeholder?: boolean}} opts
+ * @param {{kicker?: string, placeholder?: boolean,
+ *          join?: {code?: string, qrSVG?: string}}} opts
+ *        `join` carries the deck's real code and an encoded QR. A deck owns
+ *        its code from creation, so the editor draws the same scannable
+ *        thing the room will see — no placeholder, no "it'll be real later".
  */
 export function renderSlide(host, q, deck, themeRef, opts = {}) {
   host.textContent = '';
@@ -84,7 +90,7 @@ export function renderSlide(host, q, deck, themeRef, opts = {}) {
 function sketch(q, opts) {
   const cfg = q.config || {};
   switch (q.type) {
-    case 'instructions': return instructionsSketch(cfg);
+    case 'instructions': return instructionsSketch(cfg, opts);
     case 'multiple_choice':
     case 'quiz': return barsSketch(optionLabels(cfg), cfg, q.type === 'quiz');
     case 'word_cloud': return cloudSketch();
@@ -101,10 +107,12 @@ function sketch(q, opts) {
 
 // ---------------------------------------------------------- instructions
 
-function instructionsSketch(cfg) {
+function instructionsSketch(cfg, opts = {}) {
   const wrap = el('div', 'sp-instructions');
+  const code = opts.join?.code || '';
 
   const steps = (Array.isArray(cfg.steps) && cfg.steps.length ? cfg.steps : DEFAULT_JOIN_STEPS)
+    .map((s) => fillJoinPlaceholders(s, { code }))
     .slice(0, 4);
   const list = el('ol', 'sp-steps');
   steps.forEach((s, i) => {
@@ -117,10 +125,19 @@ function instructionsSketch(cfg) {
 
   if (cfg.show_join !== false) {
     const card = el('div', 'sp-joincard');
-    card.append(qrGlyph());
+    // A deck owns its code from creation, so this is the real, scannable
+    // QR — the same image the projector will show. qrGlyph() survives only
+    // for the type gallery, which has no deck behind it.
+    if (opts.join?.qrSVG) {
+      const qr = el('div', 'sp-qr sp-qr-real');
+      qr.innerHTML = opts.join.qrSVG;
+      card.append(qr);
+    } else {
+      card.append(qrGlyph());
+    }
     const meta = el('div', 'sp-join-meta');
     meta.append(el('span', 'sp-join-label', 'Code'));
-    meta.append(el('span', 'sp-join-code', '••••••'));
+    meta.append(el('span', 'sp-join-code', code || '••••••'));
     card.append(meta);
     wrap.append(card);
   }
@@ -128,13 +145,13 @@ function instructionsSketch(cfg) {
 }
 
 /**
- * A stand-in QR.
+ * A stand-in QR, for the new-slide gallery only.
  *
- * The real code doesn't exist until a session starts — a code belongs to
- * a session, not to a deck — so the editor draws the silhouette instead
- * of inventing one. It carries the three finder squares because that is
- * what makes a square of noise legible as "a QR goes here" at thumbnail
- * size; the middle is fixed nonsense and encodes nothing.
+ * Real decks have a real code and get a real encoded QR (see above); this
+ * is for the type-picker tiles, which are drawn before any deck exists.
+ * It carries the three finder squares because that is what makes a square
+ * of noise legible as "a QR goes here" at thumbnail size; the middle is
+ * fixed nonsense and encodes nothing.
  */
 const QR_PATTERN = [
   '1110111',

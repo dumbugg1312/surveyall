@@ -52,13 +52,17 @@ export const TYPE_LABELS = {
 
 /**
  * The steps an instructions slide shows when the instructor hasn't written
- * their own. `%CODE%` is substituted with the live join code at display
- * time (the deck itself has no code — a code belongs to a session), so a
- * deck stays portable across every section that runs it.
+ * their own.
+ *
+ * They deliberately don't spell the code out: the slide already prints it
+ * the size of a fist next to a scannable QR, and a step that repeats it is
+ * a second place to read the same six characters from. Anyone who does
+ * want it inline can write %CODE% in a step — see fillJoinPlaceholders —
+ * and it renders as the deck's real code everywhere, editor included.
  */
 export const DEFAULT_JOIN_STEPS = [
   'Open the camera on your phone and point it at the QR code.',
-  'Or go to the address on screen and type the code %CODE%.',
+  'Or go to the address on screen and type in the code.',
   'Leave the page open — questions appear as we go.',
 ];
 

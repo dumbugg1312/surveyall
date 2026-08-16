@@ -19,10 +19,10 @@ import {
   configured, currentUser, getDeck, updateDeck, listQuestions,
   createQuestion, updateQuestion, deleteQuestion, reorderQuestions,
   replaceQuestions, createSession,
-  uploadBackground, listBackgrounds, deleteBackground,
+  uploadBackground, listBackgrounds, deleteBackground, regenerateDeckCode,
 } from './db.js';
 import {
-  TYPE_LABELS, splitPassage, DEFAULT_JOIN_STEPS, isContentSlide,
+  TYPE_LABELS, splitPassage, DEFAULT_JOIN_STEPS, isContentSlide, joinURL,
 } from './logic.js';
 import { TEMPLATES } from './templates.js';
 import {
@@ -32,6 +32,8 @@ import {
 } from './themes.js';
 import { parseDeck, serialiseDeck } from './deck-format.js';
 import { renderSlide } from './slide-preview.js';
+import { qrSVG, qrInk } from './qr.js';
+import { joinBase } from './config.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -39,6 +41,25 @@ let deck = null;
 let questions = [];
 let selectedId = null;
 let saveTimer = null;
+
+/**
+ * The deck's own join code, encoded once.
+ *
+ * A deck carries a permanent code, so the instructions slide can show the
+ * real thing while you are still writing it — the same code and the same
+ * scannable QR the room will see. Encoding is not free, so it happens on
+ * load and after a rotation, never per keystroke.
+ */
+let joinArt = { code: '', qrSVG: null };
+
+async function refreshJoinArt() {
+  joinArt = { code: deck.join_code || '', qrSVG: null };
+  if (!deck.join_code) return;
+  const ink = qrInk(getComputedStyle(document.documentElement)
+    .getPropertyValue('--ink').trim());
+  joinArt.qrSVG = await qrSVG(joinURL(joinBase(), deck.join_code),
+    { dark: ink, light: '#ffffff' });
+}
 
 boot().catch((e) => { console.error(e); toast(e.message || String(e)); });
 
@@ -67,6 +88,10 @@ async function boot() {
   $('textView').addEventListener('click', openTextView);
   $('startSession').addEventListener('click', onStart);
   $('btnDesign').addEventListener('click', toggleDesign);
+  $('deckCode')?.addEventListener('click', guard(rotateCode));
+
+  await refreshJoinArt();
+  paintCodeChip();
 
   buildThemeGrid();
   buildMyThemesGrid();
@@ -77,6 +102,34 @@ async function boot() {
 
   renderRail();
   renderStage();
+}
+
+/**
+ * The deck's code, in the appbar, always visible while authoring.
+ *
+ * Clicking it rotates the code. That is the escape hatch for a code that
+ * has escaped into the wild — it takes effect immediately, and orphans
+ * nothing: every past session keeps its own code and all of its results.
+ */
+function paintCodeChip() {
+  const chip = $('deckCode');
+  if (!chip) return;
+  chip.hidden = !deck.join_code;
+  chip.querySelector('.code-value').textContent = deck.join_code || '';
+}
+
+async function rotateCode() {
+  if (!window.confirm('Give this deck a new join code?\n\n'
+    + 'Anyone holding the old code or QR — a printed handout, a student\'s '
+    + 'bookmark — stops being able to join. Past sessions and their results '
+    + 'are untouched.')) return;
+  const { join_code: code } = await regenerateDeckCode(deck.id);
+  deck.join_code = code;
+  await refreshJoinArt();
+  paintCodeChip();
+  renderRail();
+  renderCanvas();
+  toast('New code — reprint anything showing the old one');
 }
 
 function selected() {
@@ -146,7 +199,7 @@ function railItem(q, index) {
 }
 
 function paintThumb(host, q) {
-  renderSlide(host, q, deck, resolveTheme(deck.theme, deck));
+  renderSlide(host, q, deck, resolveTheme(deck.theme, deck), { join: joinArt });
 }
 
 /** Re-draw only the open slide's thumbnail — called on every keystroke. */
@@ -448,6 +501,7 @@ function renderCanvas() {
   const index = questions.findIndex((x) => x.id === q.id);
   renderSlide(host, q, deck, resolveTheme(deck.theme, deck), {
     kicker: `${TYPE_LABELS[q.type] || q.type} · Slide ${index + 1} of ${questions.length}`,
+    join: joinArt,
   });
   note.textContent = isContentSlide(q.type)
     ? 'Nothing to answer — this slide just sits on the projector.'

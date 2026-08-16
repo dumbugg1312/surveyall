@@ -1035,3 +1035,47 @@
   font-family: var(--display);
   font-size: .55em; font-weight: 700; letter-spacing: .12em;
 }
+
+/* The editor's instructions slide carries a real, scannable QR — same
+   encoded image the projector shows — so it needs the white plate and
+   square aspect the generated SVG expects, not the fake grid's layout. */
+.sp-qr.sp-qr-real {
+  display: block;
+  padding: 0;
+  background: #fff;
+  overflow: hidden;
+}
+.sp-qr.sp-qr-real svg { display: block; width: 100%; height: 100%; }
+
+/* The deck's join code in the appbar. It reads as a label, not a button,
+   until you hover — rotating a code is deliberate, not something to be
+   invited into by a control that looks eager to be pressed. */
+.code-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: .4rem;
+  padding: .25rem .6rem;
+  border: 1px dashed var(--edge);
+  border-radius: 999px;
+  background: none;
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease;
+}
+.code-chip:hover {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--edge));
+  background: var(--accent-soft);
+}
+.code-label {
+  font-size: .62rem;
+  font-weight: 600;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.code-value {
+  font-family: var(--display);
+  font-size: .95rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+}

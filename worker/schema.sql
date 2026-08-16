@@ -138,6 +138,16 @@ create table if not exists auth_throttle (
 create table if not exists decks (
   id         text primary key,
   owner_id   text not null default 'owner',
+  -- The deck's permanent join code, assigned when it is created.
+  --
+  -- A code used to belong to a session, which meant a deck had nothing to
+  -- print until a session started — so the instructions slide could only
+  -- show a placeholder while you were writing it. The code lives here
+  -- instead, so the slide shows a real code and a real QR at authoring
+  -- time, and students scanning it land on whichever session of this deck
+  -- is currently running. Nullable so existing databases can be migrated
+  -- with a bare ADD COLUMN; the Worker fills it in on first use.
+  join_code  text,
   title      text not null default 'Untitled deck',
   theme      text not null default 'lecture-hall',
   background text not null default '{"kind":"theme"}',
@@ -158,7 +168,14 @@ create table if not exists questions (
   id         text primary key,
   deck_id    text not null references decks (id) on delete cascade,
   position   integer not null default 0,
+  -- KEEP IN STEP WITH QUESTION_TYPES IN app/logic.js. This list is the
+  -- second place a slide type has to be declared, and SQLite will not let
+  -- you ALTER a CHECK afterwards — adding a type here on an existing
+  -- database means rebuilding the table. Adding 'instructions' without
+  -- this line is exactly how the editor's "add slide" button went dead
+  -- while every other type kept working.
   type       text not null check (type in (
+               'instructions',
                'multiple_choice','word_cloud','open_ended',
                'scales','ranking','quiz','qa',
                'spectrum','sample_vote','heatmap')),
@@ -168,6 +185,13 @@ create table if not exists questions (
 );
 
 create index if not exists questions_deck_idx on questions (deck_id, position);
+
+-- Deck codes must be unique, and SQLite allows many NULLs in a unique
+-- index — which is what lets a migrated database sit with un-coded decks
+-- until the Worker assigns them. It is also what makes the retry loop in
+-- ensureDeckCode() correct: a colliding UPDATE raises here, rather than
+-- silently handing two decks the same code.
+create unique index if not exists decks_join_code_idx on decks (join_code);
 
 -- ---------------------------------------------------------------------
 -- SESSIONS — one live run of a deck.

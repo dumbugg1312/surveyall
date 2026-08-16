@@ -132,14 +132,20 @@ function paintBackground() {
 }
 
 async function paintJoin() {
-  const url = joinURL(joinBase(), state.session.join_code);
+  // The deck's permanent code is what the instructions slide showed while
+  // this deck was being written, and what any handout printed. Prefer it,
+  // and fall back to the session's own code for sessions started before
+  // decks had codes — those still resolve server-side.
+  const code = state.deck.join_code || state.session.join_code;
+  const url = joinURL(joinBase(), code);
   const pretty = url.replace(/^https?:\/\//, '').replace(/\/join\.html#.*$/, '');
 
   state.joinURL = url;
   state.joinPretty = pretty;
 
-  ui.lobbyCode.textContent = state.session.join_code;
-  ui.cornerCode.textContent = state.session.join_code;
+  state.joinCode = code;
+  ui.lobbyCode.textContent = code;
+  ui.cornerCode.textContent = code;
   ui.lobbyURL.textContent = pretty;
   ui.cornerURL.textContent = pretty;
 
@@ -258,7 +264,7 @@ function joinSteps(q) {
     ? q.config.steps : DEFAULT_JOIN_STEPS;
   return raw
     .map((s) => fillJoinPlaceholders(s, {
-      code: state.session.join_code,
+      code: state.joinCode || state.session.join_code,
       url: state.joinPretty || '',
     }))
     .filter((s) => s.trim());
@@ -274,7 +280,7 @@ function paintContentSlide(q) {
     note: q.config?.note || '',
     showJoin: q.config?.show_join !== false,
     url: state.joinPretty || '',
-    code: state.session.join_code,
+    code: state.joinCode || state.session.join_code,
     qrSVGText: state.joinQRSVG,
   });
 }

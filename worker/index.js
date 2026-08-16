@@ -166,6 +166,30 @@ const NOUNS = [
 
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
+/**
+ * A deck's permanent join code, assigned the first time anything needs it.
+ *
+ * Decks created before this feature have `join_code` NULL, and migrating
+ * them in SQL would mean generating unique random values per row — so they
+ * are filled in lazily here instead, and a bare `ALTER TABLE ADD COLUMN`
+ * is the whole migration. The unique index on decks(join_code) is what
+ * makes the retry meaningful: a collision raises rather than duplicating.
+ */
+async function ensureDeckCode(env, deck) {
+  if (deck?.join_code) return deck.join_code;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const code = generateJoinCode(6);
+    try {
+      await env.DB.prepare('update decks set join_code = ? where id = ?')
+        .bind(code, deck.id).run();
+      return code;
+    } catch (err) {
+      if (attempt === 7) throw err; // ran out of code attempts
+    }
+  }
+  return null;
+}
+
 /** No vowels (can't spell anything) and no 0/O/1/I/L (misread on a projector). */
 function generateJoinCode(len = 6) {
   const alphabet = '23456789BCDFGHJKMNPQRSTVWXYZ';
@@ -387,10 +411,38 @@ async function participantRoute(request, env, seg, method, body, url) {
   const code = String(seg[1] || '').toUpperCase();
   if (!code) return fail('No session code', 400);
 
-  const session = rowToSession(
-    await env.DB.prepare('select * from sessions where join_code = ?').bind(code).first(),
-  );
-  if (!session) return fail('No session found for that code.', 404);
+  // A code names a DECK, permanently, and resolves to whichever session of
+  // that deck is currently worth joining: a live one first, then one still
+  // in the lobby, newest first either way. Ended sessions are last so a
+  // student scanning during the changeover between two runs of the same
+  // deck lands on the new one rather than yesterday's.
+  let session = rowToSession(await env.DB.prepare(`
+    select s.* from sessions s
+    join decks d on d.id = s.deck_id
+    where d.join_code = ?
+    order by case s.state when 'live' then 0 when 'lobby' then 1 else 2 end,
+             s.created_at desc
+    limit 1
+  `).bind(code).first());
+
+  // Older links carry a per-session code. They keep working: anything
+  // already printed on a handout or bookmarked by a student still lands.
+  if (!session) {
+    session = rowToSession(
+      await env.DB.prepare('select * from sessions where join_code = ?').bind(code).first(),
+    );
+  }
+
+  if (!session) {
+    // Distinguish "that deck exists, nothing is running" from "no such
+    // code" — the first is a student who scanned early, and telling them
+    // to check the code would send them hunting for a typo they didn't make.
+    const deck = await env.DB.prepare('select id from decks where join_code = ?')
+      .bind(code).first();
+    return fail(deck
+      ? 'Your instructor has not started this yet. Try again in a moment.'
+      : 'No session found for that code.', 404);
+  }
 
   const tail = seg[2] || '';
 
@@ -624,20 +676,35 @@ async function instructorRoute(request, env, seg, method, body, url, ctx, user) 
       const { results } = await DB.prepare(
         'select * from decks where owner_id = ? order by updated_at desc',
       ).bind(user.id).all();
+      // Decks predating permanent codes get one here. After the first
+      // load this loop does nothing, so it costs a comparison per deck.
+      for (const row of results || []) {
+        if (!row.join_code) row.join_code = await ensureDeckCode(env, row);
+      }
       return json((results || []).map(rowToDeck));
     }
 
     if (!deckId && method === 'POST') {
       const id = uid();
       const t = now();
-      await DB.prepare(`
-        insert into decks (id, owner_id, title, theme, background, settings, created_at, updated_at)
-        values (?, ?, ?, ?, ?, ?, ?, ?)
-      `).bind(
-        id, user.id, body.title || 'Untitled deck', body.theme || 'lecture-hall',
-        JSON.stringify(body.background || { kind: 'theme' }),
-        JSON.stringify(body.settings || {}), t, t,
-      ).run();
+      // A deck carries its join code from birth, so the instructions
+      // slide has a real code and a real QR the moment you start writing.
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        try {
+          await DB.prepare(`
+            insert into decks (id, owner_id, join_code, title, theme, background, settings, created_at, updated_at)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(
+            id, user.id, generateJoinCode(6),
+            body.title || 'Untitled deck', body.theme || 'lecture-hall',
+            JSON.stringify(body.background || { kind: 'theme' }),
+            JSON.stringify(body.settings || {}), t, t,
+          ).run();
+          break;
+        } catch (err) {
+          if (attempt === 7) throw err; // ran out of code attempts
+        }
+      }
       return json(rowToDeck(await DB.prepare('select * from decks where id = ?').bind(id).first()));
     }
 
@@ -694,7 +761,28 @@ async function instructorRoute(request, env, seg, method, body, url, ctx, user) 
     if (deckId && method === 'GET') {
       const deck = await ownedDeck(DB, deckId, user);
       if (!deck) return notYours();
+      if (!deck.join_code) deck.join_code = await ensureDeckCode(env, deck);
       return json(rowToDeck(deck));
+    }
+
+    // ---- rotate the deck's code ----------------------------------------
+    // A permanent code is permanent until you say otherwise. Rotating it
+    // is the answer to "last term's students still have the link" — it
+    // takes effect immediately and orphans nothing: past sessions keep
+    // their own codes and all their results.
+    if (deckId && seg[2] === 'code' && method === 'POST') {
+      const deck = await ownedDeck(DB, deckId, user);
+      if (!deck) return notYours();
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const code = generateJoinCode(6);
+        try {
+          await DB.prepare('update decks set join_code = ?, updated_at = ? where id = ?')
+            .bind(code, now(), deckId).run();
+          return json({ join_code: code });
+        } catch (err) {
+          if (attempt === 7) throw err;
+        }
+      }
     }
 
     if (deckId && method === 'PATCH') {

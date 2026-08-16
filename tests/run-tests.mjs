@@ -572,8 +572,8 @@ describe('plain-text deck format (P3)', () => {
       'instructions', 'word_cloud', 'multiple_choice', 'scales', 'quiz',
       'ranking', 'open_ended', 'qa',
     ]);
-    // the opening slide carries its own steps, %CODE% intact
-    ok(deck.questions[0].config.steps.some((s) => s.includes('%CODE%')));
+    // the opening slide carries its own steps and shows the join card
+    eq(deck.questions[0].config.steps.length, 3);
     eq(deck.questions[0].config.show_join, true);
   });
 
@@ -724,12 +724,24 @@ join: false`);
     eq(again.questions[0].config.steps, ['Phones out.']);
   });
 
-  it('substitutes the live join code into a step, leaving the deck portable', () => {
+  it('substitutes the join code into a step, leaving the deck portable', () => {
     const step = 'Or go to %URL% and type the code %CODE%.';
     eq(fillJoinPlaceholders(step, { code: 'BQ7RTM', url: 'polls.example.edu' }),
       'Or go to polls.example.edu and type the code BQ7RTM.');
     // the stored deck itself is never rewritten
     ok(step.includes('%CODE%'));
+  });
+
+  it('needs no placeholder by default — the slide prints the code itself', () => {
+    // A deck owns a permanent code, so the join card shows it and the
+    // steps do not have to repeat it. Nothing here should render as a
+    // literal %CODE% in front of a class.
+    for (const step of DEFAULT_JOIN_STEPS) {
+      ok(!/%[A-Z]+%/.test(step), `default step still carries a placeholder: ${step}`);
+    }
+    // and with no code supplied, a custom step degrades to empty rather
+    // than projecting the raw token
+    eq(fillJoinPlaceholders('Type %CODE% to join.', {}), 'Type  to join.');
   });
 
   it('leaves an unknown placeholder alone rather than blanking it', () => {

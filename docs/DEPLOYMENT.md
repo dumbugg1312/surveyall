@@ -307,7 +307,11 @@ Ask me anything, anonymously
 
 Rules: `#` names the deck, `##` starts a slide, `-` is an option, `- [x]` marks a correct answer, `~` is a scale statement, `key: value` sets an option, `//` is a comment.
 
-**`## instructions`** is the one slide with nothing to answer — it projects your steps next to a large QR code and join code, for the first two minutes of class. Its `-` lines are the steps, and `%CODE%` in a step is replaced with the live join code when you present, so the same deck runs in every section without editing. `join: false` drops the QR and gives the whole slide to your text (handy for housekeeping or a title card).
+**`## instructions`** is the one slide with nothing to answer — it projects your steps next to a large QR code and join code, for the first two minutes of class. Its `-` lines are the steps.
+
+Every deck gets a **permanent join code** the moment it's created, shown in the editor's top bar and printed on this slide with a real, scannable QR — so what you see while writing is exactly what the room sees. You don't need to mention the code in a step; the slide already prints it. If you want it inline anyway, write `%CODE%` and it renders as the real code everywhere, editor included. `join: false` drops the QR and gives the whole slide to your text (handy for housekeeping or a title card).
+
+Click the code in the top bar to replace it — the answer to a code that has escaped onto an old handout. Past sessions keep their own codes and all their results.
 
 ---
 

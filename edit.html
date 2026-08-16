@@ -13,6 +13,14 @@
 <header class="appbar">
   <a class="brand" href="dashboard.html">SurveyAll</a>
   <input type="text" id="deckTitle" style="max-width:22rem" aria-label="Deck title">
+  <!-- The deck's permanent join code. Visible while authoring because the
+       instructions slide prints it, and click-to-rotate because a code
+       that has escaped needs one obvious way to be replaced. -->
+  <button class="code-chip" id="deckCode" type="button" hidden
+          title="This deck's join code — click to replace it">
+    <span class="code-label">Code</span>
+    <span class="code-value"></span>
+  </button>
   <span class="spacer"></span>
   <span class="muted" id="saveState" style="font-size:.78rem"></span>
   <button class="btn btn-sm" id="textView" type="button">Text view</button>
