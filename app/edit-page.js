@@ -182,8 +182,37 @@ function iconBtn(glyph, title, fn, disabled) {
   b.title = title;
   b.setAttribute('aria-label', title);
   b.disabled = !!disabled;
-  b.addEventListener('click', (e) => { e.stopPropagation(); fn(); });
+  b.addEventListener('click', guard((e) => { e.stopPropagation(); return fn(); }));
   return b;
+}
+
+/**
+ * Wrap an async click handler so a rejection reaches the instructor.
+ *
+ * An `async` listener returns a promise nobody awaits, so anything that
+ * throws inside one — a failed save, a rejected request — vanishes into an
+ * unhandled rejection and the button simply appears dead. That is exactly
+ * how a broken "add slide" spent an afternoon looking like a UI bug: the
+ * server was answering, the answer was an error, and nothing said so.
+ * Every handler that talks to the network goes through here.
+ */
+function guard(fn) {
+  return (...args) => {
+    try {
+      const out = fn(...args);
+      if (out && typeof out.then === 'function') {
+        out.catch((e) => {
+          console.error(e);
+          toast(e?.message || 'Something went wrong — see the console.');
+        });
+      }
+      return out;
+    } catch (e) {
+      console.error(e);
+      toast(e?.message || 'Something went wrong — see the console.');
+      return undefined;
+    }
+  };
 }
 
 // ------------------------------------------------------- drag to reorder
@@ -213,13 +242,13 @@ function wireDrag(item, index) {
   item.addEventListener('dragleave', () => {
     item.classList.remove('is-drop-before', 'is-drop-after');
   });
-  item.addEventListener('drop', async (e) => {
+  item.addEventListener('drop', guard(async (e) => {
     e.preventDefault();
     const from = dragFrom;
     dragFrom = null;
     if (from == null || from === index) return;
     await moveTo(from, index);
-  });
+  }));
 }
 
 async function moveTo(from, to) {
@@ -309,10 +338,10 @@ function openSlideGallery() {
     note.textContent = blurb;
 
     tile.append(thumb, name, note);
-    tile.addEventListener('click', async () => {
+    tile.addEventListener('click', guard(async () => {
       closeSlideGallery();
       await addSlide(type);
-    });
+    }));
     grid.append(tile);
   });
 
@@ -444,7 +473,7 @@ function renderSlideEditor() {
     empty.append(h, p);
     if (!questions.length) {
       empty.append(btn('+ Add an instructions slide', 'btn-primary',
-        () => addSlide('instructions')));
+        guard(() => addSlide('instructions'))));
     }
     host.append(empty);
     return;
@@ -462,8 +491,8 @@ function slideForm(q) {
   head.append(Object.assign(document.createElement('h2'),
     { textContent: TYPE_LABELS[q.type] || q.type }));
   head.append(spacer());
-  head.append(btn('Duplicate', 'btn-sm', () => duplicateSlide(q)));
-  head.append(btn('Delete', 'btn-sm btn-danger', () => deleteSlide(q)));
+  head.append(btn('Duplicate', 'btn-sm', guard(() => duplicateSlide(q))));
+  head.append(btn('Delete', 'btn-sm btn-danger', guard(() => deleteSlide(q))));
   body.append(head);
 
   // ---- heading / prompt ---------------------------------------------
@@ -940,7 +969,7 @@ function openTemplatePicker() {
     insert.type = 'button';
     insert.className = 'btn btn-sm btn-primary';
     insert.textContent = `Insert ${t.questions.length === 1 ? '1 slide' : `${t.questions.length} slides`}`;
-    insert.addEventListener('click', async () => {
+    insert.addEventListener('click', guard(async () => {
       insert.disabled = true;
       for (const tq of t.questions) {
         const created = await createQuestion(deck.id,
@@ -954,7 +983,7 @@ function openTemplatePicker() {
       renderStage();
       touch();
       toast(`${t.name} added`);
-    });
+    }));
     card.append(name, blurb, source, insert);
     list.append(card);
   });
