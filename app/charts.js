@@ -154,8 +154,10 @@ function palette(root, count, mode = 'categorical') {
 
 export function renderChoice(container, agg, opts = {}) {
   const style = opts.style === 'donut' ? 'donut'
-    : opts.style === 'columns' ? 'columns' : 'bars';
+    : opts.style === 'dots' ? 'dots'
+      : opts.style === 'columns' ? 'columns' : 'bars';
   if (style === 'donut') return renderDonut(container, agg, opts);
+  if (style === 'dots') return renderDotPlot(container, agg, opts);
 
   const state = useChart(container, style);
   const root = container;
@@ -397,6 +399,114 @@ export function renderChoice(container, agg, opts = {}) {
   state.paint = paint;
   state.group.kick();
   paint();
+}
+
+// ------------------------------------------------------------- dot plot
+
+/**
+ * One mark per person.
+ *
+ * The other three styles draw a magnitude — a length, an angle — and the
+ * room reads a proportion off it. This one draws the people. Thirty dots
+ * beside an option is thirty classmates, countable, and in a class of
+ * thirty that lands differently from "43%": nobody has to trust the
+ * arithmetic, and a lone dissenting dot is visibly one person rather than
+ * a sliver of bar. It is the best of the four for a seminar and the worst
+ * for a lecture hall, which is exactly why it is a choice and not the
+ * default.
+ *
+ * Above the cap the unit quietly stops being a person — say so in the
+ * row rather than drawing 400 dots nobody can count and letting the room
+ * believe each one is someone.
+ */
+const DOT_CAP = 120;
+
+/**
+ * Most dots a single repaint may animate in. Above this the change is a
+ * bulk one — a reveal, an archive load, a style switch — not people
+ * answering, and it appears without ceremony.
+ */
+const POP_BURST = 8;
+
+function renderDotPlot(container, agg, opts = {}) {
+  const state = useChart(container, 'dots');
+  const root = container;
+  const n = agg.options.length;
+  const colors = palette(root, n, 'uniform');
+  const correct = new Set(opts.revealCorrect ? (agg.correct || []) : []);
+  const total = agg.total || 0;
+  const awaiting = !opts.hidden && total === 0 && opts.awaiting !== false;
+  container.toggleAttribute('data-awaiting', awaiting);
+
+  // How many responses one dot stands for. 1 until the biggest option
+  // would overflow the cap, then the smallest whole number that fits.
+  const peak = Math.max(0, ...agg.options.map((o) => o.count));
+  const per = opts.hidden ? 1 : Math.max(1, Math.ceil(peak / DOT_CAP));
+
+  while (state.rows.length < n) {
+    const i = state.rows.length;
+    const row = el('div', 'dotp-row');
+    const label = el('div', 'chart-label');
+    const field = el('div', 'dotp-field');
+    const value = el('div', 'chart-value');
+    const pct = el('span', 'chart-pct');
+    const count = el('span', 'chart-count');
+    value.append(pct, count);
+    row.append(label, field, value);
+    row.style.setProperty('--row-i', String(i));
+    container.append(row);
+    state.rows.push({ row, label, field, value, pct, count, dots: [] });
+  }
+  while (state.rows.length > n) state.rows.pop().row.remove();
+
+  awaitNote(container, state, awaiting);
+
+  // Decide whether this repaint is "votes arriving" ONCE, for the whole
+  // chart, before drawing any of it. Per row, a reveal that fills every
+  // cluster at once would still pop the one option that only got five
+  // answers — the small row flashing while the big ones appear flat,
+  // inside what the room sees as a single event.
+  const target = agg.options.map((o) => (opts.hidden ? 0 : Math.round(o.count / per)));
+  const totalAdded = target.reduce(
+    (sum, want, i) => sum + Math.max(0, want - (state.rows[i]?.dots.length || 0)), 0);
+  const arriving = state.meta.painted && totalAdded > 0 && totalAdded <= POP_BURST
+    && !prefersReducedMotion();
+
+  agg.options.forEach((opt, i) => {
+    const r = state.rows[i];
+    const shown = target[i];
+    r.label.textContent = opt.label || `Option ${i + 1}`;
+    r.row.classList.toggle('is-correct', correct.has(i));
+    r.row.style.setProperty('--dot-color', colors[i]);
+
+    // Grow and shrink the cluster in place. Only the dots that are
+    // genuinely new get the entrance class, so an arriving vote pops and
+    // the two hundred already on screen sit still.
+    //
+    // ...and only when the chart as a whole is taking arrivals rather
+    // than being refilled — see `arriving` above.
+    const added = shown - r.dots.length;
+
+    for (let k = r.dots.length; k < shown; k += 1) {
+      const d = el('span', 'dotp-dot');
+      if (arriving) {
+        d.classList.add('is-new');
+        // stagger within THIS burst, not by position in the row — dot
+        // 103 of a cluster should not wait three seconds to appear
+        d.style.setProperty('--dot-i', String(k - (shown - added)));
+      }
+      r.field.append(d);
+      r.dots.push(d);
+    }
+    while (r.dots.length > shown) r.dots.pop().remove();
+
+    r.pct.textContent = opts.hidden ? '' : `${Math.round(opt.pct)}%`;
+    r.count.textContent = opts.hidden ? '·'
+      : `${opt.count}${per > 1 ? ` · 1 dot = ${per}` : ''}`;
+  });
+
+  state.meta.painted = true;
+  return state;
 }
 
 // ---------------------------------------------------------------- donut

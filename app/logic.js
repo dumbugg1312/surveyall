@@ -51,6 +51,152 @@ export const TYPE_LABELS = {
 };
 
 /**
+ * A one-line "what is this for", shown beside the type in the picker.
+ * Written as the teaching move, not the data structure — the instructor
+ * is choosing a thing to do to the room, not a chart.
+ */
+export const TYPE_BLURBS = {
+  instructions: 'How to join. Shows the QR and the code.',
+  multiple_choice: 'One question, a few options, the split on screen.',
+  word_cloud: 'Everyone types a word; repeats grow.',
+  open_ended: 'Sentences back, on cards.',
+  scales: 'Rate several statements on one scale.',
+  ranking: 'Drag a list into order.',
+  quiz: 'Right answer, a clock, points.',
+  qa: 'The room asks; you choose what to show.',
+  spectrum: 'Place yourself between two poles.',
+  sample_vote: 'Two samples side by side — which works, and why?',
+  heatmap: 'Tap the sentence that does the work.',
+};
+
+/** The config a brand-new slide of each type starts life with. */
+export function defaultConfig(type) {
+  switch (type) {
+    case 'instructions': return { steps: [...DEFAULT_JOIN_STEPS], show_join: true };
+    case 'multiple_choice': return { options: ['', ''], multiple: false, chart: 'bars' };
+    case 'quiz': return { options: ['', '', '', ''], correct: [0], time: 20, scoring: 'time', chart: 'bars' };
+    case 'word_cloud': return { max_words: 1, max_length: 25 };
+    case 'open_ended': return { max_length: 200 };
+    case 'scales': return { statements: [''], min: 1, max: 5, allow_skip: false };
+    case 'ranking': return { items: ['', ''] };
+    case 'sample_vote': return { samples: ['', ''], allow_rationale: true };
+    case 'heatmap': return { passage: '', segments: [], mode: 'highlight', max_picks: 1 };
+    default: return {};
+  }
+}
+
+/**
+ * The one list a type is built around, if it has one. Retyping between
+ * two list-shaped types is the common move — four options become four
+ * things to rank — so the writing survives it.
+ */
+const LIST_FIELD = {
+  multiple_choice: 'options',
+  quiz: 'options',
+  ranking: 'items',
+  scales: 'statements',
+  sample_vote: 'samples',
+};
+
+/** What each type keeps besides its list, for carrying across a retype. */
+const CARRIES = {
+  multiple_choice: ['multiple', 'max_choices', 'confidence', 'chart', 'mode', 'correct'],
+  quiz: ['time', 'scoring', 'confidence', 'chart', 'correct'],
+  word_cloud: ['max_words', 'max_length', 'hold'],
+  open_ended: ['max_length', 'hold'],
+  scales: ['min', 'max', 'allow_skip'],
+  ranking: ['allow_partial'],
+  spectrum: ['left_label', 'right_label', 'corners', 'confidence'],
+  sample_vote: ['allow_rationale', 'confidence'],
+  heatmap: ['mode', 'labels', 'max_picks'],
+  instructions: ['show_join', 'note'],
+  qa: [],
+};
+
+/** Human name for what a type's list holds, for the "this will be lost" line. */
+const LIST_NOUN = {
+  multiple_choice: 'answer options',
+  quiz: 'answer options',
+  ranking: 'items to rank',
+  scales: 'statements',
+  sample_vote: 'samples',
+  instructions: 'join steps',
+  heatmap: 'the passage',
+};
+
+/**
+ * Change a slide's type, keeping everything the new type can still use.
+ *
+ * Retyping is genuinely lossy — a passage cannot become four options —
+ * so this returns what it had to drop alongside the new config, and the
+ * editor puts that list in front of the instructor before committing.
+ * Silently discarding a paragraph somebody typed is not a thing to do.
+ *
+ * `mode` is deliberately NOT carried between multiple_choice and heatmap
+ * even though both use the key: 'opinion'/'best' and
+ * 'highlight'/'classify' are different vocabularies that happen to share
+ * a name, and carrying one into the other produces a slide in a state
+ * neither type has a UI for.
+ *
+ * @returns {{config: object, dropped: string[]}}
+ */
+export function retypeQuestion(from, to, config = {}) {
+  if (from === to) return { config, dropped: [] };
+
+  const next = defaultConfig(to);
+  const dropped = [];
+  const cfg = config || {};
+
+  const fromList = LIST_FIELD[from];
+  const toList = LIST_FIELD[to];
+  const list = fromList && Array.isArray(cfg[fromList])
+    ? cfg[fromList].filter((v) => String(typeof v === 'string' ? v : v?.label ?? '').trim())
+    : [];
+
+  if (list.length && toList) next[toList] = [...cfg[fromList]];
+  else if (list.length) dropped.push(LIST_NOUN[from] || 'the list');
+
+  // things that only exist on the old type
+  if (from === 'instructions' && to !== 'instructions'
+      && Array.isArray(cfg.steps) && cfg.steps.some((s) => String(s).trim())) {
+    dropped.push(LIST_NOUN.instructions);
+  }
+  if (from === 'heatmap' && to !== 'heatmap' && String(cfg.passage || '').trim()) {
+    dropped.push(LIST_NOUN.heatmap);
+  }
+
+  const keep = new Set(CARRIES[to] || []);
+  for (const key of CARRIES[from] || []) {
+    if (cfg[key] === undefined || !keep.has(key)) continue;
+    if (key === 'mode' && !sameModeVocabulary(from, to)) continue;
+    next[key] = cfg[key];
+  }
+
+  // A quiz becoming a poll still has a right answer in it. Multiple
+  // choice has somewhere to put one — "best answer" mode — so land there
+  // rather than throwing away a key the instructor sat and marked.
+  if (from === 'quiz' && to === 'multiple_choice' && hasKey(cfg.correct)) {
+    next.mode = 'best';
+    next.correct = cfg.correct;
+  }
+
+  // Everywhere else a key only means something if the room is shown one.
+  if (next.correct !== undefined && to !== 'quiz' && next.mode !== 'best') delete next.correct;
+
+  return { config: next, dropped };
+}
+
+function hasKey(correct) {
+  return Array.isArray(correct) ? correct.length > 0 : typeof correct === 'number';
+}
+
+/** multiple_choice and quiz share opinion/best; heatmap's mode is its own. */
+function sameModeVocabulary(a, b) {
+  const choiceish = (t) => t === 'multiple_choice' || t === 'quiz';
+  return (choiceish(a) && choiceish(b)) || (a === b);
+}
+
+/**
  * The steps an instructions slide shows when the instructor hasn't written
  * their own.
  *

@@ -54,6 +54,11 @@ const state = {
 // Boot
 // =====================================================================
 
+/** Rehearsal mode — see the same note in present-page.js. */
+if (new URLSearchParams(window.location.search).has('preview')) {
+  await import('./preview-net.js');
+}
+
 init().catch((err) => {
   console.error(err);
   showState('⚠️', 'Something went wrong', err.message || String(err));

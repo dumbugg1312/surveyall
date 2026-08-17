@@ -18,18 +18,43 @@
  * cost the main thread nothing, so the decoration can run forever and the
  * springs never feel it.
  *
- * WHAT MOVES, PER BACKGROUND
- * The character is chosen from the background rather than asked for,
- * because the motion that reads as expensive is the motion that suits the
- * texture:
+ * WHAT MOVES: LIGHT, NOT THE TEXTURE
  *
- *   washes    two or three huge, soft colour blooms drift and breathe
- *             across the base gradient. Nothing "slides"; what you see is
- *             the hue in one corner slowly becoming a different hue.
- *   lattices  the pattern itself drifts a few pixels — dots, graph paper,
- *             contours, confetti. Parallax without a direction.
- *   images    a Ken Burns crawl, two minutes end to end.
- *   solids    a single whisper of accent light, wandering.
+ * The first version of this drifted each background's own artwork — the
+ * dot grid slid a few pixels, the graph paper slid a few pixels. On a
+ * lattice that is *provably invisible*, and it is worth writing down
+ * why, because it is an easy thing to build twice: a uniform repeating
+ * pattern is translation-invariant. A dot grid offset by 7px is a dot
+ * grid. There is no amplitude at which that becomes visible, because at
+ * every instant the translated pattern is pixel-identical to the one it
+ * started as. The only parts of a "lattice" preset that a drift can move
+ * are the parts that DON'T repeat — grid-glow's bottom glow, topo's
+ * contour origin, confetti's scatter — and three of the six presets have
+ * no such part at all.
+ *
+ * So the drift is no longer the effect; it is a garnish. Every
+ * background, whatever its kind, now carries the same thing on top:
+ *
+ *   blooms    two or three enormous, soft, low-alpha colour fields that
+ *             rotate, swell and fade on co-prime cycles. They are what
+ *             you actually see. Over a wash they move the hue; over a
+ *             lattice they pass across the lines like light crossing a
+ *             room, brightening one region as another dims; over a flat
+ *             ground they are the whole picture.
+ *
+ * Rotation does most of that work. Sliding a blob reads as a thing
+ * sliding, which is cheap; rotating a big off-centre blob about the
+ * frame's middle sweeps it through a long arc while nothing ever appears
+ * to travel in a direction. That is the difference between "animated"
+ * and "alive".
+ *
+ * On top of the blooms, two backgrounds keep a motion of their own:
+ *
+ *   lattices  the base still drifts a few pixels, which moves whatever
+ *             is non-periodic in it and costs nothing where there is
+ *             nothing to move.
+ *   images    a Ken Burns crawl, two minutes end to end, and no blooms —
+ *             coloured light over a photograph reads as a smudge.
  *
  * Every cycle length is a prime number of seconds (53, 71, 89 …) so no
  * two layers ever line back up. A loop you can catch is a loop that looks
@@ -77,7 +102,7 @@ const LATTICE = new Set(['dots', 'grid', 'grid-glow', 'stripes', 'topo', 'confet
 /** Per-level physics. Durations are seconds. */
 const LEVELS = {
   subtle: { travel: 1, speed: 1, alpha: 1 },
-  lively: { travel: 2.1, speed: 0.58, alpha: 1.35 },
+  lively: { travel: 1.7, speed: 0.6, alpha: 1.3 },
 };
 
 /**
@@ -105,16 +130,22 @@ export function ambiencePlan(background, themeRef, level) {
   const L = LEVELS[lvl] || LEVELS.subtle;
   const bg = resolveBackground(background, themeRef);
 
+  // A photograph is already a picture. Blooms over it read as a smudge,
+  // so an image gets the crawl and nothing else.
   if (bg.kind === 'image') {
     return { level: lvl, kind: 'image', base: kenBurns(bg, L), layers: [] };
   }
 
-  if (bg.kind === 'preset' && LATTICE.has(bg.id)) {
-    return { level: lvl, kind: 'lattice', base: latticeDrift(bg.id, L), layers: [] };
-  }
-
-  // washes, solids, and "none" — bloom layers over whatever is there
-  return { level: lvl, kind: 'bloom', base: null, layers: blooms(theme, L) };
+  // Everything else gets the blooms. Lattices additionally drift, which
+  // moves their non-periodic parts; see the note at the top of this file
+  // for why that drift can never carry the effect on its own.
+  const lattice = bg.kind === 'preset' && LATTICE.has(bg.id);
+  return {
+    level: lvl,
+    kind: lattice ? 'lattice' : 'bloom',
+    base: lattice ? latticeDrift(bg.id, L) : null,
+    layers: blooms(theme, L),
+  };
 }
 
 /**
@@ -146,9 +177,16 @@ function kenBurns(bg, L) {
  */
 function latticeDrift(id, L) {
   const pitch = latticePitch(id);
-  // A fraction of one cell. Enough that the composite is never quite the
-  // same picture twice; far too little to read as scrolling.
-  const travel = Math.max(3, Math.min(16, pitch * 0.16)) * L.travel;
+  // A fraction of one cell — enough to move the preset's non-periodic
+  // parts, far too little to read as scrolling.
+  //
+  // The ceiling is applied AFTER the level multiplier, not before, and
+  // that ordering is the whole point of it: it is what makes the
+  // overhang on .stage-backdrop.is-drifting a guarantee rather than a
+  // hope. Clamping first let confetti's 340px cell reach 16px at subtle
+  // and 27px at lively, walking straight through a 24px margin and
+  // dragging a bare strip of --ground into the frame.
+  const travel = clamp(pitch * 0.16 * L.travel, 3, MAX_BASE_TRAVEL);
   return {
     animation: 'drift',
     x: `${travel.toFixed(1)}px`,
@@ -166,44 +204,58 @@ function latticePitch(id) {
 }
 
 /**
- * Soft colour blooms for washes, solids and bare grounds.
+ * The blooms — three enormous, soft, low-alpha colour fields.
  *
- * Three layers, each an enormous low-alpha radial, drifting and breathing
- * on co-prime periods. The point is not that any one of them is visible —
- * at these alphas none is. It is that where two of them overlap the hue
- * is a third colour, and that overlap wanders. Over a minute the top-left
- * of the slide genuinely changes colour, without anything ever appearing
- * to move.
+ * These carry the whole effect, so they have to be big enough and travel
+ * far enough to change the picture. The first cut of this used ±2.6%
+ * translation and an opacity floor of 0.62; comparing the two extremes of
+ * a full cycle side by side, the frames were near enough identical to
+ * call it static. The numbers below were set by that comparison — jump
+ * the animation to phase 0 and phase 1 and the two must obviously differ.
  *
- * Alphas track the existing presets' range (0.06–0.22) so a bloom reads
- * as part of the same backdrop rather than something laid on top. Dark
- * themes get a white bloom in place of the light themes' ink one: on a
- * near-black ground a darker patch is a hole, but a lighter one is depth.
+ * Three things move together, and the mix matters more than any one:
+ *
+ *   rotate   the main event. A big off-centre field swung about the
+ *            frame's centre sweeps a long arc without ever reading as a
+ *            thing sliding across the screen.
+ *   scale    swelling and receding changes how far the field reaches,
+ *            so the edge of the colour moves even where the centre
+ *            barely does.
+ *   opacity  a wide floor-to-ceiling range, because a bloom fading up
+ *            from a quarter strength is a hue appearing, which the eye
+ *            catches at far lower amplitudes than movement.
+ *
+ * Alphas stay inside the range the static presets already use (0.06–0.22)
+ * so a bloom reads as part of the backdrop rather than laid over it —
+ * and, more practically, so the projected text on top of it never has to
+ * compete. Dark themes get a white bloom where light themes get an ink
+ * one: on a near-black ground a darker patch is a hole, a lighter one is
+ * depth.
  */
 function blooms(theme, L) {
   const t = theme.tokens;
   const a = (n) => Math.min(0.34, n * L.alpha);
   const spec = theme.dark
     ? [
-      { color: t['--accent'], alpha: a(0.10), at: ['18%', '12%'], size: ['78%', '62%'] },
-      { color: t['--accent-2'], alpha: a(0.085), at: ['84%', '74%'], size: ['70%', '58%'] },
-      { color: '#ffffff', alpha: a(0.045), at: ['52%', '104%'], size: ['84%', '46%'] },
+      { color: t['--accent'], alpha: a(0.15), at: ['18%', '12%'], size: ['82%', '66%'] },
+      { color: t['--accent-2'], alpha: a(0.13), at: ['84%', '74%'], size: ['74%', '62%'] },
+      { color: '#ffffff', alpha: a(0.07), at: ['52%', '104%'], size: ['88%', '50%'] },
     ]
     : [
-      { color: t['--accent'], alpha: a(0.085), at: ['14%', '8%'], size: ['76%', '60%'] },
-      { color: t['--accent-2'], alpha: a(0.07), at: ['88%', '78%'], size: ['68%', '56%'] },
-      { color: t['--ink'], alpha: a(0.03), at: ['46%', '106%'], size: ['88%', '48%'] },
+      { color: t['--accent'], alpha: a(0.13), at: ['14%', '8%'], size: ['80%', '64%'] },
+      { color: t['--accent-2'], alpha: a(0.11), at: ['88%', '78%'], size: ['72%', '60%'] },
+      { color: t['--ink'], alpha: a(0.05), at: ['46%', '106%'], size: ['92%', '52%'] },
     ];
 
-  // Co-prime seconds. Drift and breathe are deliberately unequal on the
-  // same layer too, so a layer never returns to a state it has been in.
-  // Amplitude and heading vary as well: three layers sharing one travel
-  // read as a single sheet sliding, which is the one thing this must
-  // never look like.
+  // Co-prime seconds, and drift ≠ breathe on the same layer, so no layer
+  // ever returns to a state it has been in and the set as a whole takes
+  // hours to repeat. Amplitude and heading vary per layer as well —
+  // three layers sharing one path read as a single sheet sliding, which
+  // is the one thing this must never look like.
   const path = [
-    { x: 2.6, y: 1.9, grow: 0.11, drift: 89, breathe: 37 },
-    { x: -3.4, y: -1.2, grow: 0.08, drift: 71, breathe: 59 },
-    { x: 1.7, y: 2.8, grow: 0.14, drift: 53, breathe: 43 },
+    { x: 2.6, y: 1.9, rot: 9, grow: 0.20, drift: 67, breathe: 29 },
+    { x: -3.2, y: -1.4, rot: -7, grow: 0.15, drift: 53, breathe: 37 },
+    { x: 1.8, y: 2.8, rot: 6, grow: 0.24, drift: 41, breathe: 23 },
   ];
 
   return spec.map((s, i) => ({
@@ -211,12 +263,29 @@ function blooms(theme, L) {
       + `${hexA(s.color, s.alpha)}, transparent 68%)`,
     x: `${(path[i].x * L.travel).toFixed(2)}%`,
     y: `${(path[i].y * L.travel).toFixed(2)}%`,
+    // Clamped for looks rather than for safety — past about 12° the
+    // sweep stops reading as light moving through a room and starts
+    // reading as a thing spinning, which is the tell of a cheap effect.
+    rotate: `${clamp(path[i].rot * L.travel, -MAX_ROTATION, MAX_ROTATION).toFixed(2)}deg`,
     scale: [1, 1 + path[i].grow * L.travel],
-    opacity: [0.62, 1],
+    opacity: [0.28, 1],
     driftDuration: round1(path[i].drift * L.speed),
     breatheDuration: round1(path[i].breathe * L.speed),
   }));
 }
+
+const MAX_ROTATION = 12;
+
+/**
+ * Hard ceiling on how far the backdrop itself may travel, in px.
+ * Must stay comfortably under the `inset` on .stage-backdrop.is-drifting
+ * in styles/ambience.css — that overhang is the only thing keeping bare
+ * --ground out of the frame, so the two are changed together or not at
+ * all. `y` travels 0.62× this, so the binding constraint is `x`.
+ */
+const MAX_BASE_TRAVEL = 16;
+
+function clamp(n, lo, hi) { return Math.min(hi, Math.max(lo, n)); }
 
 function round1(n) { return Math.round(n * 10) / 10; }
 
@@ -241,11 +310,9 @@ export function applyAmbience(host, plan) {
 
   if (!on) {
     host.classList.remove('is-drifting');
-    host.style.removeProperty('--amb-x');
-    host.style.removeProperty('--amb-y');
-    host.style.removeProperty('--amb-s0');
-    host.style.removeProperty('--amb-s1');
-    host.style.removeProperty('--amb-drift-dur');
+    for (const v of ['--amb-x', '--amb-y', '--amb-r', '--amb-s0', '--amb-s1', '--amb-drift-dur']) {
+      host.style.removeProperty(v);
+    }
     const stale = host.querySelector(':scope > .amb-stack');
     if (stale) stale.remove();
     return;
@@ -294,6 +361,7 @@ export function applyAmbience(host, plan) {
 function setVars(el, spec) {
   el.style.setProperty('--amb-x', spec.x);
   el.style.setProperty('--amb-y', spec.y);
+  el.style.setProperty('--amb-r', spec.rotate || '0deg');
   el.style.setProperty('--amb-s0', String(spec.scale[0]));
   el.style.setProperty('--amb-s1', String(spec.scale[1]));
   el.style.setProperty('--amb-drift-dur', `${spec.driftDuration ?? spec.duration}s`);

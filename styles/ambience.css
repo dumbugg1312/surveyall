@@ -17,10 +17,12 @@
 @keyframes amb-drift {
   from {
     transform: translate3d(calc(var(--amb-x, 0px) * -1), calc(var(--amb-y, 0px) * -1), 0)
+               rotate(calc(var(--amb-r, 0deg) * -1))
                scale(var(--amb-s0, 1));
   }
   to {
     transform: translate3d(var(--amb-x, 0px), var(--amb-y, 0px), 0)
+               rotate(var(--amb-r, 0deg))
                scale(var(--amb-s1, 1));
   }
 }
@@ -40,12 +42,18 @@
 /* --------------------------------------------------------------- base */
 
 /* Applied to the existing backdrop element itself (lattice drift, Ken
-   Burns). The element is grown past its own edges first: translating an
-   inset:0 layer would otherwise drag a bare strip of --ground in behind
-   it on the trailing side. */
+   Burns). THIS one must cover: the moving thing is the backdrop, so any
+   gap on the trailing side is a bare strip of --ground.
+
+   The overhang is in pixels, not percent, because the drift it has to
+   outrun is in pixels — a lattice travels a fraction of its own cell,
+   which is a fixed px size at every screen size. An earlier -3% was
+   ample on a projector and too small on an editor thumbnail, which is
+   exactly backwards. 24px clears the largest travel `lively` asks for
+   with room to spare, at any size. */
 .stage-backdrop.is-drifting,
 .sp-backdrop.is-drifting {
-  inset: -3%;
+  inset: -24px;
   animation: amb-drift var(--amb-drift-dur, 73s) ease-in-out infinite alternate;
 }
 
@@ -61,10 +69,18 @@
 
 .amb-layer {
   position: absolute;
-  /* Oversized for the same reason as the base, and by more: these carry
-     the drift AND a scale-up, so the far corner of the travel has to
-     stay outside the frame. */
-  inset: -12%;
+  /* Oversized, but NOT to guarantee coverage the way the base is — this
+     layer is a bloom on top of a backdrop that already covers the frame,
+     and its gradient has faded to fully transparent long before its own
+     edge. A corner the rotation swings it away from simply gets less
+     light, which is what a bloom does everywhere else too. The overhang
+     is here so the ellipse stays generous relative to the frame and its
+     falloff never tightens up against the edge as the layer breathes.
+
+     Keep it modest anyway: three composited layers at 1.36× the stage is
+     the effect's real cost — GPU texture memory, which is why nothing
+     but the projector and the one editor canvas ever mounts it. */
+  inset: -18%;
   background-repeat: no-repeat;
   background-position: center;
   animation:

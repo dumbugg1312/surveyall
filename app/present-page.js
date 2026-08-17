@@ -66,6 +66,17 @@ const state = {
   countTween: null,
 };
 
+/**
+ * Rehearsal mode. The editor opens this page in an iframe with `?preview=1`
+ * and no session behind it; the shim answers the API from an invented room
+ * in the parent tab, so everything below this line runs unchanged. Loaded
+ * before boot() and after the imports on purpose — db.js reads
+ * `window.fetch` when it calls, not when it loads.
+ */
+if (new URLSearchParams(window.location.search).has('preview')) {
+  await import('./preview-net.js');
+}
+
 boot().catch((err) => {
   console.error(err);
   fatal(err.message || String(err));

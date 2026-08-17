@@ -1,0 +1,210 @@
+/* =====================================================================
+   SurveyAll — deck preview (app/preview-panel.js).
+
+   Two real documents, at their real sizes, scaled to fit: present.html at
+   1280×720 and join.html at 390×844. Everything in here is chrome around
+   them — the panes must not restyle what is inside the iframes, because
+   the whole point is that what you see is what the room gets.
+   ===================================================================== */
+
+.preview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: color-mix(in srgb, #10131a 74%, transparent);
+  backdrop-filter: blur(3px);
+  display: grid;
+  place-items: center;
+  padding: clamp(.5rem, 2vh, 1.5rem);
+}
+
+.preview-sheet {
+  width: min(112rem, 100%);
+  height: 100%;
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .38);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------- bar */
+
+.preview-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: .6rem var(--sp-4);
+  border-bottom: 1px solid var(--edge);
+  /* A warm band, so it reads as a rehearsal room rather than the app. The
+     instructor should never be a click away from wondering whether the
+     class can see this. */
+  background: color-mix(in srgb, var(--accent-2) 13%, var(--surface));
+  flex: none;
+}
+
+.preview-note {
+  flex: 1;
+  min-width: 0;
+  font-size: .78rem;
+  color: var(--ink-soft);
+  text-align: center;
+  text-wrap: balance;
+}
+
+.preview-close {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  padding: .35rem .7rem;
+  border: 1px solid var(--edge);
+  border-radius: 9px;
+  background: var(--surface);
+  font-size: .82rem;
+  font-weight: 550;
+  cursor: pointer;
+  flex: none;
+}
+.preview-close:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--edge)); }
+.preview-close kbd {
+  font-family: var(--body);
+  font-size: .68rem;
+  padding: .05rem .3rem;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  color: var(--ink-soft);
+}
+
+/* ------------------------------------------------------------- switch */
+
+.preview-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: .55rem;
+  font-size: .84rem;
+  font-weight: 550;
+  cursor: pointer;
+  user-select: none;
+  flex: none;
+}
+.preview-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+
+.preview-switch-track {
+  width: 2.4rem;
+  height: 1.35rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 22%, transparent);
+  padding: .15rem;
+  transition: background var(--duration-fast) var(--ease-in-out);
+}
+.preview-switch-thumb {
+  display: block;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .3);
+  transition: transform var(--duration-moderate) var(--ease-snap);
+}
+.preview-switch input:checked + .preview-switch-track { background: var(--accent); }
+.preview-switch input:checked + .preview-switch-track .preview-switch-thumb {
+  transform: translateX(1.05rem);
+}
+.preview-switch input:focus-visible + .preview-switch-track { box-shadow: var(--focus); }
+
+/* ------------------------------------------------------------ screens */
+
+.preview-screens {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  /* The projector is the thing being judged; the phone is the check that
+     the same question survives a 6-inch screen. */
+  grid-template-columns: minmax(0, 1fr) minmax(15rem, 24rem);
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+}
+
+.preview-pane {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+}
+
+.preview-pane-title {
+  font-family: var(--body);
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  flex: none;
+}
+
+.preview-pane-sub {
+  font-size: .74rem;
+  color: var(--ink-soft);
+  flex: none;
+}
+
+/* The measured box. Its child keeps its true pixel size and is scaled by
+   --preview-scale, which app/preview-panel.js recomputes on resize —
+   there is no CSS way to compare two boxes and pick the smaller ratio.
+
+   The child is taken out of flow and centred with a translate rather than
+   by `place-items: center`. A 1280px-wide item inside a 1000px box is an
+   overflowing grid item, and those get realigned to the start edge — so
+   the box centred, the transform then pushed it right by half the
+   difference, and a slice of the projector disappeared under the clip. */
+.preview-fit {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.preview-fit > * {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(var(--preview-scale, 1));
+}
+
+.preview-sized {
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--ground);
+}
+
+.preview-frame {
+  display: block;
+  border: 0;
+  /* colorscheme-independent: the iframe paints its own theme */
+  background: var(--ground);
+}
+
+/* ------------------------------------------------------------- device */
+
+.preview-device {
+  padding: 13px;
+  border-radius: 46px;
+  background: #16181d;
+  box-shadow:
+    0 0 0 2px #2c2f37 inset,
+    0 18px 40px rgba(0, 0, 0, .32);
+}
+.preview-device .preview-sized { border-radius: 33px; }
+
+/* ------------------------------------------------------ narrow screens */
+
+@media (max-width: 60rem) {
+  .preview-screens {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1.15fr) minmax(0, 1fr);
+  }
+  .preview-bar { flex-wrap: wrap; }
+  .preview-note { order: 3; flex-basis: 100%; text-align: left; }
+}

@@ -22,9 +22,11 @@ import {
   uploadBackground, listBackgrounds, deleteBackground, regenerateDeckCode,
 } from './db.js';
 import {
-  TYPE_LABELS, splitPassage, DEFAULT_JOIN_STEPS, isContentSlide, joinURL,
+  TYPE_LABELS, TYPE_BLURBS, splitPassage, DEFAULT_JOIN_STEPS, isContentSlide, joinURL,
   PROMPT_SCALES, DEFAULT_PROMPT_SCALE, promptScale, showSlideLabel,
+  defaultConfig, retypeQuestion,
 } from './logic.js';
+import { typeIcon, chartIcon } from './icons.js';
 import { TEMPLATES } from './templates.js';
 import {
   THEMES, BACKGROUND_PRESETS, getTheme, applyTheme,
@@ -35,6 +37,7 @@ import { ambiencePlan, ambienceLevel } from './ambience.js';
 import { prefersReducedMotion } from './motion.js';
 import { parseDeck, serialiseDeck } from './deck-format.js';
 import { renderSlide } from './slide-preview.js';
+import { openPreview } from './preview-panel.js';
 import { qrSVG, qrInk } from './qr.js';
 import { joinBase } from './config.js';
 
@@ -90,6 +93,7 @@ async function boot() {
   $('addSlide').addEventListener('click', toggleSlideGallery);
   $('addTemplate').addEventListener('click', openTemplatePicker);
   $('textView').addEventListener('click', openTextView);
+  $('btnPreview').addEventListener('click', onPreview);
   $('startSession').addEventListener('click', onStart);
   $('btnDesign').addEventListener('click', toggleDesign);
   $('deckCode')?.addEventListener('click', guard(rotateCode));
@@ -499,21 +503,6 @@ async function deleteSlide(q) {
   touch();
 }
 
-function defaultConfig(type) {
-  switch (type) {
-    case 'instructions': return { steps: [...DEFAULT_JOIN_STEPS], show_join: true };
-    case 'multiple_choice': return { options: ['', ''], multiple: false, chart: 'bars' };
-    case 'quiz': return { options: ['', '', '', ''], correct: [0], time: 20, scoring: 'time' };
-    case 'word_cloud': return { max_words: 1, max_length: 25 };
-    case 'open_ended': return { max_length: 200 };
-    case 'scales': return { statements: [''], min: 1, max: 5, allow_skip: false };
-    case 'ranking': return { items: ['', ''] };
-    case 'sample_vote': return { samples: ['', ''], allow_rationale: true };
-    case 'heatmap': return { passage: '', segments: [], mode: 'highlight', max_picks: 1 };
-    default: return {};
-  }
-}
-
 // =====================================================================
 // The stage — canvas on top, the slide's own editor underneath
 // =====================================================================
@@ -594,6 +583,9 @@ function slideForm(q) {
   head.append(btn('Delete', 'btn-sm btn-danger', guard(() => deleteSlide(q))));
   body.append(head);
 
+  // ---- what kind of slide this is ------------------------------------
+  body.append(field('Slide type', typePicker(q)));
+
   // ---- heading / prompt ---------------------------------------------
   body.append(field(
     q.type === 'instructions' ? 'Heading' : 'Question',
@@ -621,6 +613,102 @@ function slideForm(q) {
 
   body.append(settingsFor(q));
   return body;
+}
+
+// =====================================================================
+// Type picker
+// =====================================================================
+
+/**
+ * The slide's type, as a control rather than as a heading.
+ *
+ * A real <select> under a painted surface, not a div pretending to be
+ * one: it gets the platform's keyboard handling, its type-ahead and its
+ * native menu on a phone for free, and the icon and chevron are drawn
+ * behind it. The alternative — a custom listbox — is a lot of ARIA to
+ * get wrong for no gain.
+ */
+function typePicker(q) {
+  const wrap = document.createElement('div');
+  wrap.className = 'type-picker';
+
+  const glyph = typeIcon(q.type, 'type-picker-icon');
+  const sel = document.createElement('select');
+  sel.className = 'type-picker-select';
+  sel.setAttribute('aria-label', 'Slide type');
+
+  SLIDE_TYPES.forEach(([type]) => {
+    const o = document.createElement('option');
+    o.value = type;
+    o.textContent = TYPE_LABELS[type] || type;
+    sel.append(o);
+  });
+  sel.value = q.type;
+
+  const chev = document.createElement('span');
+  chev.className = 'type-picker-chevron';
+  chev.setAttribute('aria-hidden', 'true');
+  chev.textContent = '⌄';
+
+  sel.addEventListener('change', guard(async () => {
+    const to = sel.value;
+    if (to === q.type) return;
+    if (!(await changeType(q, to))) sel.value = q.type; // declined — put it back
+  }));
+
+  wrap.append(glyph, sel, chev);
+
+  const blurb = document.createElement('p');
+  blurb.className = 'type-picker-blurb';
+  blurb.textContent = TYPE_BLURBS[q.type] || '';
+
+  const holder = document.createElement('div');
+  holder.append(wrap, blurb);
+  return holder;
+}
+
+/**
+ * Retype a slide, having said out loud what that costs.
+ *
+ * Two different costs, and they are worth separating in the prompt
+ * because only one of them is recoverable:
+ *
+ *   content   options, statements, a passage the new type has no room
+ *             for. Gone when this saves.
+ *   meaning   answers already collected against this question. They are
+ *             stored as payloads and read back through the question's
+ *             CURRENT type, so retyping a slide that has been run makes
+ *             the old results render as something nobody was asked.
+ *
+ * The second is why this asks even when nothing is dropped.
+ */
+async function changeType(q, to) {
+  const { config, dropped } = retypeQuestion(q.type, to, q.config);
+
+  const lines = [
+    `Change this slide from ${TYPE_LABELS[q.type]} to ${TYPE_LABELS[to]}?`,
+    '',
+  ];
+  if (dropped.length) lines.push(`This discards ${listSentence(dropped)}.`);
+  lines.push('Any answers already collected for this slide stay in the database, '
+    + 'but they were given to a different question — results and exports will '
+    + 'read them as the new type.');
+
+  if (!window.confirm(lines.join('\n'))) return false;
+
+  q.type = to;
+  q.config = config;
+  await updateQuestion(q.id, { type: to, config });
+  renderRail();
+  renderStage();
+  toast(`Now a ${TYPE_LABELS[to].toLowerCase()} slide`);
+  return true;
+}
+
+/** ['a','b','c'] → 'a, b and c' */
+function listSentence(items) {
+  if (items.length === 1) return items[0];
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 }
 
 // =====================================================================
@@ -864,6 +952,80 @@ function settingsFor(q) {
     return i;
   })()));
 
+  /**
+   * A row of pictures instead of a dropdown of words.
+   *
+   * Worth the extra markup for exactly one control: chart style is a
+   * choice between four SHAPES, and the words for them ("Bars",
+   * "Columns", "Dot plot") are strictly worse at conveying a shape than
+   * a drawing of the shape. Every option is on screen at once, so it is
+   * one glance and one click rather than open-read-four-choose.
+   *
+   * Radio semantics, not buttons: this is one value with four states,
+   * and a screen reader should hear it that way. Roving tabindex so the
+   * group is one tab stop and the arrow keys move within it, which is
+   * what the radiogroup pattern promises.
+   */
+  const iconRow = (key, label, options, dflt, icons) => {
+    const group = document.createElement('div');
+    group.className = 'icon-choice';
+    group.setAttribute('role', 'radiogroup');
+    group.setAttribute('aria-label', label);
+
+    const entries = Object.entries(options);
+    const current = () => (options[cfg[key]] ? cfg[key] : dflt);
+
+    const pick = (value) => {
+      cfg[key] = value;
+      save(q, { config: cfg });
+      [...group.children].forEach((b) => {
+        const on = b.dataset.value === value;
+        b.classList.toggle('is-active', on);
+        b.setAttribute('aria-checked', String(on));
+        b.tabIndex = on ? 0 : -1;
+      });
+      renderCanvas();
+    };
+
+    entries.forEach(([value, text]) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'icon-choice-btn';
+      b.dataset.value = value;
+      b.setAttribute('role', 'radio');
+      const on = value === current();
+      b.setAttribute('aria-checked', String(on));
+      b.classList.toggle('is-active', on);
+      b.tabIndex = on ? 0 : -1;
+      b.title = text;
+      b.append(icons(value, 'icon-choice-glyph'));
+      const name = document.createElement('span');
+      name.className = 'icon-choice-label';
+      name.textContent = text;
+      b.append(name);
+      b.addEventListener('click', () => pick(value));
+      b.addEventListener('keydown', (e) => {
+        const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1
+          : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
+        if (!step) return;
+        e.preventDefault();
+        const i = entries.findIndex(([v]) => v === current());
+        const next = entries[(i + step + entries.length) % entries.length][0];
+        pick(next);
+        group.querySelector(`[data-value="${next}"]`).focus();
+      });
+      group.append(b);
+    });
+
+    // Full width of the settings grid. Squeezed into one 9rem column the
+    // glyphs shrink to about 14px, which is the size at which "donut" and
+    // "dot plot" stop being distinguishable — and a picture you have to
+    // squint at is worse than the word it replaced.
+    const wrap = field(label, group);
+    wrap.classList.add('field-wide');
+    grid.append(wrap);
+  };
+
   // like bool, but the unset state reads as `dflt` rather than false
   const bool2 = (key, label, dflt) => grid.append(checkline(label, cfg[key] ?? dflt, (v) => {
     cfg[key] = v;
@@ -884,12 +1046,15 @@ function settingsFor(q) {
       bool('multiple', 'Allow several answers');
       if (cfg.multiple) num('max_choices', 'Max choices', 1, 20, (cfg.options || []).length);
       bool('confidence', 'Ask “how sure are you?”');
-      choose('chart', 'Chart', CHART_STYLES, 'bars');
+      iconRow('chart', 'Chart', CHART_STYLES, 'bars', chartIcon);
       break;
     case 'quiz':
       num('time', 'Seconds to answer', 5, 300, 20);
       choose('scoring', 'Scoring', { time: 'Faster = more points', fixed: 'Flat points' }, 'time');
       bool('confidence', 'Ask “how sure are you?”');
+      // quiz results go through renderChoice too, so the same four
+      // shapes are available — this was simply never wired up
+      iconRow('chart', 'Chart', CHART_STYLES, 'bars', chartIcon);
       break;
     case 'word_cloud':
       num('max_words', 'Words per person', 1, 10, 1);
@@ -1517,9 +1682,10 @@ function describeAmbience() {
     none: getTheme(resolveTheme(deck.theme, deck)).highContrast
       ? 'High Contrast never animates — it is an accessibility theme.'
       : 'The backdrop holds still.',
-    bloom: 'Wide washes of colour drift and breathe across the backdrop, '
+    bloom: 'Wide washes of colour swing and breathe across the backdrop, '
       + 'so the hue in a corner is slowly not the hue it was.',
-    lattice: 'The pattern itself drifts a few pixels, back and forth, over a minute.',
+    lattice: 'Light passes across the pattern, brightening one region as '
+      + 'another dims, while the pattern itself drifts a few pixels.',
     image: 'A slow push-in across the photograph, two minutes end to end.',
   }[plan.kind] || '';
 }
@@ -1620,6 +1786,19 @@ function openTextView() {
   backdrop.append(modal);
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.remove(); });
   document.body.append(backdrop);
+}
+
+/**
+ * Rehearse the deck.
+ *
+ * The in-memory deck and slides go straight in — including whatever you
+ * typed a second ago and the debounce hasn't flushed yet — because the
+ * question a preview answers is "what does this look like now", not "what
+ * did it look like at the last save".
+ */
+function onPreview() {
+  if (!questions.length) { toast('Add a slide first'); return; }
+  openPreview(deck, questions);
 }
 
 async function onStart() {

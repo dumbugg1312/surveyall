@@ -253,6 +253,55 @@
   from { transform: scale(0); opacity: 0; }
 }
 
+/* ----------------------------------------------------------- dot plot */
+
+/* One dot per person. The dot SIZE is the whole design problem: a
+   seminar of twelve wants big countable marks, a lecture of two hundred
+   wants small ones, and the row has no idea which it is until the votes
+   land. `em` ties it to the stage's own font-size — which already scales
+   with the screen — and the cluster simply wraps. */
+[data-chart="dots"] .dotp-row {
+  display: grid;
+  grid-template-columns: minmax(6em, 26%) 1fr auto;
+  align-items: center;
+  gap: 1em;
+}
+
+.dotp-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  gap: .34em;
+  min-height: 1.4em;
+}
+
+.dotp-dot {
+  width: .72em;
+  height: .72em;
+  border-radius: 50%;
+  background: var(--dot-color, var(--accent));
+  /* Every dot is one response and every response counts the same, so
+     they are drawn the same. No size ramp, no opacity ramp — a dot that
+     looked fainter than its neighbour would be saying something untrue
+     about the person behind it. */
+}
+
+/* Only ever set on dots that did not exist on the previous paint, so an
+   arriving vote pops and the cluster it lands in holds still. */
+.dotp-dot.is-new {
+  animation: dotp-pop .42s cubic-bezier(.2, .9, .3, 1.35) both;
+  /* --dot-i counts within the burst, so two votes landing together
+     arrive as two, not as one thicker dot */
+  animation-delay: calc(var(--dot-i, 0) * .05s);
+}
+@keyframes dotp-pop {
+  from { transform: scale(0); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+
+[data-chart="dots"] .chart-row.is-correct,
+[data-chart="dots"] .dotp-row.is-correct .chart-label { font-weight: 700; }
+
 /* ------------------------------------------------------------ columns */
 
 [data-chart="columns"] {
@@ -1100,4 +1149,7 @@ svg.donut {
   [data-awaiting] .scale-track::after,
   [data-awaiting] .rank-track::after { display: none; }
   .await-dots span { animation: none; }
+  /* charts.js already refuses to tag a new dot when the OS asks for
+     reduced motion; this catches a preference that changes mid-session */
+  .dotp-dot.is-new { animation: none; }
 }

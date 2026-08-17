@@ -16,11 +16,13 @@ import {
   correctIndices, optionLabels, generateJoinCode, joinURL,
   neighbourQuestion, sortedQuestions, MULTI_SUBMIT_TYPES,
   splitPassage, promptKey, isContentSlide, fillJoinPlaceholders, DEFAULT_JOIN_STEPS,
-  questionNumber, promptScale, showSlideLabel, QUESTION_TYPES, CONTENT_TYPES,
+  questionNumber, retypeQuestion, defaultConfig, TYPE_LABELS, promptScale, showSlideLabel, QUESTION_TYPES, CONTENT_TYPES,
 } from '../app/logic.js';
 import { readFileSync } from 'node:fs';
 import { parseDeck, serialiseDeck, SAMPLE_DECK } from '../app/deck-format.js';
 import { ambiencePlan, ambienceLevel } from '../app/ambience.js';
+import { BACKGROUND_PRESETS, CHART_STYLES } from '../app/themes.js';
+import { CHART_ICONS } from '../app/icons.js';
 import {
   Spring, SpringGroup, PRESETS, stagger, easeOutExpo, easeOutCubic,
   toRGB, rgba, mixColor, luminance, readableOn, harmonicSeries,
@@ -1468,12 +1470,38 @@ describe('ambience — decorative backdrop motion', () => {
   it('drifts a lattice in pixels, scaled to its own cell', () => {
     const p = plan({ kind: 'preset', id: 'grid', motion: 'subtle' });
     eq(p.kind, 'lattice');
-    eq(p.layers.length, 0);
     ok(/px$/.test(p.base.x), `expected a pixel travel, got ${p.base.x}`);
     // one graph-paper cell is 38px; the drift must stay a fraction of it
     // or the pattern reads as scrolling rather than breathing
     ok(parseFloat(p.base.x) < 38 * 0.25, `travel ${p.base.x} is too much of a cell`);
     eq(p.base.scale, [1, 1]);
+  });
+
+  it('gives EVERY non-image background blooms, lattices included', () => {
+    // The regression this guards: drifting a lattice is invisible,
+    // because a uniform repeating pattern is translation-invariant — a
+    // dot grid offset by 7px is a dot grid. The blooms passing over it
+    // are the only thing anyone can actually see move.
+    for (const id of Object.keys(BACKGROUND_PRESETS)) {
+      const p = plan({ kind: 'preset', id, motion: 'subtle' });
+      eq(p.layers.length, 3, `${id} has no blooms`);
+      ok(p.layers.every((l) => parseFloat(l.rotate) !== 0), `${id} blooms do not rotate`);
+    }
+  });
+
+  it('keeps the backdrop\'s own travel inside the overhang that hides it', () => {
+    // styles/ambience.css grows .stage-backdrop.is-drifting by 24px so a
+    // drift cannot drag bare --ground into frame. The ceiling has to be
+    // applied AFTER the level multiplier or confetti's 340px cell walks
+    // straight through it at lively.
+    for (const level of ['subtle', 'lively']) {
+      for (const id of Object.keys(BACKGROUND_PRESETS)) {
+        const p = plan({ kind: 'preset', id, motion: level });
+        if (!p.base) continue;
+        const travel = Math.max(Math.abs(parseFloat(p.base.x)), Math.abs(parseFloat(p.base.y)));
+        ok(travel <= 16, `${id} at ${level} travels ${travel}px past a 16px ceiling`);
+      }
+    }
   });
 
   it('blooms over washes, solids and bare grounds', () => {
@@ -1549,6 +1577,112 @@ describe('ambience round-trips the plain-text deck format', () => {
     const d = parseDeck('# D\nbackground: aurora\nambience: off\n');
     eq(d.background.motion, undefined);
     ok(!serialiseDeck(d, []).includes('ambience'));
+  });
+});
+
+describe('retyping a slide', () => {
+  it('is a no-op when the type has not changed', () => {
+    const cfg = { options: ['a', 'b'], chart: 'donut' };
+    const r = retypeQuestion('multiple_choice', 'multiple_choice', cfg);
+    eq(r.config, cfg);
+    eq(r.dropped, []);
+  });
+
+  it('carries the list between the list-shaped types', () => {
+    // four options become four things to rank — the writing survives
+    eq(retypeQuestion('multiple_choice', 'ranking', { options: ['Kant', 'Mill'] })
+      .config.items, ['Kant', 'Mill']);
+    eq(retypeQuestion('ranking', 'sample_vote', { items: ['A', 'B'] })
+      .config.samples, ['A', 'B']);
+    eq(retypeQuestion('scales', 'multiple_choice', { statements: ['s1', 's2'] })
+      .config.options, ['s1', 's2']);
+  });
+
+  it('reports what it had to discard, and never discards it silently', () => {
+    const r = retypeQuestion('multiple_choice', 'word_cloud', { options: ['Kant', 'Mill'] });
+    eq(r.dropped, ['answer options']);
+    eq(r.config, { max_words: 1, max_length: 25 });
+
+    eq(retypeQuestion('heatmap', 'open_ended', { passage: 'A long paragraph.' }).dropped,
+      ['the passage']);
+    eq(retypeQuestion('instructions', 'quiz', { steps: ['Scan the code'] }).dropped,
+      ['join steps']);
+  });
+
+  it('says nothing was dropped when the list was still empty', () => {
+    // a slide the instructor added but never filled in
+    eq(retypeQuestion('multiple_choice', 'word_cloud', { options: ['', ''] }).dropped, []);
+    eq(retypeQuestion('heatmap', 'open_ended', { passage: '   ' }).dropped, []);
+  });
+
+  it('carries settings the new type still understands, and only those', () => {
+    const r = retypeQuestion('multiple_choice', 'quiz',
+      { options: ['a', 'b'], confidence: true, chart: 'donut', multiple: true });
+    eq(r.config.confidence, true);
+    eq(r.config.chart, 'donut');
+    // quiz has no "allow several answers" — it must not arrive carrying one
+    eq(r.config.multiple, undefined);
+  });
+
+  it('does not carry `mode` between types that spell it differently', () => {
+    // multiple_choice is opinion/best, heatmap is highlight/classify —
+    // same key, different vocabulary, and crossing them strands the
+    // slide in a state neither editor can render
+    const r = retypeQuestion('multiple_choice', 'heatmap', { mode: 'best', options: ['a'] });
+    eq(r.config.mode, 'highlight');
+  });
+
+  it('keeps a marked answer key wherever the new type can show one', () => {
+    // a quiz already has a right answer in it, and multiple choice has
+    // somewhere to put one — landing in "best answer" mode preserves
+    // work the instructor sat and did
+    const toPoll = retypeQuestion('quiz', 'multiple_choice',
+      { options: ['a', 'b'], correct: [1] }).config;
+    eq(toPoll.correct, [1]);
+    eq(toPoll.mode, 'best');
+
+    eq(retypeQuestion('multiple_choice', 'quiz',
+      { options: ['a', 'b'], correct: [1] }).config.correct, [1]);
+
+    // but an unmarked quiz becomes a plain opinion poll, not a "best
+    // answer" one with nothing marked
+    const unmarked = retypeQuestion('quiz', 'multiple_choice',
+      { options: ['a', 'b'], correct: [] }).config;
+    eq(unmarked.correct, undefined);
+    eq(unmarked.mode, undefined);
+  });
+
+  it('drops the answer key where nothing reveals one', () => {
+    eq(retypeQuestion('quiz', 'ranking',
+      { options: ['a', 'b'], correct: [1] }).config.correct, undefined);
+  });
+
+  it('lands every type on a config its own editor can render', () => {
+    // every pair, both directions — the guard against a retype that
+    // produces a shape nothing downstream knows how to draw
+    const types = Object.keys(TYPE_LABELS);
+    for (const from of types) {
+      for (const to of types) {
+        const { config } = retypeQuestion(from, to, defaultConfig(from));
+        const fresh = defaultConfig(to);
+        for (const key of Object.keys(fresh)) {
+          ok(config[key] !== undefined,
+            `${from}→${to} lost the required key "${key}"`);
+        }
+      }
+    }
+  });
+});
+
+describe('chart styles are all real', () => {
+  it('offers only styles renderChoice can actually draw', () => {
+    // CHART_STYLES drives an icon row, and an icon is a promise. A style
+    // listed here that falls through to bars is a control that silently
+    // does nothing — which is exactly what `dots` used to do.
+    eq(Object.keys(CHART_STYLES).sort(), ['bars', 'columns', 'dots', 'donut'].sort());
+    for (const style of Object.keys(CHART_STYLES)) {
+      ok(CHART_ICONS[style], `${style} has no icon`);
+    }
   });
 });
 
