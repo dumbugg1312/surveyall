@@ -254,6 +254,17 @@ export function createPreviewRoom(deck, questions) {
         return opt;
       });
     }
+
+    // Same four structural keys the worker hides. The worker shuffles
+    // timeline and matching under AUTH_SECRET, which no browser has, so
+    // the preview cannot reproduce that order — but it can reproduce the
+    // only thing the preview is for: showing the instructor that the key
+    // is not on the phone. Redacting these two needs no shared secret.
+    if (q.type === 'cloze') {
+      config.text = String(config.text || '').replace(/\[[^\]]*\]/g, '[]');
+    }
+    if (q.type === 'probability') delete config.truth;
+
     return { id: q.id, type: q.type, prompt: q.prompt, position: q.position, config };
   }
 

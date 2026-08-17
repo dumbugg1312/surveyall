@@ -35,7 +35,7 @@
 
 import { SessionRoom } from './session-room.js';
 import {
-  changePassword, currentUser, resetPassword, signIn, signUp,
+  changePassword, currentUser, questionPermutation, resetPassword, signIn, signUp,
   signPseudonym, verifyPseudonym,
 } from './auth.js';
 
@@ -104,7 +104,7 @@ function rowToResponse(row) {
  * answer key reaches a phone, every quiz is trivially cheatable by
  * opening the network tab.
  */
-function sanitiseQuestion(question) {
+async function sanitiseQuestion(env, question) {
   const config = { ...(question.config || {}) };
   delete config.correct;
   delete config.correct_answers;
@@ -124,6 +124,53 @@ function sanitiseQuestion(question) {
     });
   }
 
+  // The four types below keep no field called `correct`, so the deletions
+  // above never touched them. Each hides its key somewhere structural
+  // instead, and each needs its own answer.
+  switch (question.type) {
+    // The sentence carries its own key inline — "the [mitochondrion] is" —
+    // so the text itself is the thing that cannot be sent. Send the shape
+    // of the sentence with every blank emptied: clozeParts() still finds
+    // the blanks, so the phone still renders the right number of inputs,
+    // and each one simply arrives with no answers attached.
+    case 'cloze':
+      config.text = String(config.text || '').replace(/\[[^\]]*\]/g, '[]');
+      break;
+
+    // The instructor's own estimate is the answer to the question being
+    // asked. It is only ever needed to draw the marker on the result.
+    case 'probability':
+      delete config.truth;
+      break;
+
+    // Graded by position: event i is right when it lands at place i. Send
+    // the events in a server-seeded order so position carries nothing.
+    case 'timeline': {
+      const items = Array.isArray(config.items) ? config.items : [];
+      const order = await questionPermutation(env, question.id, items.length);
+      config.items = order.map((from) => items[from]);
+      break;
+    }
+
+    // Graded by pairing: left i is right when it points at right i. The
+    // lefts can stay put — it is the correspondence that is secret — so
+    // permute only the rights against them.
+    case 'matching': {
+      const pairs = Array.isArray(config.pairs) ? config.pairs : [];
+      const order = await questionPermutation(env, question.id, pairs.length);
+      config.pairs = pairs.map((pair, i) => ({
+        ...(pair && typeof pair === 'object' ? pair : {}),
+        left: typeof pair === 'string' ? pair : pair?.left ?? '',
+        right: pairs[order[i]] && typeof pairs[order[i]] === 'object'
+          ? pairs[order[i]].right ?? '' : '',
+      }));
+      break;
+    }
+
+    default:
+      break;
+  }
+
   return {
     id: question.id,
     type: question.type,
@@ -131,6 +178,35 @@ function sanitiseQuestion(question) {
     position: question.position,
     config,
   };
+}
+
+/**
+ * Undo sanitiseQuestion()'s display shuffle on the way back in.
+ *
+ * The phone answers in the order it was shown; `responses` has always
+ * stored config-index space, and every grader, CSV export and archived row
+ * from before this shuffle existed reads it that way. Translating here —
+ * rather than at grading time — is what keeps all of that true.
+ */
+async function unshuffleAnswer(env, question, payload) {
+  if (!payload || typeof payload !== 'object') return payload;
+
+  if (question.type === 'timeline' && Array.isArray(payload.order)) {
+    const items = Array.isArray(question.config?.items) ? question.config.items : [];
+    const order = await questionPermutation(env, question.id, items.length);
+    return { ...payload, order: payload.order.map((shown) => order[shown] ?? shown) };
+  }
+
+  if (question.type === 'matching' && Array.isArray(payload.matches)) {
+    const pairs = Array.isArray(question.config?.pairs) ? question.config.pairs : [];
+    const order = await questionPermutation(env, question.id, pairs.length);
+    return {
+      ...payload,
+      matches: payload.matches.map((shown) => (shown == null ? shown : order[shown] ?? shown)),
+    };
+  }
+
+  return payload;
 }
 
 /**
@@ -500,7 +576,7 @@ async function participantRoute(request, env, seg, method, body, url) {
     );
     if (!q) return json(null);
     return json({
-      ...sanitiseQuestion(q),
+      ...(await sanitiseQuestion(env, q)),
       ...(await questionOrdinal(env, session.deck_id, q)),
       round: session.current_round,
       accepting: session.accepting,
@@ -553,7 +629,16 @@ async function participantRoute(request, env, seg, method, body, url) {
       return fail('This device has not joined this session. Reload the page.', 403);
     }
 
+    // The live question, re-read rather than trusted, because undoing the
+    // display shuffle needs its real config — the one the phone never saw.
+    const liveQuestion = rowToQuestion(
+      await env.DB.prepare('select * from questions where id = ?')
+        .bind(session.current_question_id).first(),
+    );
+    if (!liveQuestion) return fail('That question is no longer live.', 409);
+
     const slot = Number.isInteger(body.slot) ? body.slot : 0;
+    const payload = await unshuffleAnswer(env, liveQuestion, body.payload ?? {});
     await env.DB.prepare(`
       insert into responses (session_id, question_id, round, pseudonym, slot, payload, created_at)
       values (?, ?, ?, ?, ?, ?, ?)
@@ -561,7 +646,7 @@ async function participantRoute(request, env, seg, method, body, url) {
       do update set payload = excluded.payload, created_at = excluded.created_at
     `).bind(
       session.id, body.questionId, Number(body.round),
-      String(body.pseudonym), slot, JSON.stringify(body.payload ?? {}), now(),
+      String(body.pseudonym), slot, JSON.stringify(payload), now(),
     ).run();
 
     const row = rowToResponse(

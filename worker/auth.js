@@ -678,3 +678,50 @@ export async function verifyPseudonym(env, sessionId, pseudonym, token) {
     return false;
   }
 }
+
+/**
+ * The display order for a question whose config order IS its answer key.
+ *
+ * `matching` and `timeline` are graded by position — a match is right when
+ * left i points at right i, an event is right when it lands at place i —
+ * so handing the phone the config order hands it the key. The phone has
+ * always shuffled these for display, but with a seed derived from the
+ * question id, which the phone already knows: anyone who read the client
+ * could undo it. The shuffle has to be seeded by something the phone
+ * cannot see, which means the server has to do it.
+ *
+ * Returns σ, where σ[displayed position] = original config index. The
+ * worker sends items in σ order and maps answers back through σ before
+ * storing, so what lands in `responses` is still in config-index space and
+ * every existing grader, export and archived row keeps its meaning.
+ *
+ * Stable for a given question and length, because a phone that reloads
+ * mid-answer must get the same order back or the student's arrangement
+ * scrambles under them. Stability across sessions costs nothing: undoing
+ * the permutation still requires the key it is hiding.
+ */
+export async function questionPermutation(env, questionId, n) {
+  const order = Array.from({ length: n }, (_, i) => i);
+  if (!env.AUTH_SECRET || n < 2) return order;
+
+  // One HMAC gives 32 bytes; a Fisher-Yates over a realistic item count
+  // needs far fewer, but draw more blocks if a question ever gets long.
+  const key = await hmacKey(env.AUTH_SECRET);
+  const bytes = [];
+  for (let block = 0; bytes.length < n * 2; block += 1) {
+    const sig = await crypto.subtle.sign(
+      'HMAC', key, encoder.encode(`surveyall/shuffle/v1:${questionId}:${n}:${block}`));
+    bytes.push(...new Uint8Array(sig));
+  }
+
+  // Fisher-Yates, taking two bytes per draw and reducing modulo the
+  // remaining range. The modulo bias is negligible at these lengths and
+  // irrelevant anyway: this hides an order, it does not generate keys.
+  let cursor = 0;
+  for (let i = n - 1; i > 0; i -= 1) {
+    const draw = ((bytes[cursor] << 8) | bytes[cursor + 1]) % (i + 1);
+    cursor += 2;
+    [order[i], order[draw]] = [order[draw], order[i]];
+  }
+  return order;
+}
