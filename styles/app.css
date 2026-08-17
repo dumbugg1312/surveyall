@@ -325,14 +325,14 @@
   display: block;
   width: 100%;
   padding: 0;
-  border: 2px solid var(--edge);
+  border: 2px solid var(--edge-strong);
   border-radius: 8px;
   overflow: hidden;
   background: none;
   cursor: pointer;
   transition: border-color .15s ease, box-shadow .15s ease;
 }
-.rail-thumb:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--edge)); }
+.rail-thumb:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--edge-strong)); }
 .rail-item.is-selected .rail-thumb {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
@@ -505,7 +505,7 @@
   flex-direction: column;
   gap: .25rem;
   padding: .4rem;
-  border: 1px solid var(--edge);
+  border: 1px solid var(--edge-strong);
   border-radius: 10px;
   background: none;
   text-align: left;
@@ -588,10 +588,13 @@
   transition: background .15s ease, border-color .15s ease;
 }
 .type-picker:hover { background: var(--surface); }
+/* the real <select> fills this wrapper and is transparent, so the wrapper
+   is what has to show the ring — outline, matching every other control */
 .type-picker:focus-within {
   border-color: var(--accent);
   background: var(--surface);
-  box-shadow: var(--focus);
+  outline: var(--focus);
+  outline-offset: var(--focus-offset);
 }
 
 .type-picker-icon {
@@ -616,7 +619,6 @@
   cursor: pointer;
 }
 .type-picker-select:focus { outline: none; }
-.type-picker-select:focus-visible { outline: none; }
 
 .type-picker-chevron {
   position: absolute;
@@ -664,8 +666,8 @@
 }
 .icon-choice-btn:hover { background: var(--surface); color: var(--ink); }
 .icon-choice-btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline: var(--focus);
+  outline-offset: var(--focus-offset);
 }
 
 /* The selected state carries colour AND a border, not colour alone:
@@ -810,7 +812,7 @@
 }
 .seg-preview-chip {
   padding: .2rem .5rem;
-  border: 1px solid var(--edge);
+  border: 1px solid var(--edge-strong);
   border-radius: 999px;
   font-size: .7rem;
   color: var(--ink-soft);
@@ -1622,7 +1624,7 @@
 }
 .code-chip:hover {
   border-style: solid;
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--edge));
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--edge-strong));
   background: var(--accent-soft);
 }
 .code-label {
@@ -1722,9 +1724,12 @@
   color: var(--bad-text);
 }
 
-/* ---- segmented control ---------------------------------------------- */
+/* ---- segmented control (decor editor) --------------------------------
+   Named `decor-seg`, not `seg`: the dashboard's response filter owns
+   `.seg`, and while both lived under that one name this block — being
+   later in the file — silently restyled the dashboard's control too. */
 
-.seg {
+.decor-seg {
   display: inline-flex;
   /* .decor-field is a column flex box, so a stretched child would run the
      full width and leave an empty segment past the last button */
@@ -1734,7 +1739,7 @@
   overflow: hidden;
   background: var(--surface);
 }
-.seg-btn {
+.decor-seg-btn {
   padding: .26rem .5rem;
   border: none;
   border-right: 1px solid var(--edge-strong);
@@ -1746,9 +1751,9 @@
   cursor: pointer;
   transition: background .13s ease, color .13s ease;
 }
-.seg-btn:last-child { border-right: none; }
-.seg-btn:hover { background: var(--accent-soft); color: var(--ink); }
-.seg-btn.is-on { background: var(--accent); color: var(--on-accent); }
+.decor-seg-btn:last-child { border-right: none; }
+.decor-seg-btn:hover { background: var(--accent-soft); color: var(--ink); }
+.decor-seg-btn.is-on { background: var(--accent); color: var(--on-accent); }
 
 /* ---- colour swatches ------------------------------------------------ */
 
@@ -1767,12 +1772,8 @@
 .swatch.is-on {
   box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
 }
-/* focus has to be distinguishable from selection, which wears the ring
-   above — so focus takes the standard two-ring indicator instead */
-.swatch:focus-visible {
-  outline: none;
-  box-shadow: var(--focus);
-}
+/* no :focus-visible override needed — selection wears the box-shadow
+   ring above, focus wears the outline, and they stack readably */
 
 /* "no fill" reads as the absence of a colour, so it is drawn as one */
 .swatch-none {
@@ -1855,10 +1856,7 @@
   background: var(--accent-soft);
   border-color: color-mix(in srgb, var(--accent) 30%, transparent);
 }
-.picker-tile:focus-visible {
-  outline: none;
-  border-color: var(--accent);
-}
+.picker-tile:focus-visible { border-color: var(--accent); }
 .picker-art { width: 1.7rem; height: 1.7rem; overflow: visible; }
 .picker-name {
   font-size: .6rem;

@@ -348,9 +348,12 @@ export function snapTo(value, lines) {
 }
 
 function segmented(options, current, onPick, titles) {
-  const bar = el('div', 'seg');
+  // `decor-seg`, not a bare `seg`: the dashboard's response filter also
+  // calls itself `.seg`, and two unscoped rules of equal specificity
+  // meant whichever stylesheet block came last styled both
+  const bar = el('div', 'decor-seg');
   options.forEach(([value, label], i) => {
-    const b = el('button', `seg-btn${value === current ? ' is-on' : ''}`, label);
+    const b = el('button', `decor-seg-btn${value === current ? ' is-on' : ''}`, label);
     b.type = 'button';
     b.setAttribute('aria-pressed', String(value === current));
     if (titles?.[i]) b.title = titles[i];

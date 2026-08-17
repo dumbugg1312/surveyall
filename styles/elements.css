@@ -166,12 +166,7 @@
   transition: border-color .14s ease, background .14s ease;
 }
 .decor-handle:hover { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
-.decor-handle:focus-visible {
-  outline: none;
-  border-color: var(--accent);
-  /* solid, not a 28% wash: the wash composited under 3:1 on most themes */
-  box-shadow: var(--focus);
-}
+.decor-handle:focus-visible { border-color: var(--accent); }
 .decor-handle.is-selected {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, transparent);

@@ -4,10 +4,11 @@ Target standard: **WCAG 2.1 Level AA**, which is what ADA Title II (28 CFR
 Part 35, effective 2026–2027 for public entities), Section 508, and EN
 301 549 all currently point at. Everything below is graded against that.
 
-**Status: the colour system passes.** 1,680 automated checks across 20
+**Status: the colour system passes.** 1,780 automated checks across 20
 built-in themes and 160 live rendered-pixel checks in a real browser,
 0 failures, asserted by the test suite so it stays that way. The findings
-that led here are kept at the bottom for the record.
+that led here are kept below for the record — including the nine an
+adversarial review pass found *in the first round of fixes*.
 
 ```bash
 node tools/a11y-contrast.mjs      # ratios, per theme, per pair
@@ -72,27 +73,44 @@ clears AA.
 
 ### 2. Focus indicator — 1.4.11, 2.4.7
 
-`--focus` was `color-mix(in srgb, var(--accent) 45%, transparent)`. At
-45% alpha the ring composites toward whatever it sits on; it cleared 3:1
-in **3 of 40** theme/surface combinations (worst: citrus-studio 1.74:1).
+This one took three attempts, and the first two are worth recording
+because each looked correct and failed somewhere a static check could
+not see.
 
-Now two solid rings — `0 0 0 2px var(--ground), 0 0 0 5px var(--accent)`.
-The inner ground-coloured ring separates the accent from the control so
-the indicator holds on both light and dark surfaces. `--accent` clears
-3:1 against `--ground` and `--surface` in all 20 themes, asserted.
+`--focus` began as `color-mix(in srgb, var(--accent) 45%, transparent)`.
+At 45% alpha the ring composites toward whatever it sits on; it cleared
+3:1 in **3 of 40** theme/surface combinations (worst: 1.74:1).
 
-Two per-element overrides also replaced their own weak rings with
-`var(--focus)`: `.decor-handle` (a 28%-alpha wash) and `.swatch` (which
-wore the *same* ring as its selected state, so focus and selection were
-indistinguishable).
+The second attempt was two solid box-shadow rings. Solid fixed the
+contrast, but a box-shadow is painted in the element's background layer,
+and that has two consequences:
 
-> **Correction to the first audit.** It reported five places where focus
-> was "disabled outright", three with no fallback. That was wrong, and
-> the browser is what showed it: those rules set `outline: none` but not
-> `box-shadow`, so the base `:focus-visible` ring still applied to every
-> one of them. The real defect was the base ring itself, which is what
-> changed. Verified live — tabbing to the join button yields
-> `rgb(255,248,239) 0 0 0 2px, rgb(232,89,12) 0 0 0 5px`.
+- **A component's own `box-shadow` replaces it.** `.rail-item.is-selected
+  .rail-thumb`, `.theme-tile.is-active` and `.decor-chip.is-selected` all
+  draw a selection ring that way, at higher specificity — so a
+  selected-and-focused tile showed no focus at all. Reproduced in Chrome.
+- **An ancestor's `overflow: hidden` clips it away entirely.**
+  `.heatmap-control .seg-row` wraps the heat-map segment buttons with
+  zero clip room on all four sides: 100% of the ring erased.
+
+The third and current attempt is an **outline** — `3px solid
+var(--accent)` at a 2px offset. An outline is not in the background
+layer, so a component's selection shadow and the focus ring now coexist,
+and forced-colors mode honours an outline natively. Outlines *are* still
+clipped by ancestor overflow, so inside the two known clipping wrappers
+the offset flips negative and the ring is drawn just inside the control's
+own box — same ring, same contrast, other side of the edge.
+
+Every per-element `outline: none` override went away with it; there is no
+longer anything for them to suppress. Verified live across all 20 themes:
+solid, 3px, 2px offset everywhere, minimum 3.4:1 against the page.
+
+> **Two corrections to the first audit.** It reported five places where
+> focus was "disabled outright", three with no fallback — wrong: those
+> rules set `outline: none` but not `box-shadow`, so the base ring still
+> applied. And it never checked `forced-colors`, where the box-shadow
+> ring vanished completely while `outline: none` was still honoured. That
+> gap is now closed explicitly.
 
 ### 3. Control borders — 1.4.11
 
@@ -107,14 +125,39 @@ walking `--edge` toward `--ink` and stopping at the first step that
 clears 3:1 against both `--surface` and `--ground` — so it keeps as much
 of the original hairline's character as the floor allows.
 
+The first pass converted only `base.css`, which left **the entire student
+answering surface on the weak token** — `.opt` and `.opt-marker` (the
+radio/checkbox glyph itself, which has no background until selected, so
+the border *is* the control), `.scale-btn`, `.conf-btn`, `.sample-pick`,
+`.seg-body`, `.seg-chip`, `.rank-move`, `.qa-vote`, `.mood-btn`,
+`.tot-btn`, `.budget-step`, `.match-select` and more, at 1.18–1.55:1.
+Thirty-odd rules across `join.css`, `app.css` and `present.css` now use
+`--edge-strong`, including the hover-state mixes, which must not drop
+below the floor the base state guarantees. Containers that merely group
+controls (`.rank-item`, `.scale-item`, `.qa-card`, `kbd`) keep `--edge`:
+they are decoration, and 1.4.11 exempts them.
+
+The base selector list is also complete now rather than partial —
+`search`, `tel`, `url`, `date` and `time` were missing, and an input type
+left out of that list falls back to the UA's white box while inheriting
+`--ink` for its text.
+
 **Found while verifying this in the browser:** the join-code input on the
 landing page carried no `type` attribute, so `input[type="text"]` had
 never matched it. It was rendering with the UA default border *and the UA
 default white background*, while inheriting `--ink` for its text — which
 on the six dark themes meant near-white text on white, **1.06:1, an
 invisible input on the first screen a student sees**. Fixed at
-[index.html:21](../index.html:21); the input now themes with everything
-else (worst case across 20 themes is now 9.28:1).
+[index.html:21](../index.html:21); worst case across 20 themes is now
+9.28:1.
+
+Adding that attribute then caused a second, quieter bug: `input[type=
+"text"]` is (0,1,1) and outranks `.code-input` at (0,1,0), so base.css
+silently took over the field's padding, border width and corner radius.
+The selector is now `input.code-input`, which matches that specificity
+and wins on source order. Worth remembering as a general hazard — fixing
+a *missing* match can hand an element to a rule that was never meant to
+style it.
 
 ### 4. The custom theme builder — 1.4.3
 
@@ -153,7 +196,7 @@ Rather than repaint three themes' accent-2 (the first audit's
 suggestion), the fill stays vivid and `--accent-2-text` carries the type.
 Citrus keeps its lime.
 
-### 6. Icon-only rank buttons — 4.1.2
+### 6. Icon-only rank buttons — 4.1.2, and the focus they threw away
 
 The ▲/▼ ranking controls had the glyph as text content and no label —
 announced as "black up-pointing triangle, button". Now the glyph is
@@ -205,6 +248,32 @@ in every theme. An alpha wash carries whatever it happens to land on.
 This is why the projector-versus-phone distinction matters: at lecture-hall
 size all four were comfortably "large text" and compliant. The same
 markup on a student's phone, and in the archived results page, is not.
+
+### What the adversarial review caught in the fixes
+
+Three independent reviewers went over the first round of fixes and each
+finding was then handed to a separate agent told to *refute* it. Nine
+survived; five were killed as unreachable, already-handled, or misread
+cascade. Two of the nine were regressions the fixes themselves
+introduced, both above: the `.code-input` specificity flip, and a
+`ctWarn` message that was never cleared — harmless as a stale string
+until `aria-describedby` turned it into the Save button's description,
+at which point a valid theme was announced as broken.
+
+The rest are folded into the sections above. The pattern worth keeping:
+
+- **Half-applied rules are the dangerous kind.** `--edge-strong` in
+  `base.css` alone read as "control borders are fixed" while every
+  control a *student* touches was still on the weak token. A rule written
+  down in a doc and applied to one file is worse than not writing it
+  down, because the doc now lies.
+- **A colour audit that only knows plain surfaces is not an audit.** The
+  tinted-chip gap and the `color-mix(...var(--accent) 80%, var(--ink))`
+  gap both passed a clean 1,680-check run.
+- **Two components sharing an unscoped class name.** `.seg` was defined
+  twice; the later block styled both, so the dashboard's response filter
+  had been silently wearing the decor editor's clothes. The decor one is
+  now `.decor-seg`.
 
 ### A bug the fix itself had
 

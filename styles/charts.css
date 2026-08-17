@@ -853,7 +853,7 @@ svg.donut {
   padding: .1em .45em;
   border-radius: 999px;
   background: var(--accent-soft);
-  color: color-mix(in srgb, var(--accent) 80%, var(--ink));
+  color: color-mix(in srgb, var(--accent-text) 80%, var(--ink));
   font-size: .62em;
   font-weight: 700;
   letter-spacing: .04em;
@@ -861,7 +861,7 @@ svg.donut {
   animation: check-pop .5s var(--ease-spring) backwards;
 }
 .chart-row.is-best .chart-pct {
-  color: color-mix(in srgb, var(--accent) 85%, var(--ink));
+  color: color-mix(in srgb, var(--accent-text) 85%, var(--ink));
 }
 
 /* ================================================== opinion spectrum */

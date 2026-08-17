@@ -827,6 +827,20 @@ export function contrastRatio(a, b) {
 const AA_TEXT = 4.55;
 /** 1.4.11 floor for control boundaries and graphical objects. */
 const AA_NONTEXT = 3.05;
+/**
+ * The strongest `color-mix(TOKEN n%, transparent)` wash that has type of
+ * that same colour drawn on it — .sp-rank-num, .lb-row.is-top3 .lb-rank,
+ * .chip-live, .timer.is-urgent, .chip-ended respectively. Heavier washes
+ * exist (a 45% accent border-mix, a 26% ink scrim) but carry no matching
+ * type, so they set no floor. Raise a number here if a new chip does.
+ */
+const CHIP_TINT = {
+  '--accent': 0.20,
+  '--accent-2': 0.18,
+  '--good': 0.18,
+  '--bad': 0.16,
+  '--ink': 0.10,
+};
 
 /**
  * Text colour for a filled surface. Prefers a colour the theme already
@@ -871,9 +885,12 @@ const poleFor = (bg) => (contrastRatio('#000000', bg) >= contrastRatio('#ffffff'
   ? '#000000' : '#ffffff');
 
 /**
- * Fill in the derived tokens. Idempotent, and never overrides a value a
- * theme states explicitly — a theme that wants a specific `--on-accent`
- * can still say so.
+ * Fill in the derived tokens. Idempotent. A theme that states one of them
+ * explicitly keeps its value — `--on-accent` and friends are suggestions,
+ * not impositions. The one exception is `--ink-soft`, which is clamped
+ * unconditionally: it is authored by every theme, and the clamp only ever
+ * moves it TOWARD `--ink`, so the result is never less legible than what
+ * the author wrote.
  */
 export function deriveTokens(tokens) {
   const ground = tokens['--ground'];
@@ -899,28 +916,42 @@ export function deriveTokens(tokens) {
   // against every ground that colour's type actually lands on, including
   // its own tinted chip. Splitting fill from type is what lets a theme
   // stay loud and still be legible.
+  //
+  // "Its own tinted chip" is not a detail. The status chips, alerts and
+  // hint pills all paint `color-mix(TOKEN N%, transparent)` behind type
+  // in that same colour, which drags the background AWAY from the plain
+  // surface the token was tuned against — the exact gap that left
+  // `.chip-ended` under AA on six themes while a surface-only audit
+  // reported clean. CHIP_TINT is the strongest wash any of them uses.
   const pole = poleFor(ground);
-  const tint = (c, t) => mixHex(c, surface, t);
+  const tint = (key) => mixHex(tokens[key], surface, 1 - CHIP_TINT[key]);
   if (!out['--accent-text']) {
     out['--accent-text'] = liftContrast(
-      tokens['--accent'], pole, AA_TEXT, ground, surface, tokens['--accent-soft'],
+      tokens['--accent'], pole, AA_TEXT,
+      ground, surface, tokens['--accent-soft'], tint('--accent'),
     );
   }
   if (!out['--accent-2-text']) {
     out['--accent-2-text'] = liftContrast(
-      tokens['--accent-2'], pole, AA_TEXT, ground, surface, tint(tokens['--accent-2'], 0.82),
+      tokens['--accent-2'], pole, AA_TEXT, ground, surface, tint('--accent-2'),
     );
   }
   if (!out['--good-text']) {
     out['--good-text'] = liftContrast(
-      tokens['--good'], pole, AA_TEXT, ground, surface, tint(tokens['--good'], 0.82),
+      tokens['--good'], pole, AA_TEXT, ground, surface, tint('--good'),
     );
   }
   if (!out['--bad-text']) {
     out['--bad-text'] = liftContrast(
-      tokens['--bad'], pole, AA_TEXT, ground, surface, tint(tokens['--bad'], 0.82),
+      tokens['--bad'], pole, AA_TEXT, ground, surface, tint('--bad'),
     );
   }
+  // --ink-soft is authored, not derived, but it sits on ink-washed chips
+  // too (.chip-ended, .conf-chip, .ctrl kbd), so it gets the same clamp.
+  // It only ever moves TOWARD --ink, i.e. more legible, never less.
+  out['--ink-soft'] = liftContrast(
+    out['--ink-soft'], ink, AA_TEXT, ground, surface, tint('--ink'),
+  );
 
   return out;
 }
@@ -954,6 +985,19 @@ export function auditTheme(theme) {
   text('--accent-2-text', '--ground', 'Second accent as text');
   text('--good-text', '--surface', 'The "correct" colour as text');
   text('--bad-text', '--surface', 'The "wrong" colour as text');
+
+  // ...and each of those on the tinted chip it is actually drawn on. A
+  // surface-only matrix reports clean while the chips fail.
+  const onTint = (fg, base, what) => {
+    const bg = mixHex(t[base], t['--surface'], 1 - CHIP_TINT[base]);
+    const r = contrastRatio(t[fg], bg);
+    if (r < 4.5) bad.push({ ratio: r, need: 4.5, what, pair: [t[fg], bg] });
+  };
+  onTint('--accent-text', '--accent', 'Accent type on an accent wash');
+  onTint('--accent-2-text', '--accent-2', 'Second accent on its own wash');
+  onTint('--good-text', '--good', 'Status text on a "correct" wash');
+  onTint('--bad-text', '--bad', 'Status text on a "wrong" wash');
+  onTint('--ink-soft', '--ink', 'Secondary text on an ink wash');
   nontext('--edge-strong', '--surface', 'Input and button borders');
   nontext('--accent', '--ground', 'Accent bars and the focus ring');
 

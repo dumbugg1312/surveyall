@@ -70,12 +70,21 @@
 
   --radius: 12px;
   --shadow: 0 1px 2px rgba(0, 0, 0, .05), 0 8px 24px rgba(0, 0, 0, .07);
-  /* Focus ring. Two solid rings, not one translucent one: a 45%-alpha
-     accent composites toward whatever it sits on and lands under 3:1 on
-     nearly every theme. The inner --ground ring separates the accent
-     from the control so the indicator stays visible whether the control
-     is light or dark. (1.4.11, 2.4.7) */
-  --focus: 0 0 0 2px var(--ground), 0 0 0 5px var(--accent);
+  /* Focus ring — an OUTLINE, deliberately, and solid rather than a wash.
+     Three earlier attempts each failed a different way:
+       · a 45%-alpha accent composited toward whatever it sat on and
+         landed under 3:1 on 37 of 40 theme surfaces;
+       · a box-shadow ring is painted in the element's background layer,
+         so any component that sets its own box-shadow for a SELECTED
+         state replaced the ring outright — a selected-and-focused swatch,
+         theme tile or decor chip showed no focus at all;
+       · and a box-shadow ring is clipped away entirely by an ancestor
+         with overflow:hidden, which is how the heat-map segments lost it.
+     An outline sits outside the background layer, survives both, and is
+     the one focus primitive forced-colors mode honours natively.
+     (1.4.11, 2.4.7) */
+  --focus: 3px solid var(--accent);
+  --focus-offset: 2px;
 
   /* Motion scale.
      Durations and curves follow the same values the incumbent tools and
@@ -127,25 +136,24 @@ a { color: var(--accent-text); }
 button, input, select, textarea { font: inherit; color: inherit; }
 
 :focus-visible {
-  outline: none;
-  box-shadow: var(--focus);
-  border-radius: 6px;
+  outline: var(--focus);
+  outline-offset: var(--focus-offset);
 }
 
-/* Windows High Contrast (and any forced-colors mode) throws away
-   box-shadow, which would take the entire focus indicator with it and
-   leave keyboard users with nothing — the `outline: none` above is
-   honoured even when the ring that replaced it is not. Hand the outline
-   back, in a system colour so it obeys the user's chosen palette. */
+/* An outline IS clipped by an ancestor's overflow:hidden, so anywhere a
+   focusable control sits inside a clipping wrapper the ring is drawn
+   just inside the control's own box instead of just outside it. Same
+   ring, same contrast, simply on the other side of the edge. */
+.heatmap-control .seg-row > :focus-visible,
+.decor-seg > :focus-visible {
+  outline-offset: calc(-1 * var(--focus-offset) - 3px);
+}
+
+/* Forced-colors mode replaces author colours with the user's palette;
+   naming a system colour keeps the ring inside that palette rather than
+   letting it be substituted arbitrarily. */
 @media (forced-colors: active) {
-  /* !important because several components override :focus-visible with a
-     more specific `outline: none` plus their own box-shadow ring — and in
-     this mode the ring is gone but the `outline: none` still wins. Same
-     reasoning as [hidden] above: this is not a layout preference. */
-  :focus-visible {
-    outline: 3px solid CanvasText !important;
-    outline-offset: 2px !important;
-  }
+  :focus-visible { outline-color: CanvasText; }
 }
 
 .sr-only {
@@ -290,7 +298,7 @@ textarea { resize: vertical; min-height: 5rem; }
   padding: .18rem .55rem;
   border-radius: 999px;
   background: var(--accent-soft);
-  color: color-mix(in srgb, var(--accent) 80%, var(--ink));
+  color: color-mix(in srgb, var(--accent-text) 80%, var(--ink));
   font-size: .74rem;
   font-weight: 600;
   letter-spacing: .02em;
@@ -325,12 +333,12 @@ textarea { resize: vertical; min-height: 5rem; }
 .alert-info {
   border-color: var(--edge);
   background: var(--accent-soft);
-  color: color-mix(in srgb, var(--accent) 75%, var(--ink));
+  color: color-mix(in srgb, var(--accent-text) 75%, var(--ink));
 }
 .alert-warn {
   border-color: color-mix(in srgb, var(--accent-2) 40%, transparent);
   background: color-mix(in srgb, var(--accent-2) 10%, transparent);
-  color: color-mix(in srgb, var(--accent-2) 80%, var(--ink));
+  color: color-mix(in srgb, var(--accent-2-text) 80%, var(--ink));
 }
 
 /* ------------------------------------------------------- privacy badge */

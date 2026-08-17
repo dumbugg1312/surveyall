@@ -39,7 +39,7 @@
   padding: .25rem .6rem;
   border-radius: 999px;
   background: var(--accent-soft);
-  color: color-mix(in srgb, var(--accent) 80%, var(--ink));
+  color: color-mix(in srgb, var(--accent-text) 80%, var(--ink));
   font-weight: 600;
   font-size: .74rem;
 }
@@ -216,7 +216,7 @@
 }
 .conf-btn.is-selected {
   border-color: var(--accent);
-  color: color-mix(in srgb, var(--accent) 80%, var(--ink));
+  color: color-mix(in srgb, var(--accent-text) 80%, var(--ink));
   background: var(--accent-soft);
 }
 
@@ -337,7 +337,7 @@ button.seg-body { cursor: pointer; transition: border-color .15s ease, backgroun
 .seg-chip.is-selected {
   border-color: var(--accent);
   background: var(--accent-soft);
-  color: color-mix(in srgb, var(--accent) 80%, var(--ink));
+  color: color-mix(in srgb, var(--accent-text) 80%, var(--ink));
 }
 
 /* ------------------------------------------------------------- ranking */
@@ -449,7 +449,12 @@ button.seg-body { cursor: pointer; transition: border-color .15s ease, backgroun
 
 .code-form { display: flex; flex-direction: column; gap: .8rem; width: 100%; max-width: 20rem; }
 
-.code-input {
+/* `input.code-input`, not `.code-input`: base.css styles this field through
+   `input[type="text"]`, which is (0,1,1) and outranks a bare class — it was
+   quietly winning padding, border-width and border-radius here. Adding the
+   element to the selector matches that specificity and wins on source order,
+   since join.css is linked after base.css. */
+input.code-input {
   text-align: center;
   font-family: var(--display);
   font-size: 2rem;
@@ -457,8 +462,6 @@ button.seg-body { cursor: pointer; transition: border-color .15s ease, backgroun
   letter-spacing: .28em;
   text-transform: uppercase;
   padding: .8rem .5rem;
-  /* stated in full: `border-width` alone loses to the shorthand in
-     base.css, which is more specific */
   border: 2px solid var(--edge-strong);
   border-radius: 14px;
 }
@@ -680,7 +683,7 @@ button.seg-body { cursor: pointer; transition: border-color .15s ease, backgroun
 .budget-stepper { display: flex; align-items: center; gap: .2rem; flex-shrink: 0; }
 .budget-step {
   width: 2.9rem; height: 2.9rem;
-  border: 1px solid var(--edge);
+  border: 1px solid var(--edge-strong);
   border-radius: 12px;
   background: var(--surface);
   font-size: 1.3rem;

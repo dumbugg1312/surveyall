@@ -1810,6 +1810,11 @@ function refreshBuilderPreview() {
     warn.textContent = `${worst.what} is only ${worst.ratio.toFixed(1)}:1 — `
       + `needs ${worst.need}:1 so the back row can read it.`
       + (problems.length > 1 ? ` (${problems.length - 1} more to fix.)` : '');
+  } else {
+    // clear it, don't just hide it: this element is #ctSave's
+    // aria-describedby, and a leftover sentence would keep describing a
+    // now-valid theme as broken
+    warn.textContent = '';
   }
   $('ctSave').disabled = problems.length > 0;
   return problems;

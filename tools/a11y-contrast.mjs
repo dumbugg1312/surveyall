@@ -32,6 +32,19 @@ const TEXT_PAIRS = [
   ['bad type on surface', '--bad-text', '--surface', 4.5],
   ['ink on accent-soft chip', '--ink', '--accent-soft', 4.5],
 ];
+
+// The tinted chips: `color-mix(TOKEN n%, transparent)` behind type of that
+// same colour. Checking only plain surfaces reports clean while these fail.
+const CHIP_TINT = {
+  '--accent': 0.20, '--accent-2': 0.18, '--good': 0.18, '--bad': 0.16, '--ink': 0.10,
+};
+const TINTED_PAIRS = [
+  ['accent type on an accent wash', '--accent-text', '--accent'],
+  ['accent-2 type on its own wash', '--accent-2-text', '--accent-2'],
+  ['status text on a "correct" wash', '--good-text', '--good'],
+  ['status text on a "wrong" wash', '--bad-text', '--bad'],
+  ['secondary text on an ink wash', '--ink-soft', '--ink'],
+];
 const LITERAL_ON_ACCENT = [
   ['on-accent type on accent fill', '--on-accent', '--accent', 4.5],
   ['on-good type on good fill', '--on-good', '--good', 4.5],
@@ -65,12 +78,19 @@ for (const id of Object.keys(THEMES)) {
   for (const [l, f, b, n] of LITERAL_ON_ACCENT) push('text', l, f, b, n);
   for (const [l, f, b, n] of NONTEXT_PAIRS) push('nontext', l, f, b, n);
 
-  // focus ring: --focus is color-mix(accent 45%, transparent), so it
-  // composites over whatever sits behind it. 2.4.11/1.4.11 want 3:1
-  // against the adjacent background.
+  for (const [label, fg, base] of TINTED_PAIRS) {
+    const bg = mix(theme.tokens[base], theme.tokens['--surface'], CHIP_TINT[base]);
+    const c = ratio(theme.tokens[fg], bg);
+    rows.push({
+      theme: id, name: theme.name, kind: 'text', label, need: 4.5,
+      fg: theme.tokens[fg], bg, ratio: r2(c), pass: c >= 4.5, passLarge: c >= 3,
+    });
+  }
+
+  // focus ring: a solid --accent outline, so what matters is the accent
+  // against whatever the control sits on. 2.4.7/1.4.11 want 3:1.
   for (const under of ['--ground', '--surface']) {
     const bg = theme.tokens[under];
-    // two solid rings: the outer one is full-opacity accent
     const ring = theme.tokens['--accent'];
     const c = ratio(ring, bg);
     rows.push({

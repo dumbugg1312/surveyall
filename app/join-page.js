@@ -867,6 +867,14 @@ function rankingControl(q, prior, opts = {}) {
   const wrap = div('stack-sm');
 
   const draw = () => {
+    // The list is rebuilt wholesale, which detaches whatever the keyboard
+    // user just pressed — so remember which control had focus and put it
+    // back on the equivalent one afterwards. Without this, ranking an
+    // eight-item list by keyboard drops you to <body> on every press and
+    // you have to tab back in seven times. (2.4.3)
+    const active = document.activeElement;
+    const focusKey = wrap.contains(active) ? active.dataset?.rankKey : null;
+
     // FLIP: the list is rebuilt wholesale, so remember where each item
     // sat and animate the survivors from their old position — reordering
     // reads as movement instead of a teleport.
@@ -892,21 +900,23 @@ function rankingControl(q, prior, opts = {}) {
       // nothing about which of eight options is about to move
       const what = label(items[i]);
       const moves = div('rank-moves');
+      // keys follow the ITEM, not the position, so focus lands on the same
+      // button for the same option after it has moved
       const up = moveBtn('▲', `Move ${what} up`, pos === 0, () => {
         [order[pos - 1], order[pos]] = [order[pos], order[pos - 1]];
         draw();
-      });
+      }, `up:${i}`);
       const down = moveBtn('▼', `Move ${what} down`, pos === ranked.length - 1, () => {
         [order[pos + 1], order[pos]] = [order[pos], order[pos + 1]];
         draw();
-      });
+      }, `down:${i}`);
       moves.append(up, down);
       row.append(moves);
 
       const remove = moveBtn('×', `Remove ${what} from the ranking`, false, () => {
         order = order.filter((x) => x !== i);
         draw();
-      });
+      }, `remove:${i}`);
       row.append(remove);
 
       wrap.append(row);
@@ -939,12 +949,32 @@ function rankingControl(q, prior, opts = {}) {
         }
       });
     }
+
+    // Put the keyboard back where it was. The same button for the same
+    // option, if it still exists; if the press removed the row or moved
+    // the item to an end (disabling ▲ or ▼), fall back to a sibling
+    // control on that row, then to the list itself — anything but <body>.
+    if (focusKey) {
+      const [what, item] = focusKey.split(':');
+      const pick = wrap.querySelector(`[data-rank-key="${focusKey}"]:not(:disabled)`)
+        || [...(what === 'up' ? ['down', 'remove'] : ['up', 'remove'])]
+          .map((k) => wrap.querySelector(`[data-rank-key="${k}:${item}"]:not(:disabled)`))
+          .find(Boolean);
+      if (pick) pick.focus();
+      else {
+        // the row is gone entirely (removed from the ranking) — land on the
+        // list so the next Tab continues from here rather than the top
+        wrap.tabIndex = -1;
+        wrap.focus();
+      }
+    }
   };
 
-  const moveBtn = (glyph, label, disabled, fn) => {
+  const moveBtn = (glyph, label, disabled, fn, key) => {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'rank-move';
+    if (key) b.dataset.rankKey = key;
     // the glyph is decoration; a screen reader would otherwise announce
     // this as "black down-pointing triangle, button"
     const g = document.createElement('span');

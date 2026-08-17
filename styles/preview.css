@@ -111,7 +111,11 @@
 .preview-switch input:checked + .preview-switch-track .preview-switch-thumb {
   transform: translateX(1.05rem);
 }
-.preview-switch input:focus-visible + .preview-switch-track { box-shadow: var(--focus); }
+/* the input itself is visually hidden, so the ring goes on the track */
+.preview-switch input:focus-visible + .preview-switch-track {
+  outline: var(--focus);
+  outline-offset: var(--focus-offset);
+}
 
 /* ------------------------------------------------------------ screens */
 

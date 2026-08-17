@@ -2533,6 +2533,26 @@ describe('accessibility — theme contrast', () => {
       `only reached ${contrastRatio(t['--accent-2-text'], '#8a8a8a').toFixed(2)}:1`);
   });
 
+  it('clears AA on the tinted chips, not just on plain surfaces', () => {
+    // The gap that let .chip-ended ship under AA on six themes: a chip
+    // paints color-mix(TOKEN n%, transparent) behind type of that same
+    // colour, so the background is NOT --surface and a surface-only
+    // matrix reports clean.
+    const TINT = { '--accent': 0.20, '--accent-2': 0.18, '--good': 0.18, '--bad': 0.16, '--ink': 0.10 };
+    const pairs = [['--accent-text', '--accent'], ['--accent-2-text', '--accent-2'],
+      ['--good-text', '--good'], ['--bad-text', '--bad'], ['--ink-soft', '--ink']];
+    const hx = (h) => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const mix = (a, b, t) => `#${hx(a).map((v, i) => Math.round(v * t + hx(b)[i] * (1 - t)).toString(16).padStart(2, '0')).join('')}`;
+    for (const id of Object.keys(THEMES)) {
+      const t = getTheme(id).tokens;
+      for (const [fg, base] of pairs) {
+        const bg = mix(t[base], t['--surface'], TINT[base]);
+        const r = contrastRatio(t[fg], bg);
+        ok(r >= 4.5, `${id} ${fg} on a ${TINT[base] * 100}% ${base} wash (${bg}): ${r.toFixed(2)}:1`);
+      }
+    }
+  });
+
   it('leaves fills alone — only the -text siblings move', () => {
     // the whole point of the split: a theme stays as loud as it was drawn
     for (const id of Object.keys(THEMES)) {
