@@ -23,7 +23,13 @@
   // See .assetsignore for what is kept off the public site.
   "assets": {
     "directory": "./",
-    "binding": "ASSETS"
+    "binding": "ASSETS",
+
+    // /login and /create are friendly URLs, not files: the asset router
+    // would redirect them to "/" before the Worker ever saw them, so let
+    // the Worker answer those paths itself. (/join needs no entry —
+    // join.html is a real file the asset router already serves there.)
+    "run_worker_first": ["/login", "/login/", "/create", "/create/"]
   },
 
   // The database. Replace database_id with the id shown when you create

@@ -113,9 +113,8 @@ Cloudflare encrypts both; neither is ever in your repo.
 
 ## Step 7 — Create your account, before anyone else
 
-1. Open your Worker URL.
-2. Click **I'm the instructor**, then **Create one**.
-3. Enter your sign-up code, pick a username and a password of at least 4 characters.
+1. Open your Worker URL and click **Sign up** (or go straight to `/create`).
+2. Enter your sign-up code, pick a username and a password of at least 4 characters.
 
 You should land on **Decks**.
 
@@ -152,6 +151,24 @@ If you were running the single-password version:
 4. Delete the old `INSTRUCTOR_PASSWORD` secret.
 
 Everyone signed in on the old version is signed out by the upgrade and needs to sign in again — old tokens identified nobody, so they are refused rather than honoured.
+
+---
+
+## Adding the feedback button to a database that predates it
+
+The quill button in the corner of the instructor pages writes to a
+`feedback` table. A database created from `worker/schema.sql` today
+already has it; an older one does not, and every note fails to send until
+you add it. Either re-run `worker/schema.sql` (idempotent, Step 3) or run
+the migration on its own:
+
+```
+npx wrangler d1 execute DB --remote --file=worker/migrations/0004-feedback.sql
+```
+
+Notes are readable at `/feedback.html` by the **admin account only** —
+the first account created. Everyone else gets a 403 from the API, not
+just a hidden link.
 
 ---
 

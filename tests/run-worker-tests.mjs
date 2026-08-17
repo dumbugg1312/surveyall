@@ -817,6 +817,83 @@ describe('students still cannot reach anything', () => {
   });
 });
 
+describe('feedback', () => {
+  it('takes a note from someone with no account at all', async () => {
+    const env = freshEnv();
+    eq((await call(env, 'POST', '/api/feedback',
+      { body: { body: 'The projector text is too small.', page: '/dashboard' } })).status, 200);
+    const row = env.DB.db.prepare('select * from feedback').get();
+    eq(row.body, 'The projector text is too small.');
+    // Nobody signed in, so nothing identifies the sender.
+    eq(row.from_user, '');
+  });
+
+  it('records the username when the sender is signed in', async () => {
+    const env = freshEnv();
+    const token = await account(env, 'alice');
+    await call(env, 'POST', '/api/feedback', { token, body: { body: 'Ranking slides need a preview.' } });
+    eq(env.DB.db.prepare('select from_user from feedback').get().from_user, 'alice');
+  });
+
+  it('stores a path, never a deck id in a query string', async () => {
+    const env = freshEnv();
+    await call(env, 'POST', '/api/feedback',
+      { body: { body: 'Editor crashed here.', page: '/edit.html?deck=abc123&q=xyz' } });
+    eq(env.DB.db.prepare('select page from feedback').get().page, '/edit.html');
+  });
+
+  it('rejects an empty note and one over the length cap', async () => {
+    const env = freshEnv();
+    eq((await call(env, 'POST', '/api/feedback', { body: { body: ' ' } })).status, 400);
+    eq((await call(env, 'POST', '/api/feedback', { body: { body: 'x'.repeat(2001) } })).status, 400);
+    eq(env.DB.db.prepare('select count(*) as n from feedback').get().n, 0);
+  });
+
+  it('throttles a flood', async () => {
+    const env = freshEnv();
+    let blocked = 0;
+    for (let i = 0; i < 40; i += 1) {
+      const res = await call(env, 'POST', '/api/feedback', { body: { body: `spam ${i}` } });
+      if (res.status === 429) blocked += 1;
+    }
+    ok(blocked > 0, 'expected the rolling limit to refuse some of 40 notes in a row');
+  });
+
+  it('is readable by the admin and by nobody else', async () => {
+    const env = freshEnv();
+    // The FIRST account created is the admin; the second is not.
+    const admin = await account(env, 'admin-first');
+    const other = await account(env, 'colleague');
+    await call(env, 'POST', '/api/feedback', { body: { body: 'Something to read.' } });
+
+    const mine = await call(env, 'GET', '/api/feedback', { token: admin });
+    eq(mine.status, 200);
+    eq(mine.data.length, 1);
+
+    eq((await call(env, 'GET', '/api/feedback', { token: other })).status, 403);
+    eq((await call(env, 'GET', '/api/feedback')).status, 401);
+  });
+
+  it('lets only the admin mark handled or delete', async () => {
+    const env = freshEnv();
+    const admin = await account(env, 'admin-first');
+    const other = await account(env, 'colleague');
+    await call(env, 'POST', '/api/feedback', { body: { body: 'Delete me later.' } });
+    const id = env.DB.db.prepare('select id from feedback').get().id;
+
+    eq((await call(env, 'PATCH', `/api/feedback/${id}`,
+      { token: other, body: { handled: true } })).status, 403);
+    eq((await call(env, 'DELETE', `/api/feedback/${id}`, { token: other })).status, 403);
+    eq(env.DB.db.prepare('select count(*) as n from feedback').get().n, 1);
+
+    eq((await call(env, 'PATCH', `/api/feedback/${id}`,
+      { token: admin, body: { handled: true } })).status, 200);
+    eq(env.DB.db.prepare('select handled from feedback').get().handled, 1);
+    eq((await call(env, 'DELETE', `/api/feedback/${id}`, { token: admin })).status, 200);
+    eq(env.DB.db.prepare('select count(*) as n from feedback').get().n, 0);
+  });
+});
+
 // =====================================================================
 
 const t0 = Date.now();

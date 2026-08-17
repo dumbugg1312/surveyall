@@ -302,3 +302,38 @@ create table if not exists backgrounds (
 );
 
 create index if not exists backgrounds_owner_idx on backgrounds (owner_id, created_at desc);
+
+-- ---------------------------------------------------------------------
+-- FEEDBACK — notes left for whoever runs this site.
+--
+-- Written by the little quill button in the corner of the instructor
+-- pages. Reachable WITHOUT an account, because the person most worth
+-- hearing from is often a colleague who bounced off the sign-in screen.
+--
+-- FERPA NOTE: no IP address, no email, no contact field of any kind. The
+-- only identifier stored is `from_user`, and only when the sender was
+-- signed in at the time — that is a staff username, the same one already
+-- in `users`. A signed-out sender is anonymous and unreachable, which is
+-- the deliberate cost of not collecting a way to reply.
+--
+-- `page` is a PATH only ('/dashboard'), never a full URL: a query string
+-- can carry a deck or session id, and there is no reason for this table
+-- to know which class was on screen.
+--
+-- Spam control is the same global rolling counter sign-up uses (key
+-- 'feedback' in auth_throttle) — not per-IP, for the reason given there.
+-- ---------------------------------------------------------------------
+create table if not exists feedback (
+  id         text primary key,
+  body       text not null,
+  page       text not null default '',
+  -- Username at the time of writing, or '' when signed out. Deliberately
+  -- a copy rather than a foreign key: deleting an account should not
+  -- silently delete what that person told you.
+  from_user  text not null default '',
+  -- Set when you have dealt with it, so the list can hide the done ones.
+  handled    integer not null default 0,
+  created_at integer not null
+);
+
+create index if not exists feedback_created_idx on feedback (created_at desc);

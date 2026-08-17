@@ -45,12 +45,12 @@ boot().catch(showFatal);
 
 async function boot() {
   if (!configured) {
-    window.location.replace('index.html');
+    window.location.replace('login');
     return;
   }
   const user = await currentUser();
   if (!user) {
-    window.location.replace(`index.html?next=${encodeURIComponent(window.location.href)}`);
+    window.location.replace(`login?next=${encodeURIComponent(window.location.href)}`);
     return;
   }
   // There is no email address in this system; a username is the whole
@@ -58,9 +58,13 @@ async function boot() {
   // password, and it is worth knowing which account you are in.
   $('who').textContent = user.is_admin ? `${user.username} · admin` : (user.username || '');
 
+  // Only the admin can read what the quill button collects, so only the
+  // admin is offered the link to it.
+  $('feedbackLink').hidden = !user.is_admin;
+
   $('signOut').addEventListener('click', async () => {
     await signOut();
-    window.location.href = 'index.html?stay=1';
+    window.location.href = './?stay=1';
   });
   $('newDeck').addEventListener('click', onNewDeck);
   $('importDeck').addEventListener('click', () => onImport());

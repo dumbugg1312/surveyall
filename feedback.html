@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Feedback — SurveyAll</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="styles/fonts.css">
+<link rel="stylesheet" href="styles/base.css">
+<link rel="stylesheet" href="styles/app.css">
+</head>
+<body>
+
+<!-- Admin-only. The Worker refuses /api/feedback to everyone else, so
+     this page failing closed is the server's decision, not the UI's. -->
+<header class="appbar">
+  <a class="brand" href="dashboard.html">SurveyAll</a>
+  <span class="spacer"></span>
+  <a class="btn btn-sm btn-ghost" href="dashboard.html">← Decks</a>
+</header>
+
+<main class="page">
+  <section class="dash-section" aria-labelledby="fbHead">
+    <div class="section-head">
+      <h2 id="fbHead">Feedback</h2>
+      <span class="head-count" id="fbCount" hidden></span>
+      <span class="spacer"></span>
+      <label class="checkline">
+        <input type="checkbox" id="showHandled"> Show handled
+      </label>
+    </div>
+    <div id="fbArea"></div>
+  </section>
+</main>
+
+<script type="module" src="app/feedback-page.js"></script>
+</body>
+</html>

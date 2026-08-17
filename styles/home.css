@@ -1,0 +1,439 @@
+/* =====================================================================
+   SurveyAll — the public home page (index.html).
+
+   This is the only page a stranger might land on, so it argues for the
+   tool instead of operating it. Everything here is drawn from the same
+   tokens as the app (styles/base.css): same cream ground, same blue,
+   same Fraunces/Inter pairing, so the marketing page and the product a
+   visitor signs into look like one thing.
+
+   Students never need this page — they go to /join — but a student who
+   types the bare domain still gets a visible way through, so the join
+   link sits in the masthead and again in the footer.
+   ===================================================================== */
+
+/* The accent is army green, and it lives in styles/base.css (and the
+   Lecture Hall theme) rather than here, so the home page, the dashboard
+   and the projector all carry the same colour on the same cream. */
+body.home {
+  height: auto;
+  min-height: 100%;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface);
+  border-radius: 8px;
+  z-index: 10;
+}
+.skip-link:focus { left: var(--sp-3); }
+
+.wrap {
+  width: 100%;
+  max-width: 68rem;
+  margin: 0 auto;
+  padding-inline: clamp(1rem, 4vw, 2.5rem);
+}
+
+/* ------------------------------------------------------------ masthead */
+
+.masthead {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding-block: var(--sp-4);
+}
+
+.wordmark {
+  font-family: var(--display);
+  font-size: 1.35rem;
+  font-weight: 650;
+  letter-spacing: -.01em;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.masthead nav {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+/* The student's way out of a page that isn't for them. Quiet, but a real
+   link with real contrast — not a footnote in 60% grey. */
+.student-link {
+  font-size: .88rem;
+  font-weight: 550;
+  color: var(--ink-soft);
+  text-decoration-color: color-mix(in srgb, var(--ink-soft) 40%, transparent);
+  text-underline-offset: 3px;
+}
+.student-link:hover { color: var(--ink); }
+
+@media (max-width: 34rem) {
+  .masthead { flex-wrap: wrap; row-gap: var(--sp-2); }
+  .masthead nav { width: 100%; margin-left: 0; justify-content: space-between; }
+  .student-link { order: -1; }
+}
+
+/* ---------------------------------------------------------------- hero */
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: clamp(2rem, 5vw, 4rem);
+  align-items: center;
+  padding-block: clamp(2.5rem, 7vw, 5rem) clamp(3rem, 8vw, 6rem);
+}
+
+@media (max-width: 56rem) {
+  .hero { grid-template-columns: 1fr; padding-block: var(--sp-6) var(--sp-7); }
+}
+
+.hero h1 {
+  font-size: clamp(2.4rem, 6.2vw, 4rem);
+  font-weight: 650;
+  letter-spacing: -.02em;
+  margin-bottom: var(--sp-4);
+}
+
+.lede {
+  font-size: clamp(1.02rem, 1.6vw, 1.18rem);
+  line-height: 1.55;
+  max-width: 34ch;
+  color: var(--ink-soft);
+  text-wrap: pretty;
+}
+
+.cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  margin-top: var(--sp-5);
+}
+
+.fine {
+  margin-top: var(--sp-4);
+  font-size: .86rem;
+  color: var(--ink-soft);
+  max-width: 40ch;
+  text-wrap: pretty;
+}
+.fine code {
+  font-family: var(--body);
+  font-weight: 600;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  padding: .1em .35em;
+  border-radius: 5px;
+}
+
+/* ------------------------------------------------- the projector scene
+
+   A still of the product rather than a description of it: what the room
+   sees on the screen, and what one student sees in their hand. The bars
+   carry real proportions and the QR is a real code for this site's join
+   page, because a mock that lies is worse than no mock.
+   ------------------------------------------------------------------- */
+
+.scene { position: relative; margin: 0; padding-bottom: clamp(2.5rem, 6vw, 3.5rem); }
+
+.screen {
+  background: var(--surface);
+  border: 1px solid var(--edge);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: clamp(1rem, 2.4vw, 1.4rem);
+  transform: rotate(-.5deg);
+}
+
+.screen-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+
+.screen-q {
+  font-family: var(--display);
+  font-size: clamp(1rem, 2vw, 1.2rem);
+  font-weight: 600;
+  line-height: 1.25;
+  flex: 1;
+}
+
+.counter {
+  font-size: .74rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'label label'
+    'track pct';
+  gap: .2rem var(--sp-3);
+  align-items: center;
+  margin-bottom: var(--sp-3);
+}
+
+.bar-label { grid-area: label; font-size: .84rem; }
+
+.bar-pct {
+  grid-area: pct;
+  font-size: .8rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+}
+
+.bar-track {
+  grid-area: track;
+  height: .72rem;
+  border-radius: var(--bar-radius);
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  overflow: hidden;
+}
+
+.bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--accent) 32%, var(--accent-soft));
+  transform-origin: left center;
+}
+.bar-row.is-top .bar-fill { background: var(--accent); }
+
+/* The phone overlaps the screen's lower-left corner, so the foot keeps
+   its content to the right of where the phone lands. */
+.screen-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-top: var(--sp-5);
+  padding-top: var(--sp-3);
+  padding-left: clamp(3.5rem, 8vw, 5.5rem);
+  border-top: 1px solid var(--edge);
+}
+
+.join-note { font-size: .78rem; color: var(--ink-soft); }
+.join-code {
+  font-family: var(--display);
+  font-size: 1.1rem;
+  font-weight: 650;
+  letter-spacing: .08em;
+}
+
+.qr-plate {
+  margin-left: auto;
+  width: 3.6rem;
+  height: 3.6rem;
+  border-radius: 6px;
+  background: #fff;
+  border: 1px solid var(--edge);
+  padding: 2px;
+  display: grid;
+  place-items: center;
+}
+.qr-plate svg { width: 100%; height: 100%; display: block; }
+
+/* The phone, overlapping the screen's lower-left corner: the two halves
+   of the room in one picture. */
+.phone {
+  position: absolute;
+  left: clamp(-5rem, -4vw, -2rem);
+  bottom: -2rem;
+  width: clamp(7rem, 13vw, 8.5rem);
+  background: var(--surface);
+  border: 1px solid var(--edge-strong);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  padding: .7rem .6rem;
+  transform: rotate(2.5deg);
+}
+
+.phone-q {
+  font-size: .64rem;
+  color: var(--ink-soft);
+  margin-bottom: .4rem;
+  line-height: 1.3;
+}
+
+.tap {
+  display: block;
+  font-size: .7rem;
+  font-weight: 550;
+  padding: .38rem .5rem;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  margin-bottom: .3rem;
+}
+.tap.is-picked {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+/* On a narrow screen the visitor is already holding the phone half of
+   this picture, and the mock would land on top of the join code and QR.
+   Show the projected screen alone. */
+@media (max-width: 56rem) {
+  .phone { display: none; }
+  .screen-foot { padding-left: 0; }
+  .scene { padding-bottom: 0; }
+}
+
+/* -------------------------------------------------------------- claims
+
+   A specification list, not a grid of look-alike cards: term on the
+   left, plain sentence on the right, hairline between rows.
+   ------------------------------------------------------------------- */
+
+.section { padding-block: clamp(2.5rem, 6vw, 4.5rem); }
+
+.section h2 {
+  font-size: clamp(1.7rem, 3.4vw, 2.4rem);
+  font-weight: 650;
+  letter-spacing: -.015em;
+  max-width: 24ch;
+}
+
+.spec {
+  margin: var(--sp-6) 0 0;
+  display: grid;
+  grid-template-columns: minmax(11rem, 18rem) minmax(0, 1fr);
+  column-gap: clamp(1.5rem, 4vw, 3.5rem);
+}
+
+.spec dt {
+  font-family: var(--display);
+  font-size: 1.08rem;
+  font-weight: 600;
+  padding: var(--sp-4) 0 var(--sp-2);
+  border-top: 1px solid var(--edge);
+}
+
+.spec dd {
+  margin: 0;
+  padding: var(--sp-4) 0 var(--sp-5);
+  border-top: 1px solid var(--edge);
+  color: var(--ink-soft);
+  max-width: 62ch;
+  text-wrap: pretty;
+}
+.spec dd strong { color: var(--ink); font-weight: 600; }
+
+/* The last row already sits above a section boundary; its own bottom
+   padding would double the gap. */
+.spec > :last-child { padding-bottom: 0; }
+
+@media (max-width: 44rem) {
+  .spec { grid-template-columns: 1fr; }
+  .spec dt { padding-bottom: var(--sp-1); }
+  .spec dd { border-top: 0; padding-top: 0; }
+}
+
+/* The ten question types, as a plain set of names. */
+.types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-5);
+  padding: 0;
+  list-style: none;
+}
+.types li {
+  font-size: .84rem;
+  font-weight: 550;
+  padding: .28rem .7rem;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+/* ----------------------------------------------------------- data band
+
+   The one place the page raises its voice, because it's the one claim
+   that is unusual: not "we're careful with student data" but that there
+   is none to be careful with.
+   ------------------------------------------------------------------- */
+
+.band {
+  background: var(--accent);
+  color: var(--on-accent);
+  padding-block: clamp(2.5rem, 6vw, 4rem);
+}
+.band h2 { font-size: clamp(1.8rem, 4vw, 2.7rem); font-weight: 650; letter-spacing: -.02em; }
+.band p { max-width: 60ch; margin-top: var(--sp-4); text-wrap: pretty; }
+.band a { color: inherit; text-underline-offset: 3px; }
+
+/* ----------------------------------------------------------- close CTA */
+
+.close {
+  padding-block: clamp(2.5rem, 6vw, 4.5rem);
+  border-top: 1px solid var(--edge);
+  text-align: center;
+}
+.close h2 { font-size: clamp(1.6rem, 3.2vw, 2.2rem); margin-inline: auto; }
+.close p {
+  margin: var(--sp-3) auto 0;
+  max-width: 48ch;
+  color: var(--ink-soft);
+  text-wrap: balance;
+}
+.close .cta-row { justify-content: center; }
+
+.home-foot {
+  border-top: 1px solid var(--edge);
+  padding-block: var(--sp-5);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-5);
+  align-items: center;
+  font-size: .84rem;
+  color: var(--ink-soft);
+}
+.home-foot a { color: var(--ink-soft); text-underline-offset: 3px; }
+.home-foot a:hover { color: var(--ink); }
+.home-foot .spacer { flex: 1; }
+
+/* -------------------------------------------------------------- motion
+
+   Everything above is fully drawn without JavaScript or animation; these
+   only replay the one moment the product is about — answers landing —
+   and only for people who haven't asked for less motion.
+   ------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  .bar-fill {
+    animation: bar-land 1.1s var(--ease-snap) backwards;
+  }
+  .bar-row:nth-child(2) .bar-fill { animation-delay: .06s; }
+  .bar-row:nth-child(3) .bar-fill { animation-delay: .12s; }
+  .bar-row:nth-child(4) .bar-fill { animation-delay: .18s; }
+
+  .counter { animation: fade-in .5s var(--ease-out) .5s backwards; }
+
+  .phone { animation: phone-in .7s var(--ease-snap) .25s backwards; }
+}
+
+@keyframes bar-land {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+}
+
+@keyframes phone-in {
+  from { opacity: 0; transform: rotate(2.5deg) translateY(1.2rem); }
+}

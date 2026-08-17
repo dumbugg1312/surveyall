@@ -413,7 +413,7 @@ function colorPicker(current, allowNone, onPick, onPreview) {
   custom.className = 'swatch swatch-custom';
   custom.title = 'Custom colour';
   custom.setAttribute('aria-label', 'Custom colour');
-  custom.value = /^#/.test(current) ? current : '#1d4ed8';
+  custom.value = /^#/.test(current) ? current : '#4a5d23';
   if (/^#/.test(current)) custom.classList.add('is-on');
   // `input` fires all the way through a drag inside the picker; `change`
   // fires once it settles. Preview on the first, commit on the second —

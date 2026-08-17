@@ -86,12 +86,14 @@ One 60-student class with a 20-question deck uses roughly 1,500 Worker requests 
 ## Repository layout
 
 ```
-index.html          landing — students join, instructors sign in or sign up
-join.html           participant view (mobile)
+index.html          home page — what this is, and the two instructor doors
+account.html        instructor sign-in and sign-up (served at /login, /create)
+join.html           participant view (mobile), served at /join
 present.html        projector view
 dashboard.html      your decks and sessions
 edit.html           deck editor — questions, themes, backgrounds
 results.html        session archive and CSV export
+feedback.html       inbox for the quill button, admin only
 privacy.html        what is stored, and how to verify it
 
 app/                ES modules, no build step

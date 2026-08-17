@@ -36,7 +36,7 @@
 import { SessionRoom } from './session-room.js';
 import {
   changePassword, currentUser, questionPermutation, resetPassword, signIn, signUp,
-  signPseudonym, verifyPseudonym,
+  signPseudonym, verifyPseudonym, underGlobalLimit,
 } from './auth.js';
 
 export { SessionRoom };
@@ -57,6 +57,24 @@ const uid = () => crypto.randomUUID();
 const parse = (text, fallback) => {
   try { return JSON.parse(text); } catch { return fallback; }
 };
+
+/** Feedback limits — long enough for a real complaint, capped so one
+ *  sender cannot fill a 500 MB database on their own. */
+const FEEDBACK_MAX_CHARS = 2000;
+const FEEDBACK_MAX_PER_HOUR = 30;
+
+/**
+ * The page a note was written from, reduced to a bare path.
+ *
+ * Never the full URL: `/edit.html?deck=abc123` names a specific class's
+ * deck, and this table has no business knowing that. Query string, hash
+ * and origin are all dropped, and anything unrecognisable becomes ''.
+ */
+function feedbackPage(raw) {
+  const path = String(raw || '').split(/[?#]/)[0].trim();
+  if (!path.startsWith('/') || path.length > 120) return '';
+  return /^[\w/.-]+$/.test(path) ? path : '';
+}
 
 /** SQLite stores booleans as 0/1; the frontend expects real booleans. */
 function rowToSession(row) {
@@ -393,6 +411,21 @@ export default {
     const url = new URL(request.url);
 
     if (!url.pathname.startsWith('/api/')) {
+      // Friendly URLs for the instructor door: /login and /create are both
+      // account.html, which reads the path and opens the matching form.
+      // (/join needs no rule — join.html is a real file, so the asset
+      // router serves it at the extensionless path by itself.)
+      //
+      // The trailing-slash forms would make the page's relative asset
+      // paths resolve under /login/, so send them to the bare path.
+      if (url.pathname === '/login/' || url.pathname === '/create/') {
+        return Response.redirect(new URL(url.pathname.slice(0, -1), url).toString(), 301);
+      }
+      if ((url.pathname === '/login' || url.pathname === '/create') && env.ASSETS) {
+        // Ask for "/account", not "/account.html": the asset router
+        // redirects the .html form to the extensionless one.
+        return env.ASSETS.fetch(new Request(new URL('/account', url), request));
+      }
       // Static assets are handled by the assets binding; if we got here
       // the path simply doesn't exist.
       return env.ASSETS ? env.ASSETS.fetch(request) : new Response('Not found', { status: 404 });
@@ -469,6 +502,37 @@ async function route(request, env, url, ctx) {
   // proves nothing, holds no credential, and is never identified.
   if (seg[0] === 'join') {
     return participantRoute(request, env, seg, method, body, url);
+  }
+
+  // ------------------------------------------------------------ feedback
+  // Writing is deliberately OPEN: the note most worth having often comes
+  // from someone who could not get past the sign-in screen, and a
+  // feedback box that requires an account cannot hear from them. Reading
+  // it is admin-only, below in instructorRoute().
+  if (seg[0] === 'feedback' && !seg[1] && method === 'POST') {
+    const body_ = String(body.body || '').trim();
+    if (body_.length < 2) return fail('Say a little more than that.', 400);
+    if (body_.length > FEEDBACK_MAX_CHARS) {
+      return fail(`Keep it under ${FEEDBACK_MAX_CHARS} characters.`, 400);
+    }
+
+    // Same global rolling counter sign-up uses, and keyed the same way —
+    // by nothing at all. Throttling this per IP would put a network
+    // identifier in the database, which the schema forbids on purpose.
+    if (!await underGlobalLimit(env, 'feedback', FEEDBACK_MAX_PER_HOUR, 1000 * 60 * 60)) {
+      return fail('Too much feedback at once — try again in an hour.', 429);
+    }
+
+    // Signed in? Record the username, so you can reply in person. Signed
+    // out is fine and stays anonymous; there is no contact field.
+    const sender = await currentUser(request, env);
+
+    await env.DB.prepare(`
+      insert into feedback (id, body, page, from_user, handled, created_at)
+      values (?, ?, ?, ?, 0, ?)
+    `).bind(uid(), body_, feedbackPage(body.page), sender ? sender.username : '', now()).run();
+
+    return json({ ok: true });
   }
 
   // ------------------------------------------------- backdrop images
@@ -766,6 +830,42 @@ const notYours = () => fail('Not found.', 404);
 
 async function instructorRoute(request, env, seg, method, body, url, ctx, user) {
   const DB = env.DB;
+
+  // ---------------------------------------------------------- feedback
+  // Reading is admin-only. Notes are not scoped to an owner the way
+  // everything else here is — they are addressed to whoever runs the
+  // site, and a colleague's account should not be able to read what
+  // somebody else wrote about them.
+  if (seg[0] === 'feedback') {
+    if (!user.is_admin) return fail('Admins only.', 403);
+
+    if (!seg[1] && method === 'GET') {
+      const { results } = await DB.prepare(
+        'select * from feedback order by created_at desc limit 300',
+      ).all();
+      return json((results || []).map((r) => ({
+        id: r.id,
+        body: r.body,
+        page: r.page || '',
+        from_user: r.from_user || '',
+        handled: !!r.handled,
+        created_at: r.created_at,
+      })));
+    }
+
+    if (seg[1] && method === 'PATCH') {
+      await DB.prepare('update feedback set handled = ? where id = ?')
+        .bind(body.handled ? 1 : 0, seg[1]).run();
+      return json({ ok: true });
+    }
+
+    if (seg[1] && method === 'DELETE') {
+      await DB.prepare('delete from feedback where id = ?').bind(seg[1]).run();
+      return json({ ok: true });
+    }
+
+    return fail('Unknown feedback route', 404);
+  }
 
   // ------------------------------------------------------------- decks
   if (seg[0] === 'decks') {

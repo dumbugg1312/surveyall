@@ -147,9 +147,11 @@ landing page carried no `type` attribute, so `input[type="text"]` had
 never matched it. It was rendering with the UA default border *and the UA
 default white background*, while inheriting `--ink` for its text — which
 on the six dark themes meant near-white text on white, **1.06:1, an
-invisible input on the first screen a student sees**. Fixed at
-[index.html:21](../index.html:21); worst case across 20 themes is now
-9.28:1.
+invisible input on the first screen a student sees**. Fixed by giving it an explicit `type="text"`; worst case across 20 themes
+is now 9.28:1. (The field has since moved off the home page — the code
+entry a student sees is built in
+[app/join-page.js](../app/join-page.js), and it still carries the
+attribute.)
 
 Adding that attribute then caused a second, quieter bug: `input[type=
 "text"]` is (0,1,1) and outranks `.code-input` at (0,1,0), so base.css

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Instructor sign-in — SurveyAll</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="styles/fonts.css">
+<link rel="stylesheet" href="styles/base.css">
+<link rel="stylesheet" href="styles/join.css">
+</head>
+<body class="join-body">
+
+<!-- The instructor door. Served at /login and /create (see the Worker
+     router); students never reach this page — they go to /join. -->
+<main class="join-shell" id="app">
+
+  <section class="join-state" id="auth">
+    <h1 class="state-title">Instructor sign-in</h1>
+    <p class="state-text">
+      Instructors only. Students never sign in — they just scan the code.
+    </p>
+
+    <form class="code-form" id="authForm">
+      <div class="field">
+        <label for="username">Username</label>
+        <input type="text" id="username" autocomplete="username" required
+               autocapitalize="none" autocorrect="off" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" autocomplete="current-password" required>
+      </div>
+      <div class="field-error" id="authError"></div>
+      <button class="submit-btn" type="submit" id="authSubmit">Sign in</button>
+    </form>
+
+    <p class="state-text" style="font-size:.78rem" id="toSignUpWrap" hidden>
+      No account yet?
+      <button class="btn btn-ghost btn-sm" id="showSignUp" type="button">Create one</button>
+    </p>
+    <p class="state-text" style="font-size:.78rem">
+      Forgot your password? There is no reset email — this app stores no
+      email addresses. Ask whoever runs this site to set you a new one.
+    </p>
+    <a class="btn btn-ghost btn-sm" href="./">← Back to the home page</a>
+  </section>
+
+  <section class="join-state" id="signup" hidden>
+    <h1 class="state-title">Create an instructor account</h1>
+    <p class="state-text">
+      You'll need the sign-up code from whoever runs this site.
+    </p>
+
+    <form class="code-form" id="signUpForm">
+      <div class="field">
+        <label for="suCode">Sign-up code</label>
+        <input type="text" id="suCode" required autocapitalize="none"
+               autocorrect="off" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="suUsername">Username</label>
+        <input type="text" id="suUsername" autocomplete="username" required
+               autocapitalize="none" autocorrect="off" spellcheck="false">
+        <p class="field-hint">
+          3–32 characters. Letters, numbers, dots, dashes, underscores.
+          It doesn't have to be your real name.
+        </p>
+      </div>
+      <div class="field">
+        <label for="suPassword">Password</label>
+        <input type="password" id="suPassword" autocomplete="new-password" required minlength="4">
+        <p class="field-hint">
+          At least 4 characters — a short PIN is fine. There is no reset
+          email, so pick something you'll remember; only an admin can set
+          you a new one.
+        </p>
+      </div>
+      <div class="field-error" id="signUpError"></div>
+      <button class="submit-btn" type="submit" id="signUpSubmit">Create account</button>
+    </form>
+
+    <p class="state-text" style="font-size:.78rem">
+      We store your username and a hashed password. No email, no name, no
+      tracking. <a href="privacy.html">What we store and why</a>.
+    </p>
+    <button class="btn btn-ghost btn-sm" id="backToSignIn" type="button">← Sign in instead</button>
+  </section>
+
+  <section class="join-state" id="setup" hidden>
+    <div class="state-icon">🔧</div>
+    <h1 class="state-title">Not finished setting up</h1>
+    <p class="state-text" id="setupDetail">
+      The site is live but its API isn't answering yet.
+    </p>
+    <p class="state-text">
+      Usually this means the D1 database hasn't been created and bound, or
+      <code>worker/schema.sql</code> hasn't been run yet.
+      See <strong>docs/DEPLOYMENT.md</strong>.
+    </p>
+  </section>
+
+</main>
+
+<footer class="page-foot">
+  <a href="privacy.html">Privacy</a>
+</footer>
+
+<script type="module" src="app/account-page.js"></script>
+<script type="module" src="app/feedback.js"></script>
+</body>
+</html>

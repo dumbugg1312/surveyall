@@ -3,134 +3,173 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>SurveyAll</title>
+<title>SurveyAll — free live polling for the classroom</title>
+<meta name="description" content="Live classroom polling with no participant caps, no question limits, and no student accounts. Students answer in one tap. Results archive permanently and export to CSV, free.">
 <link rel="stylesheet" href="styles/fonts.css">
 <link rel="stylesheet" href="styles/base.css">
-<link rel="stylesheet" href="styles/join.css">
+<link rel="stylesheet" href="styles/home.css">
 </head>
-<body class="join-body">
+<body class="home">
 
-<main class="join-shell" id="app">
+<a class="skip-link" href="#main">Skip to content</a>
 
-  <section class="join-state" id="landing">
-    <h1 class="state-title" style="font-size:1.8rem">SurveyAll</h1>
-    <p class="state-text">Live polling for the classroom.</p>
+<header class="masthead wrap">
+  <a class="wordmark" href="./">SurveyAll</a>
+  <nav aria-label="Main">
+    <a class="student-link" href="join">Student? Join a session</a>
+    <a class="btn" href="login">Log in</a>
+    <a class="btn btn-primary" href="create" data-signup>Sign up</a>
+  </nav>
+</header>
 
-    <form class="code-form" id="codeForm">
-      <label class="sr-only" for="code">Session code</label>
-      <input class="code-input" id="code" type="text" placeholder="ABC123" maxlength="8"
-             autocomplete="off" autocapitalize="characters" spellcheck="false">
-      <button class="submit-btn" type="submit">Join session</button>
-    </form>
+<main id="main">
 
-    <p class="state-text" style="font-size:.8rem">
-      Students: enter the code from the screen, or just scan the QR code.
-      No app to install.
-    </p>
+  <section class="hero wrap">
+    <div>
+      <h1>Live polling that never runs out.</h1>
+      <p class="lede">
+        No participant caps, no paywall in front of your own results.
+        Students answer in one tap — no app, no account, no name.
+      </p>
+      <div class="cta-row">
+        <a class="btn btn-primary btn-lg" href="create" data-signup>Create an instructor account</a>
+        <a class="btn btn-lg" href="login">Log in</a>
+      </div>
+      <p class="fine">
+        Students never make an account. They go to <code>surveyall.org/join</code>,
+        or scan the code on the screen.
+      </p>
+    </div>
 
-    <hr style="width:100%;max-width:20rem;border:0;border-top:1px solid var(--edge);margin:1rem 0">
+    <figure class="scene">
+      <figcaption class="sr-only">
+        What the room sees: a projected question with live results, the join
+        code and a QR code — and, in a student's hand, the same question as
+        two tap targets.
+      </figcaption>
 
-    <button class="btn" id="showSignIn" type="button">I'm the instructor</button>
+      <div class="screen">
+        <div class="screen-head">
+          <p class="screen-q">Which explanation is closest to yours?</p>
+          <span class="counter">184 answers</span>
+        </div>
+
+        <div class="bar-row is-top">
+          <span class="bar-label">The data was misread</span>
+          <span class="bar-track"><span class="bar-fill" style="width:58%"></span></span>
+          <span class="bar-pct">58%</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">The sample was too small</span>
+          <span class="bar-track"><span class="bar-fill" style="width:24%"></span></span>
+          <span class="bar-pct">24%</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">The question was leading</span>
+          <span class="bar-track"><span class="bar-fill" style="width:12%"></span></span>
+          <span class="bar-pct">12%</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">Something else</span>
+          <span class="bar-track"><span class="bar-fill" style="width:6%"></span></span>
+          <span class="bar-pct">6%</span>
+        </div>
+
+        <div class="screen-foot">
+          <div>
+            <p class="join-note">Join at surveyall.org/join</p>
+            <p class="join-code">MJ4K7P</p>
+          </div>
+          <div class="qr-plate" id="heroQR" aria-hidden="true"></div>
+        </div>
+      </div>
+
+      <div class="phone" aria-hidden="true">
+        <p class="phone-q">Which explanation is closest to yours?</p>
+        <span class="tap is-picked">The data was misread</span>
+        <span class="tap">The sample was too small</span>
+        <span class="tap">The question was leading</span>
+      </div>
+    </figure>
   </section>
 
-  <section class="join-state" id="auth" hidden>
-    <h2 class="state-title">Instructor sign-in</h2>
-    <p class="state-text">
-      Instructors only. Students never sign in — they just scan the code.
-    </p>
-
-    <form class="code-form" id="authForm">
-      <div class="field">
-        <label for="username">Username</label>
-        <input type="text" id="username" autocomplete="username" required
-               autocapitalize="none" autocorrect="off" spellcheck="false">
-      </div>
-      <div class="field">
-        <label for="password">Password</label>
-        <input type="password" id="password" autocomplete="current-password" required>
-      </div>
-      <div class="field-error" id="authError"></div>
-      <button class="submit-btn" type="submit" id="authSubmit">Sign in</button>
-    </form>
-
-    <p class="state-text" style="font-size:.78rem" id="toSignUpWrap" hidden>
-      No account yet?
-      <button class="btn btn-ghost btn-sm" id="showSignUp" type="button">Create one</button>
-    </p>
-    <p class="state-text" style="font-size:.78rem">
-      Forgot your password? There is no reset email — this app stores no
-      email addresses. Ask whoever runs this site to set you a new one.
-    </p>
-    <button class="btn btn-ghost btn-sm" id="backToJoin" type="button">← Back</button>
+  <section class="band">
+    <div class="wrap">
+      <h2>There is no student data.</h2>
+      <p>
+        Not a promise to handle it carefully — there is nothing to handle.
+        No student signs in, no name or email field exists in the database,
+        and the join code is a room number rather than a key.
+        <a href="privacy.html">What is stored, and how to check</a>.
+      </p>
+    </div>
   </section>
 
-  <section class="join-state" id="signup" hidden>
-    <h2 class="state-title">Create an instructor account</h2>
-    <p class="state-text">
-      You'll need the sign-up code from whoever runs this site.
-    </p>
+  <section class="section wrap">
+    <h2>Ten question types, and no tier above this one.</h2>
+    <ul class="types">
+      <li>Multiple choice</li>
+      <li>Word cloud</li>
+      <li>Open ended</li>
+      <li>Scales</li>
+      <li>Ranking</li>
+      <li>Quiz with leaderboard</li>
+      <li>Q&amp;A</li>
+      <li>Opinion spectrum</li>
+      <li>Writing showdown</li>
+      <li>Passage heatmap</li>
+    </ul>
 
-    <form class="code-form" id="signUpForm">
-      <div class="field">
-        <label for="suCode">Sign-up code</label>
-        <input type="text" id="suCode" required autocapitalize="none"
-               autocorrect="off" spellcheck="false">
-      </div>
-      <div class="field">
-        <label for="suUsername">Username</label>
-        <input type="text" id="suUsername" autocomplete="username" required
-               autocapitalize="none" autocorrect="off" spellcheck="false">
-        <p class="field-hint">
-          3–32 characters. Letters, numbers, dots, dashes, underscores.
-          It doesn't have to be your real name.
-        </p>
-      </div>
-      <div class="field">
-        <label for="suPassword">Password</label>
-        <input type="password" id="suPassword" autocomplete="new-password" required minlength="4">
-        <p class="field-hint">
-          At least 4 characters — a short PIN is fine. There is no reset
-          email, so pick something you'll remember; only an admin can set
-          you a new one.
-        </p>
-      </div>
-      <div class="field-error" id="signUpError"></div>
-      <button class="submit-btn" type="submit" id="signUpSubmit">Create account</button>
-    </form>
+    <dl class="spec">
+      <dt>Built for the projector</dt>
+      <dd>
+        Arrow keys to advance, timers, hide and reveal results, and a QR
+        code that stays in the corner all lesson.
+      </dd>
 
-    <p class="state-text" style="font-size:.78rem">
-      We store your username and a hashed password. No email, no name, no
-      tracking. <a href="privacy.html">What we store and why</a>.
-    </p>
-    <button class="btn btn-ghost btn-sm" id="backToSignIn" type="button">← Sign in instead</button>
+      <dt>Ask again, see what moved</dt>
+      <dd>
+        Hide the results, let the room argue, re-ask the same question, and
+        show a delta view of exactly what changed.
+      </dd>
+
+      <dt>Anonymous and still competitive</dt>
+      <dd>
+        Each device gets a random nickname, so leaderboards and
+        per-respondent CSV rows work without collecting an identity.
+      </dd>
+
+      <dt>Yours to keep</dt>
+      <dd>
+        Decks round-trip through plain text, and every session archives
+        permanently and exports to CSV.
+      </dd>
+    </dl>
   </section>
 
-  <section class="join-state" id="setup" hidden>
-    <div class="state-icon">🔧</div>
-    <h2 class="state-title">Not finished setting up</h2>
-    <p class="state-text" id="setupDetail">
-      The site is live but its API isn't answering yet.
-    </p>
-    <p class="state-text">
-      Usually this means the D1 database hasn't been created and bound, or
-      <code>worker/schema.sql</code> hasn't been run yet.
-      See <strong>docs/DEPLOYMENT.md</strong>.
-    </p>
+  <section class="close">
+    <div class="wrap">
+      <p>
+        Creating an account takes a username and a password — plus the
+        sign-up code from whoever runs this site.
+      </p>
+      <div class="cta-row">
+        <a class="btn btn-primary btn-lg" href="create" data-signup>Sign up</a>
+        <a class="btn btn-lg" href="login">Log in</a>
+      </div>
+    </div>
   </section>
 
 </main>
 
-<!-- Still no anonymity claim in this footer. The app collects no student
-     data (see the FERPA note in worker/schema.sql), but students land on
-     this page, and advertising untraceability to a class reads as an
-     invitation to misbehave. The link below is deliberately neutral —
-     someone who wants to know what is collected can go and read it, which
-     is different from promising a room of students that nobody is
-     watching. -->
-<footer class="page-foot">
+<footer class="home-foot wrap">
+  <a href="join">Join a session</a>
   <a href="privacy.html">Privacy</a>
+  <span class="spacer"></span>
+  <span>Free, anonymous live polling for the classroom.</span>
 </footer>
 
-<script type="module" src="app/index-page.js"></script>
+<script type="module" src="app/home-page.js"></script>
+<script type="module" src="app/feedback.js"></script>
 </body>
 </html>

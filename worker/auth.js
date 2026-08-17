@@ -394,7 +394,7 @@ async function recordFailure(env, key) {
  * A rolling count for sign-up, which has no account to escalate against.
  * @returns true when still under the limit (and counts the try).
  */
-async function underGlobalLimit(env, key, max, windowMs) {
+export async function underGlobalLimit(env, key, max, windowMs) {
   const t = Date.now();
   const row = await env.DB.prepare(
     'select attempts, last_fail_at from auth_throttle where key = ?',

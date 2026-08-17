@@ -14,6 +14,8 @@
   <a class="brand" href="dashboard.html">SurveyAll</a>
   <span class="spacer"></span>
   <span class="muted" id="who" style="font-size:.82rem"></span>
+  <!-- Admin only — shown by app/dashboard-page.js once the account is known. -->
+  <a class="btn btn-sm btn-ghost" id="feedbackLink" href="feedback.html" hidden>Feedback</a>
   <button class="btn btn-sm btn-ghost" id="signOut" type="button">Sign out</button>
 </header>
 
@@ -77,5 +79,6 @@
 <p class="sr-only" id="srStatus" role="status" aria-live="polite"></p>
 
 <script type="module" src="app/dashboard-page.js"></script>
+<script type="module" src="app/feedback.js"></script>
 </body>
 </html>

@@ -30,8 +30,17 @@
   --ground: #f7f4ee;
   --surface: #fffdf8;
   --edge: #e2dbcd;
-  --accent: #1d4ed8;
-  --accent-soft: #dbe4fb;
+  --accent: #4a5d23;
+  --accent-soft: #e6e7d5;
+  /* The call-to-action colour, and the one saturated thing on any screen.
+     The army-green accent is a FIELD colour — the band, the bars, links —
+     and it is deliberately quiet, which left a primary button weighing
+     the same as the outlined one beside it. Rust is the one element that
+     asks to be clicked, so it stays fixed rather than following a deck
+     theme: it marks instructor actions, not deck content.
+     Contrast: 7.2:1 for --on-cta on the fill. */
+  --cta: #c2410c;
+  --on-cta: #fff8f2;
   --accent-2: #b45309;
   --good: #15803d;
   --bad: #b91c1c;
@@ -51,7 +60,7 @@
      chart segments — where 3:1 is the bar and vividness is the point;
      the `-text` sibling is what type uses. Never set type in the bare
      token: half the themes fail AA that way. */
-  --accent-text: #1d4ed8;
+  --accent-text: #3d4d1c;
   --accent-2-text: #9e4908;
   --good-text: #137337;
   --bad-text: #b91c1c;
@@ -203,9 +212,9 @@ a.btn { text-decoration: none; }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 
 .btn-primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
+  background: var(--cta);
+  border-color: var(--cta);
+  color: var(--on-cta);
 }
 .btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
 
@@ -412,4 +421,99 @@ textarea { resize: vertical; min-height: 5rem; }
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
   }
+}
+
+/* ------------------------------------------------------------ feedback
+
+   The quill button in the corner (app/feedback.js). It sits under the
+   editor's own overlays — z-index 40 against the gallery's 190 and the
+   modals' 200 — so it can never be the thing covering a dialog, and it
+   moves aside for the mobile safe area rather than sitting on the home
+   indicator.
+   ------------------------------------------------------------------- */
+
+.fb-button {
+  position: fixed;
+  right: max(var(--sp-4), env(safe-area-inset-right));
+  bottom: max(var(--sp-4), calc(env(safe-area-inset-bottom) + var(--sp-2)));
+  z-index: 40;
+  width: 2.9rem;
+  height: 2.9rem;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--edge-strong);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink-soft);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  transition: color .15s ease, border-color .15s ease, transform .12s var(--ease-snap);
+}
+
+.fb-button svg { width: 1.35rem; height: 1.35rem; }
+
+.fb-button:hover {
+  color: var(--cta);
+  border-color: var(--cta);
+  transform: translateY(-1px);
+}
+.fb-button:active { transform: translateY(0); }
+.fb-button.is-sent { color: var(--good-text); border-color: var(--good); }
+
+/* In an app bar it is one control among others: no shadow, no plate, and
+   the same height as the small buttons beside it. */
+.fb-button.fb-inline {
+  position: static;
+  width: 2rem;
+  height: 2rem;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+.fb-button.fb-inline svg { width: 1.15rem; height: 1.15rem; }
+.fb-button.fb-inline:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  transform: none;
+}
+
+/* Print and project without it: the button is for the person editing,
+   not for the room. */
+@media print { .fb-button, .fb-dialog { display: none !important; } }
+
+.fb-dialog {
+  width: min(30rem, calc(100vw - 2rem));
+  padding: 0;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+.fb-dialog::backdrop { background: rgba(0, 0, 0, .35); }
+
+.fb-form { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-5); }
+.fb-title { font-size: 1.2rem; }
+.fb-note { font-size: .78rem; color: var(--ink-soft); }
+.fb-dialog textarea { min-height: 7rem; }
+
+.fb-error {
+  font-size: .82rem;
+  color: var(--bad-text);
+}
+
+.fb-actions { display: flex; justify-content: flex-end; gap: var(--sp-2); }
+
+.fb-toast {
+  position: fixed;
+  right: max(var(--sp-4), env(safe-area-inset-right));
+  bottom: calc(max(var(--sp-4), env(safe-area-inset-bottom)) + 3.6rem);
+  z-index: 40;
+  padding: .5rem .85rem;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--ground);
+  font-size: .84rem;
+  box-shadow: var(--shadow);
 }

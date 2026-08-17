@@ -46,10 +46,10 @@ let questions = [];
 boot().catch(showFatal);
 
 async function boot() {
-  if (!configured) { window.location.replace('index.html'); return; }
+  if (!configured) { window.location.replace('login'); return; }
   const user = await currentUser();
   if (!user) {
-    window.location.replace(`index.html?next=${encodeURIComponent(window.location.href)}`);
+    window.location.replace(`login?next=${encodeURIComponent(window.location.href)}`);
     return;
   }
 

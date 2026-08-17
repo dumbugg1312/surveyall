@@ -49,7 +49,7 @@
 <body>
 
 <header class="appbar">
-  <a class="brand" href="index.html">SurveyAll</a>
+  <a class="brand" href="./">SurveyAll</a>
 </header>
 
 <main class="doc">
@@ -145,6 +145,14 @@
         <td><strong>Instructor:</strong> a count of recent failed sign-ins</td>
         <td>To slow down password guessing — each failure in a row makes the next attempt wait longer</td>
         <td>Cleared on a successful sign-in; forgotten after a day</td>
+      </tr>
+      <tr>
+        <td>Feedback typed into the quill button, the page it was sent
+            from, and the sender's username if they were signed in</td>
+        <td>So whoever runs this site hears what is broken. The button is
+            not on the student view, and nothing is recorded that could be
+            used to reply to a signed-out sender</td>
+        <td>Until the admin deletes it</td>
       </tr>
     </tbody>
   </table>
@@ -314,8 +322,9 @@
 </main>
 
 <footer class="page-foot">
-  <a href="index.html">← Back to SurveyAll</a>
+  <a href="./">← Back to SurveyAll</a>
 </footer>
 
+<script type="module" src="app/feedback.js"></script>
 </body>
 </html>

@@ -1,30 +1,29 @@
 /**
- * SurveyAll — landing page.
- * Two doors: students type a join code, instructors sign in or sign up.
+ * SurveyAll — the instructor door.
+ *
+ * One document, two entrances: /login opens the sign-in form and /create
+ * opens the sign-up form (the Worker serves account.html for both paths).
+ * Students never come here — they go to /join.
  */
 
 import { signIn, signUp, signUpEnabled, currentUser, health } from './db.js';
 
 const $ = (id) => document.getElementById(id);
 
+// /create is the direct link to the sign-up form; anything else is sign-in.
+const wantsSignUp = /^\/create\/?$/.test(window.location.pathname);
+
 init();
 
 async function init() {
-  // Already signed in? Straight to the dashboard.
+  // Already signed in? Straight to the dashboard — unless they asked for
+  // /create, which is a deliberate request for the sign-up form.
   const user = await currentUser();
-  if (user && new URLSearchParams(window.location.search).get('stay') !== '1') {
+  if (user && !wantsSignUp && new URLSearchParams(window.location.search).get('stay') !== '1') {
     window.location.replace(nextTarget());
     return;
   }
 
-  $('codeForm').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const code = $('code').value.trim().toUpperCase();
-    if (code) window.location.href = `join.html#${encodeURIComponent(code)}`;
-  });
-
-  $('showSignIn').addEventListener('click', () => show('auth', 'username'));
-  $('backToJoin').addEventListener('click', () => show('landing'));
   $('showSignUp').addEventListener('click', () => show('signup', 'suCode'));
   $('backToSignIn').addEventListener('click', () => show('auth', 'username'));
 
@@ -34,11 +33,16 @@ async function init() {
   // Only offer the sign-up door when the server actually has a code
   // configured — otherwise every attempt would fail at submit with a
   // message the person reading it can do nothing about.
-  signUpEnabled().then((enabled) => { $('toSignUpWrap').hidden = !enabled; });
+  signUpEnabled().then((enabled) => {
+    $('toSignUpWrap').hidden = !enabled;
+    // Same reasoning for a /create link: with sign-up closed, show the
+    // sign-in form rather than a form that cannot succeed.
+    if (enabled && wantsSignUp) show('signup', 'suCode');
+  });
 
-  // Check the API in the background. A student typing a code shouldn't
-  // wait on this, but if the backend genuinely isn't wired up yet it's
-  // better to say so than to fail mysteriously at the first click.
+  // Check the API in the background. If the backend genuinely isn't wired
+  // up yet it's better to say so than to fail mysteriously at the first
+  // click.
   health().then((res) => {
     if (res.ok) return;
     show('setup');
@@ -48,7 +52,7 @@ async function init() {
 
 /** Exactly one panel is visible at a time. */
 function show(id, focusId) {
-  for (const panel of ['landing', 'auth', 'signup', 'setup']) {
+  for (const panel of ['auth', 'signup', 'setup']) {
     $(panel).hidden = panel !== id;
   }
   if (focusId) $(focusId).focus();

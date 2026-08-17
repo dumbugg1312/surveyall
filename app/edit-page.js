@@ -73,10 +73,10 @@ async function refreshJoinArt() {
 boot().catch((e) => { console.error(e); toast(e.message || String(e)); });
 
 async function boot() {
-  if (!configured) { window.location.replace('index.html'); return; }
+  if (!configured) { window.location.replace('login'); return; }
   const user = await currentUser();
   if (!user) {
-    window.location.replace(`index.html?next=${encodeURIComponent(window.location.href)}`);
+    window.location.replace(`login?next=${encodeURIComponent(window.location.href)}`);
     return;
   }
 
@@ -1826,7 +1826,7 @@ function openBuilder(existing) {
   $('ctName').value = existing?.name || '';
   $('ctGround').value = p.ground || '#f7f4ee';
   $('ctInk').value = p.ink || '#1c2434';
-  $('ctAccent').value = p.accent || '#1d4ed8';
+  $('ctAccent').value = p.accent || '#4a5d23';
   $('ctAccent2').value = p.accent2 || '#b45309';
   $('ctFont').value = p.font || 'inter';
   $('ctRadius').value = p.radius || 'soft';

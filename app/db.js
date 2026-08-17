@@ -561,3 +561,25 @@ export async function listBackgrounds() {
 
 export const deleteBackground = (path) =>
   api(`/api/backgrounds/${path}`, { method: 'DELETE', auth: true });
+
+// =====================================================================
+// Feedback — notes for whoever runs this site
+// =====================================================================
+
+/**
+ * Leave a note. Works signed out: the server records the username only
+ * when there is one, and stores no way to reply otherwise.
+ * @param {string} body what they wrote
+ * @param {string} page path it was written from, e.g. '/dashboard'
+ */
+export const sendFeedback = (body, page) =>
+  api('/api/feedback', { method: 'POST', body: { body, page }, auth: true });
+
+/** Admin only. Newest first. */
+export const listFeedback = () => api('/api/feedback', { auth: true });
+
+export const markFeedback = (id, handled) =>
+  api(`/api/feedback/${id}`, { method: 'PATCH', body: { handled }, auth: true });
+
+export const deleteFeedback = (id) =>
+  api(`/api/feedback/${id}`, { method: 'DELETE', auth: true });

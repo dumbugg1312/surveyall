@@ -23,8 +23,8 @@ export const THEMES = {
       '--ground': '#f7f4ee',
       '--surface': '#fffdf8',
       '--edge': '#e2dbcd',
-      '--accent': '#1d4ed8',
-      '--accent-soft': '#dbe4fb',
+      '--accent': '#4a5d23',
+      '--accent-soft': '#e6e7d5',
       '--accent-2': '#b45309',
       '--good': '#15803d',
       '--bad': '#b91c1c',
@@ -1013,7 +1013,7 @@ export function auditTheme(theme) {
 export function buildCustomTheme(p) {
   const ground = toHex(p.ground || '#f7f4ee');
   const ink = toHex(p.ink || '#1c2434');
-  const accent = toHex(p.accent || '#1d4ed8');
+  const accent = toHex(p.accent || '#4a5d23');
   const accent2 = toHex(p.accent2 || '#b45309');
   const dark = luminance(ground) < 0.4;
   const surface = mixHex(ground, '#ffffff', dark ? 0.05 : 0.6);

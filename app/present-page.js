@@ -96,7 +96,7 @@ boot().catch((err) => {
 async function boot() {
   const user = await currentUser();
   if (!user) {
-    window.location.href = `index.html?next=${encodeURIComponent(window.location.href)}`;
+    window.location.href = `login?next=${encodeURIComponent(window.location.href)}`;
     return;
   }
 
