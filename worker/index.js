@@ -61,13 +61,22 @@ const parse = (text, fallback) => {
 /** SQLite stores booleans as 0/1; the frontend expects real booleans. */
 function rowToSession(row) {
   if (!row) return null;
-  return {
+  const out = {
     ...row,
     accepting: !!row.accepting,
     reveal: !!row.reveal,
     show_on_devices: !!row.show_on_devices,
     qa_moderated: !!row.qa_moderated,
   };
+  // Only the list query carries the aggregate counts. Normalise them when
+  // they are present and leave them absent when they are not, so a reader
+  // can still tell "nobody answered" from "nobody asked" — reporting 0 on
+  // a single-session read would be a lie about data we simply didn't fetch.
+  for (const key of ['response_count', 'participant_count', 'answered_count']) {
+    if (key in row) out[key] = Number(row[key]) || 0;
+  }
+  if ('last_response_at' in row) out.last_response_at = row.last_response_at ?? null;
+  return out;
 }
 
 function rowToDeck(row) {
@@ -847,11 +856,28 @@ async function instructorRoute(request, env, seg, method, body, url, ctx, user) 
 
     if (!sessionId && method === 'GET') {
       const deck = url.searchParams.get('deck');
+      // The counts ride along with the list rather than being fetched per
+      // row afterwards. A list of codes and dates cannot tell a real class
+      // run from a session nobody ever joined, and which of those a row is
+      // happens to be the only question the archive is ever asked. One
+      // pass: responses_lookup_idx leads with session_id, so the join is
+      // an index scan, and no student identity leaves the aggregate — a
+      // pseudonym is only ever counted, never returned.
+      const sql = `
+        select s.*,
+               count(r.id)                   as response_count,
+               count(distinct r.pseudonym)   as participant_count,
+               count(distinct r.question_id) as answered_count,
+               max(r.created_at)             as last_response_at
+        from sessions s
+        left join responses r on r.session_id = s.id
+        where s.owner_id = ?${deck ? ' and s.deck_id = ?' : ''}
+        group by s.id
+        order by s.created_at desc
+      `;
       const stmt = deck
-        ? DB.prepare('select * from sessions where owner_id = ? and deck_id = ? order by created_at desc')
-          .bind(user.id, deck)
-        : DB.prepare('select * from sessions where owner_id = ? order by created_at desc')
-          .bind(user.id);
+        ? DB.prepare(sql).bind(user.id, deck)
+        : DB.prepare(sql).bind(user.id);
       const { results } = await stmt.all();
       return json((results || []).map(rowToSession));
     }

@@ -12,6 +12,7 @@ import {
   updateSession, updateQuestion, fetchResponses, subscribeToResponses,
   subscribeToSession, clearResponses, maxRound, deleteResponse,
   listAudienceQuestions, moderateAudienceQuestion, subscribeToAudienceQuestions,
+  subscribeToPresence,
 } from './db.js';
 import {
   aggregate, computeDelta, quizLeaderboard, sortedQuestions,
@@ -30,6 +31,7 @@ import {
 import { countTo, delay } from './motion.js';
 import { renderQR, qrSVG, qrInk } from './qr.js';
 import { joinBase } from './config.js';
+import { renderDecor } from './elements.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -37,6 +39,7 @@ const ui = {
   stage: $('stage'), backdrop: $('backdrop'), scrim: $('scrim'),
   lobby: $('lobby'), lobbyTitle: $('lobbyTitle'), lobbyKicker: $('lobbyKicker'),
   lobbyQR: $('lobbyQR'), lobbyURL: $('lobbyURL'), lobbyCode: $('lobbyCode'),
+  lobbyPresence: $('lobbyPresence'), lobbyPresenceText: $('lobbyPresenceText'),
   head: $('head'), kicker: $('kicker'), prompt: $('prompt'), timerHost: $('timerHost'),
   body: $('body'), chart: $('chart'),
   foot: $('foot'), countText: $('countText'), stateNote: $('stateNote'), dots: $('dots'),
@@ -44,6 +47,7 @@ const ui = {
   cornerURL: $('cornerURL'), cornerCode: $('cornerCode'),
   qaPanel: $('qaPanel'), qaBody: $('qaBody'), qaClose: $('qaClose'),
   flash: $('flash'), controls: $('controls'),
+  decor: { back: $('decorBack'), front: $('decorFront') },
 };
 
 const state = {
@@ -59,6 +63,9 @@ const state = {
   unsubs: [],
   repaintQueued: false,
   chartPaintQueued: false,
+  // live headcount from the Durable Object; null until the first event, so
+  // the lobby can stay silent rather than flash a stale zero
+  presence: null,
   // footer odometer state: what the count pill currently displays
   shownRows: null,
   shownPeople: null,
@@ -119,6 +126,10 @@ async function boot() {
     queueRepaint();
   }));
   state.unsubs.push(subscribeToAudienceQuestions(state.session.id, loadQA));
+  state.unsubs.push(subscribeToPresence(state.session.id, (n) => {
+    state.presence = n;
+    renderPresence();
+  }));
 
   // Backstop poll: if realtime drops, the count still creeps up.
   setInterval(() => {
@@ -203,6 +214,25 @@ function announce(text) {
   if (el) el.textContent = text;
 }
 
+/**
+ * The live "N here" pill. Shown only in the lobby — once a question is up,
+ * the response count is the number that matters. Ended sessions say nothing
+ * about who is still connected. Hidden until the first count arrives so it
+ * never flashes a stale zero, and reads as words at the extremes so a
+ * projected room never sees a bare "0".
+ */
+function renderPresence() {
+  const el = ui.lobbyPresence;
+  if (!el) return;
+  const s = state.session;
+  const inLobby = s && s.state !== 'live' && s.state !== 'ended';
+  if (!inLobby || state.presence == null) { el.hidden = true; return; }
+  const n = state.presence;
+  ui.lobbyPresenceText.textContent =
+    n <= 0 ? 'Waiting for the room…' : `${n} here`;
+  el.hidden = false;
+}
+
 async function render() {
   const s = state.session;
 
@@ -211,14 +241,19 @@ async function render() {
     ui.head.hidden = ui.body.hidden = ui.foot.hidden = true;
     ui.joinCorner.hidden = true;
     ui.stage.classList.remove('is-awaiting');
+    // The lobby is the deck's front door, not a slide — it carries the
+    // title and the code and nothing else. Decor belongs to slides.
+    renderDecor(ui.decor, null);
     ui.lobbyTitle.textContent = s.state === 'ended'
       ? 'Session ended'
       : (state.deck.title || 'Ready when you are');
     ui.lobbyKicker.textContent = s.state === 'ended' ? 'Thanks' : 'Join now';
+    renderPresence();
     return;
   }
 
   ui.lobby.hidden = true;
+  renderPresence();
   ui.head.hidden = ui.body.hidden = ui.foot.hidden = false;
   // The `hidden` attribute answers only "is a question on screen"; whether
   // the instructor tucked the corner away (J) is the class, one source of
@@ -251,6 +286,11 @@ async function render() {
   paintControlStates();
 
   if (changed) {
+    // Only on a real slide change. render() also runs on every arriving
+    // vote, and repainting the decor each time would restart its
+    // entrance animation under the room every few seconds.
+    renderDecor(ui.decor, q.config);
+
     state.view = 'results';
     state.rows = [];
     resetChart();
@@ -396,6 +436,13 @@ function resetChart() {
   ui.chart.textContent = '';
 }
 
+/**
+ * Types that carry an answer key. Their charts hold it back until voting
+ * is closed AND results are revealed, so a slide left on screen while
+ * people are still answering never prints the answer.
+ */
+const KEYED_TYPES = new Set(['quiz', 'cloze', 'matching', 'timeline']);
+
 function formatCount(q, nRows, nPeople) {
   return q.type === 'open_ended' || q.type === 'word_cloud'
     ? `${nRows} ${nRows === 1 ? 'response' : 'responses'} · ${nPeople} people`
@@ -463,7 +510,7 @@ function paintChart() {
   paintHoldStrip(q);
 
   const s = state.session;
-  const revealKey = (q.type === 'quiz' || q.config?.mode === 'best')
+  const revealKey = (KEYED_TYPES.has(q.type) || q.config?.mode === 'best')
     && !s.accepting && s.reveal;
   const agg = aggregate(q.type, q.config, rows);
   renderAggregate(ui.chart, q.type, agg, {
@@ -771,6 +818,10 @@ function ensurePairOverlay() {
 function startPairPhase(seconds) {
   const ov = ensurePairOverlay();
   ov.hidden = false;
+  // The pair overlay lives inside .stage-body, so it cannot stack above
+  // the decor layer on .stage. The discussion phase is a full takeover —
+  // one instruction and one clock — so the decoration steps back for it.
+  ui.stage.classList.add('is-pairing');
   state.pairUntil = Date.now() + seconds * 1000;
   const clock = $('pairClock');
   const tick = () => {
@@ -791,6 +842,7 @@ async function endPairPhase(advance) {
   state.pairUntil = null;
   const ov = $('pairOverlay');
   if (ov) ov.hidden = true;
+  ui.stage.classList.remove('is-pairing');
   setCtrlLabel('btnDiscuss', 'Discuss');
   if (!advance) return;
   const q = state.question;

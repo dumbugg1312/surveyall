@@ -178,7 +178,11 @@ create table if not exists questions (
                'instructions',
                'multiple_choice','word_cloud','open_ended',
                'scales','ranking','quiz','qa',
-               'spectrum','sample_vote','heatmap')),
+               'spectrum','sample_vote','heatmap',
+               'traffic','mood','this_or_that',
+               'budget','probability',
+               'cloze','matching','timeline',
+               'exit_ticket')),
   prompt     text not null default '',
   config     text not null default '{}',
   created_at integer not null

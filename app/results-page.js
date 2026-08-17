@@ -164,7 +164,8 @@ async function renderBlocks() {
       renderAggregate(chart, q.type, aggregate(q.type, q.config, roundRows), {
         awaiting: false, // archived data: zero responses is a fact, not a wait
         style: q.config?.chart || 'bars',
-        revealCorrect: q.type === 'quiz',
+        // the session is over: every key this deck has is safe to show
+        revealCorrect: true,
       });
     }
 

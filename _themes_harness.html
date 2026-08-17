@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Theme gallery harness</title>
+<link rel="stylesheet" href="styles/fonts.css">
+<style>
+  body { margin: 0; padding: 24px; background: #ddd; font-family: sans-serif;
+         display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+  .card { border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,.25); }
+  .slide { position: relative; aspect-ratio: 16/9; }
+  .bg { position: absolute; inset: 0; }
+  .content { position: relative; padding: 8% 9%; height: 84%; box-sizing: border-box; }
+  .kicker { font-size: 9px; letter-spacing: .12em; text-transform: uppercase; opacity: .75; }
+  h2 { margin: 2px 0 10px; font-size: 20px; line-height: 1.1; }
+  .bar { height: 14px; margin: 6px 0; display: flex; align-items: center; }
+  .fill { height: 100%; }
+  .lbl { font-size: 8px; margin-left: 6px; opacity: .8; }
+  .meta { padding: 6px 10px; background: #fff; font-size: 11px; color: #333; }
+</style>
+</head>
+<body>
+<script type="module">
+import { THEMES, BACKGROUND_PRESETS, backgroundStyles } from './app/themes.js';
+for (const [id, t] of Object.entries(THEMES)) {
+  const tok = t.tokens;
+  const card = document.createElement('div');
+  card.className = 'card';
+  const slide = document.createElement('div');
+  slide.className = 'slide';
+  slide.style.background = tok['--ground'];
+  slide.style.color = tok['--ink'];
+  const bg = document.createElement('div');
+  bg.className = 'bg';
+  Object.assign(bg.style, backgroundStyles({ kind: 'theme' }, id));
+  slide.appendChild(bg);
+  const c = document.createElement('div');
+  c.className = 'content';
+  c.innerHTML = `
+    <div class="kicker" style="color:${tok['--ink-soft']}">Question 3 of 8</div>
+    <h2 style="font-family:${tok['--display']}">Which era shaped this most?</h2>
+    ${[[78, 'Industrial'], [52, 'Renaissance'], [31, 'Antiquity']].map(([w, l], i) => `
+      <div class="bar">
+        <div class="fill" style="width:${w}%;border-radius:${tok['--bar-radius']};
+             background:${i === 0 ? tok['--accent'] : tok['--accent-soft']};
+             border:1px solid ${tok['--edge']}"></div>
+        <span class="lbl" style="color:${tok['--ink-soft']}">${l} ${w}%</span>
+      </div>`).join('')}
+    <div style="font-family:${tok['--body']};font-size:9px;margin-top:6px;color:${tok['--ink-soft']}">
+      Body — Wojciech Łęski, Gökçe Şahin, Dvořák, Erdős
+    </div>`;
+  slide.appendChild(c);
+  card.appendChild(slide);
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  meta.textContent = `${t.name} — ${t.blurb}`;
+  card.appendChild(meta);
+  document.body.appendChild(card);
+}
+</script>
+</body>
+</html>

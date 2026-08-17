@@ -25,6 +25,8 @@
 
 import {
   isContentSlide, sortedQuestions, optionLabels, correctIndices, splitPassage,
+  trafficLabels, moodIcons, pairList, budgetTotal, clozeBlanks,
+  exitPrompts, timelineItems,
 } from './logic.js';
 
 const CHANNEL = 'surveyall-preview';
@@ -465,6 +467,117 @@ export function createPreviewRoom(deck, questions) {
         return { picks: [...picks].sort((a, b) => a - b) };
       }
 
+      // A rehearsal room that always answers correctly teaches you
+      // nothing about what the chart looks like when it matters, so the
+      // checkable types below get a class that mostly knows it, with a
+      // believable minority who don't.
+      case 'traffic':
+        return { choice: pickWeighted(rng, [3, 1.4, 0.5].slice(0, trafficLabels(cfg).length)) };
+
+      case 'mood': {
+        const icons = moodIcons(cfg);
+        return { choice: pickWeighted(rng, s.optionWeights.slice(0, icons.length)) };
+      }
+
+      case 'this_or_that': {
+        const pairs = pairList(cfg);
+        if (!pairs.length) return null;
+        return {
+          picks: pairs.map((_, i) => {
+            if (cfg.allow_skip && rng() < 0.08) return null;
+            // each pair has its own lean, so the rows don't all agree
+            return rng() < 0.35 + ((i * 0.23) % 0.4) ? 0 : 1;
+          }),
+        };
+      }
+
+      case 'budget': {
+        const labels = optionLabels(cfg);
+        if (!labels.length) return null;
+        const total = budgetTotal(cfg);
+        // spend on two or three favourites, then round the last one up so
+        // the pot balances exactly the way the phone insists on
+        const weights = labels.map((_, i) => s.optionWeights[i] ?? 1);
+        const alloc = new Array(labels.length).fill(0);
+        let left = total;
+        const picks = Math.min(labels.length, 2 + Math.floor(rng() * 2));
+        for (let k = 0; k < picks - 1 && left > 0; k += 1) {
+          const i = pickWeighted(rng, weights);
+          const give = Math.max(1, Math.round(left * (0.25 + rng() * 0.4)));
+          alloc[i] += Math.min(give, left);
+          left -= Math.min(give, left);
+        }
+        alloc[pickWeighted(rng, weights)] += left;
+        return { alloc };
+      }
+
+      case 'probability': {
+        const truth = Number.isFinite(Number(cfg.truth)) && cfg.truth != null
+          ? Number(cfg.truth) : 55;
+        // clustered near the answer, with the honest long tail of people
+        // who are miles off — which is the reason to ask at all
+        const near = Math.max(0, Math.min(100,
+          Math.round(truth + (bell(rng) - 0.5) * 46)));
+        const wild = Math.round(rng() * 100);
+        const payload = { pct: rng() < 0.18 ? wild : near };
+        if (cfg.confidence) payload.conf = 1 + Math.floor(bell(rng) * 3);
+        return payload;
+      }
+
+      case 'cloze': {
+        const blanks = clozeBlanks(cfg);
+        if (!blanks.length) return null;
+        return {
+          blanks: blanks.map((b, i) => {
+            const key = b.answers[0] || '';
+            if (!key) return pick(rng, WORDS);
+            // most get it; the rest produce a plausible near-miss
+            if (rng() < 0.66 - i * 0.08) return key;
+            return rng() < 0.5 ? pick(rng, WORDS) : key.slice(0, Math.max(3, key.length - 2));
+          }),
+        };
+      }
+
+      case 'matching': {
+        const pairs = pairList(cfg);
+        if (!pairs.length) return null;
+        const matches = pairs.map((_, i) => i);
+        // swap one adjacent pair for most people, two for a few — the
+        // confusion matrix needs a specific mix-up, not uniform noise
+        const swaps = rng() < 0.55 ? 1 : rng() < 0.8 ? 0 : 2;
+        for (let k = 0; k < swaps && pairs.length > 1; k += 1) {
+          const i = Math.floor(rng() * (pairs.length - 1));
+          [matches[i], matches[i + 1]] = [matches[i + 1], matches[i]];
+        }
+        if (cfg.allow_partial && rng() < 0.15) {
+          matches[Math.floor(rng() * matches.length)] = null;
+        }
+        return { matches };
+      }
+
+      case 'timeline': {
+        const items = timelineItems(cfg);
+        if (!items.length) return null;
+        const order = items.map((_, i) => i);
+        const swaps = rng() < 0.4 ? 0 : 1 + Math.floor(rng() * 2);
+        for (let k = 0; k < swaps && items.length > 1; k += 1) {
+          const i = Math.floor(rng() * (items.length - 1));
+          [order[i], order[i + 1]] = [order[i + 1], order[i]];
+        }
+        return { order };
+      }
+
+      case 'exit_ticket': {
+        const prompts = exitPrompts(cfg);
+        return {
+          answers: prompts.map((_, i) => (
+            // the middle prompt ("a question you still have") is the one
+            // real rooms leave blank most often
+            rng() < (i === 1 ? 0.62 : 0.85) ? pick(rng, SENTENCES) : ''
+          )),
+        };
+      }
+
       default:
         return null;
     }
@@ -473,6 +586,7 @@ export function createPreviewRoom(deck, questions) {
   /** How many people a slide is worth pretending about. */
   function targetFor(q) {
     if (q.type === 'open_ended') return 9;   // each one is a card on screen
+    if (q.type === 'exit_ticket') return 7;  // three columns of the same
     if (q.type === 'word_cloud') return 20;
     return 17;
   }

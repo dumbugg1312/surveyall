@@ -226,6 +226,14 @@ export const reorderQuestions = (deckId, orderedIds) => {
 // Sessions
 // =====================================================================
 
+/**
+ * Sessions, newest first, each carrying what came of it.
+ *
+ * Rows from this endpoint (and only this one — a single-session GET has
+ * no counts on it) also have `participant_count`, `response_count`,
+ * `answered_count` and `last_response_at`. They are aggregates: the
+ * number of distinct pseudonyms, never the pseudonyms themselves.
+ */
 export const listSessions = (deckId) =>
   api(`/api/sessions${deckId ? `?deck=${encodeURIComponent(deckId)}` : ''}`, { auth: true });
 
@@ -466,6 +474,19 @@ function subscribe(sessionId, handler) {
 export function subscribeToSession(sessionId, onChange) {
   return subscribe(sessionId, (event, data) => {
     if (event === 'session') onChange(data);
+  });
+}
+
+/**
+ * How many phones are connected right now. Presenter only — the Durable
+ * Object sends this event to presenter sockets alone. `onCount` receives a
+ * plain number, so the room's live headcount can drive the lobby.
+ */
+export function subscribeToPresence(sessionId, onCount) {
+  return subscribe(sessionId, (event, data) => {
+    if (event === 'presence' && typeof data?.participants === 'number') {
+      onCount(data.participants);
+    }
   });
 }
 

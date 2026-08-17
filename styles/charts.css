@@ -244,11 +244,11 @@
   content: '✓';
   display: inline-block;
   margin-left: .4em;
-  color: var(--good);
+  color: var(--good-text);
   font-weight: 800;
   animation: check-pop .5s var(--ease-spring) backwards;
 }
-.chart-row.is-correct .chart-pct { color: var(--good); }
+.chart-row.is-correct .chart-pct { color: var(--good-text); }
 @keyframes check-pop {
   from { transform: scale(0); opacity: 0; }
 }
@@ -494,7 +494,7 @@ svg.donut {
   padding: .1em .32em; border-radius: 6px;
 }
 .answer-delete:hover {
-  color: var(--bad);
+  color: var(--bad-text);
   background: color-mix(in srgb, var(--bad) 12%, transparent);
 }
 
@@ -710,8 +710,8 @@ svg.donut {
   letter-spacing: -.02em;
   font-variant-numeric: tabular-nums;
 }
-.delta-num.is-up { color: var(--good); }
-.delta-num.is-down { color: var(--bad); }
+.delta-num.is-up { color: var(--good-text); }
+.delta-num.is-down { color: var(--bad-text); }
 .delta-num.is-flat { color: var(--ink-soft); }
 
 /* the headline: display type at chart scale, number in accent.
@@ -734,7 +734,7 @@ svg.donut {
 .delta-summary-num {
   font-size: 1.35em;
   font-weight: 750;
-  color: var(--accent);
+  color: var(--accent-text);
   letter-spacing: -.03em;
   font-variant-numeric: tabular-nums;
 }
@@ -778,14 +778,14 @@ svg.donut {
    resorting to medal emoji */
 .lb-row.is-top1 .lb-rank {
   background: var(--accent);
-  color: var(--surface);
+  color: var(--on-accent);
   font-size: 1.05em;
   letter-spacing: -.02em;
 }
 .lb-row.is-top2 .lb-rank,
 .lb-row.is-top3 .lb-rank {
   background: color-mix(in srgb, var(--accent-2) 18%, transparent);
-  color: var(--accent-2);
+  color: var(--accent-2-text);
 }
 
 .lb-name {
@@ -840,7 +840,7 @@ svg.donut {
 .conf-chip.is-alarm {
   border-color: color-mix(in srgb, var(--bad) 45%, var(--edge));
   background: color-mix(in srgb, var(--bad) 10%, transparent);
-  color: var(--bad);
+  color: var(--bad-text);
   font-weight: 700;
 }
 
@@ -962,7 +962,7 @@ svg.donut {
   place-items: center;
   border-radius: 50%;
   background: var(--accent);
-  color: var(--surface);
+  color: var(--on-accent);
   font-family: var(--display);
   font-size: .72em;
   font-weight: 700;
@@ -1152,4 +1152,380 @@ svg.donut {
   /* charts.js already refuses to tag a new dot when the OS asks for
      reduced motion; this catches a preference that changes mid-session */
   .dotp-dot.is-new { animation: none; }
+}
+
+/* =====================================================================
+   Second-wave slide types.
+
+   Same rules as everything above: sized in em so the whole chart scales
+   with the projector's font-size, colour from tokens, no fixed pixels
+   except hairlines.
+   ===================================================================== */
+
+/* ------------------------------------------------------ traffic light */
+
+.traffic-lamp {
+  display: grid;
+  grid-template-columns: 1.5em minmax(6em, 30%) 1fr auto;
+  align-items: center;
+  gap: .9em;
+  margin-bottom: .85em;
+}
+.traffic-lamp:last-child { margin-bottom: 0; }
+
+.traffic-dot {
+  width: 1.15em; height: 1.15em;
+  border-radius: 50%;
+  justify-self: center;
+}
+.traffic-body { display: contents; }
+.traffic-label { font-size: .92em; font-weight: 600; }
+.traffic-track {
+  position: relative;
+  height: 1.6em;
+  border-radius: var(--bar-radius);
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--ink) 8%, transparent);
+  overflow: hidden;
+}
+.traffic-fill { height: 100%; border-radius: 0 min(var(--bar-radius), 7px) min(var(--bar-radius), 7px) 0; }
+.traffic-num {
+  min-width: 2.6em;
+  text-align: right;
+  font-size: 1.05em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* -------------------------------------------------------- mood check */
+
+.mood-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: clamp(.8em, 4%, 2.4em);
+  min-height: 6em;
+}
+.mood-cell { display: flex; flex-direction: column; align-items: center; gap: .2em; }
+.mood-glyph {
+  font-size: 2.6em;
+  line-height: 1.1;
+  transform-origin: 50% 85%;
+  will-change: transform;
+}
+.mood-label { font-size: .72em; font-weight: 600; color: var(--ink-soft); }
+.mood-num {
+  font-size: .95em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------- this or that */
+
+.tug-row {
+  display: grid;
+  grid-template-columns: minmax(5em, 1fr) minmax(8em, 2.2fr) minmax(5em, 1fr);
+  align-items: center;
+  gap: .8em;
+  margin-bottom: 1em;
+}
+.tug-row:last-child { margin-bottom: 0; }
+.tug-side { display: flex; align-items: baseline; gap: .45em; font-size: .9em; }
+.tug-left { justify-content: flex-end; text-align: right; }
+.tug-right { justify-content: flex-start; }
+.tug-name { font-weight: 600; overflow-wrap: anywhere; }
+.tug-num {
+  font-size: .92em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+}
+.tug-rope {
+  position: relative;
+  height: .55em;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tug-right, var(--accent-2)) 26%, transparent);
+  overflow: visible;
+}
+.tug-fill {
+  height: 100%;
+  border-radius: 999px 0 0 999px;
+}
+.tug-knot {
+  position: absolute;
+  top: 50%;
+  width: 1.15em; height: 1.15em;
+  border-radius: 50%;
+  border: 2px solid var(--ground);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--ink) 22%, transparent);
+}
+
+/* ------------------------------------------------------ budget split */
+
+.budget-row {
+  display: grid;
+  grid-template-columns: minmax(6em, 28%) 1fr auto;
+  align-items: center;
+  gap: .9em;
+  margin-bottom: 1.05em;
+}
+.budget-row:last-child { margin-bottom: 0; }
+.budget-label { font-size: .9em; font-weight: 600; overflow-wrap: anywhere; }
+.budget-track {
+  position: relative;
+  height: 2.1em;
+  border-radius: var(--bar-radius);
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--ink) 8%, transparent);
+  overflow: hidden;
+}
+.budget-fill {
+  height: 62%;
+  border-radius: 0 min(var(--bar-radius), 7px) min(var(--bar-radius), 7px) 0;
+}
+/* the individual wallets, along the same axis, under the room's bar */
+.budget-spread {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 38%;
+  border-top: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+}
+.budget-tick {
+  position: absolute;
+  top: 18%;
+  width: 2px;
+  height: 64%;
+  margin-left: -1px;
+  border-radius: 1px;
+}
+.budget-share {
+  min-width: 3em;
+  text-align: right;
+  font-size: 1.05em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------ probability slider */
+
+.prob-wrap { display: flex; flex-direction: column; gap: .35em; }
+.prob-plot {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: .25em;
+  height: 9em;
+  padding-bottom: .1em;
+  border-bottom: 2px solid color-mix(in srgb, var(--ink) 18%, transparent);
+}
+.prob-col { flex: 1; display: flex; align-items: flex-end; height: 100%; }
+.prob-bar {
+  width: 100%;
+  min-height: 0;
+  border-radius: min(var(--bar-radius), 8px) min(var(--bar-radius), 8px) 0 0;
+}
+.prob-marker {
+  position: absolute;
+  top: -.2em; bottom: -.2em;
+  width: 0;
+  border-left: 2px dashed color-mix(in srgb, var(--ink) 55%, transparent);
+  z-index: 2;
+}
+.prob-marker-label {
+  position: absolute;
+  top: -1.35em;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: .1em .5em;
+  border-radius: 999px;
+  font-size: .62em;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--ink) 10%, var(--surface));
+  color: var(--ink-soft);
+}
+.prob-truth {
+  border-left-style: solid;
+  border-left-color: var(--good);
+}
+/* The two markers are often within a few points of each other — that is
+   the good outcome, a room that guessed well — so they are parked on
+   opposite sides of the plot rather than left to overlap. */
+.prob-truth .prob-marker-label {
+  top: auto;
+  bottom: -1.5em;
+  background: color-mix(in srgb, var(--good) 16%, var(--surface));
+  color: var(--good-text);
+}
+.prob-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 1.6em;   /* room for the answer marker's label under the plot */
+  font-size: .68em;
+  font-weight: 600;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------- fill in the blank */
+
+.cloze-line {
+  font-size: 1.15em;
+  line-height: 2.4;
+  overflow-wrap: anywhere;
+}
+.cloze-text { white-space: pre-wrap; }
+.cloze-slot {
+  display: inline-flex;
+  align-items: baseline;
+  gap: .3em;
+  margin: 0 .15em;
+  padding: .1em .3em;
+  border-radius: 8px;
+  vertical-align: baseline;
+}
+.cloze-slot.is-empty {
+  min-width: 4.5em;
+  border-bottom: 2px solid color-mix(in srgb, var(--ink) 32%, transparent);
+}
+.cloze-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: .3em;
+  padding: .12em .55em;
+  border-radius: 999px;
+  border: 1px solid var(--edge);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  font-size: calc(.85em * var(--chip-scale, 1));
+  font-weight: 650;
+}
+.cloze-chip.is-key {
+  border-color: var(--good);
+  background: color-mix(in srgb, var(--good) 14%, var(--surface));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--good) 25%, transparent);
+}
+.cloze-chip.is-off { opacity: .72; }
+.cloze-count {
+  font-size: .78em;
+  font-weight: 700;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ----------------------------------------------------- matching pairs */
+
+.match-row {
+  display: grid;
+  grid-template-columns: minmax(6em, 26%) 1fr minmax(6em, 30%);
+  align-items: center;
+  gap: .9em;
+  margin-bottom: .8em;
+}
+.match-row:last-child { margin-bottom: 0; }
+.match-label { font-size: .9em; font-weight: 600; overflow-wrap: anywhere; }
+.match-track {
+  display: flex;
+  height: 1.5em;
+  border-radius: var(--bar-radius);
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--ink) 8%, transparent);
+  overflow: hidden;
+}
+.match-seg { height: 100%; }
+.match-note {
+  font-size: .74em;
+  font-weight: 600;
+  color: var(--ink-soft);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.match-row.is-clean .match-note { color: var(--good-text); }
+
+/* ----------------------------------------------------- timeline order */
+
+.timeline-head,
+.timeline-row {
+  display: grid;
+  grid-template-columns: minmax(7em, 34%) 1fr;
+  align-items: center;
+  gap: .8em;
+}
+.timeline-head { margin-bottom: .35em; }
+.timeline-corner {
+  font-size: .66em;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.timeline-colheads { display: flex; gap: .3em; }
+.timeline-colhead {
+  flex: 1;
+  text-align: center;
+  font-size: .66em;
+  font-weight: 700;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+.timeline-row { margin-bottom: .35em; }
+.timeline-row:last-child { margin-bottom: 0; }
+.timeline-label {
+  font-size: .85em;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.timeline-cells { display: flex; gap: .3em; }
+.timeline-cell {
+  flex: 1;
+  height: 1.6em;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+}
+.timeline-cell.is-key { border-color: color-mix(in srgb, var(--good) 55%, transparent); }
+
+/* -------------------------------------------------------- exit ticket */
+
+.exit-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1em;
+  align-items: start;
+}
+.exit-col { display: flex; flex-direction: column; gap: .5em; min-width: 0; }
+.exit-colhead {
+  font-size: .72em;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.exit-stack { display: flex; flex-direction: column; gap: .45em; }
+.exit-card {
+  position: relative;
+  padding: .6em .7em .6em .85em;
+  border-radius: 10px;
+  border: 1px solid var(--edge);
+  background: var(--surface);
+  font-size: calc(.78em * var(--card-scale, 1));
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 6%, transparent);
+}
+.exit-card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: .55em; bottom: .55em;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--rail, var(--accent));
+}
+.exit-col.is-empty .exit-stack::after {
+  content: '—';
+  color: var(--ink-soft);
+  font-size: .8em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .exit-card, .cloze-chip { transition: none; }
 }

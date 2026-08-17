@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compare runs — SurveyAll</title>
+<link rel="stylesheet" href="styles/fonts.css">
+<link rel="stylesheet" href="styles/base.css">
+<link rel="stylesheet" href="styles/charts.css">
+<link rel="stylesheet" href="styles/app.css">
+</head>
+<body>
+
+<header class="appbar">
+  <a class="brand" href="dashboard.html">SurveyAll</a>
+  <span class="muted" id="crumb" style="font-size:.85rem"></span>
+  <span class="spacer"></span>
+  <a class="btn btn-sm" href="dashboard.html">Back to dashboard</a>
+</header>
+
+<main class="page">
+  <div id="head"></div>
+  <div class="stack" id="blocks">
+    <p class="muted">Loading…</p>
+  </div>
+
+  <p class="privacy-note">
+    Every run is compared as a whole. Nothing here follows an individual between
+    sessions: a pseudonym is issued per session and is deliberately impossible to
+    match to the same person in another one, so "the room moved" is the finest
+    grain this comparison can have — by design.
+    <a href="privacy.html">What's stored, and who can see it</a>.
+  </p>
+</main>
+
+<div class="toast" id="toast"></div>
+<p class="sr-only" id="srStatus" role="status" aria-live="polite"></p>
+
+<script type="module" src="app/compare-page.js"></script>
+</body>
+</html>

@@ -18,6 +18,14 @@ export const QUESTION_TYPES = [
   'multiple_choice', 'word_cloud', 'open_ended',
   'scales', 'ranking', 'quiz', 'qa',
   'spectrum', 'sample_vote', 'heatmap',
+  // The quick reads: one tap, answered without thinking about the tool.
+  'traffic', 'mood', 'this_or_that',
+  // Trade-offs and estimates: a number, but never a number to average.
+  'budget', 'probability',
+  // Checkable: there is a key, and the useful signal is where they missed.
+  'cloze', 'matching', 'timeline',
+  // The closer.
+  'exit_ticket',
 ];
 
 /** Types where one device may submit many rows (each gets its own slot). */
@@ -48,6 +56,15 @@ export const TYPE_LABELS = {
   spectrum: 'Opinion spectrum',
   sample_vote: 'Writing showdown',
   heatmap: 'Passage heatmap',
+  traffic: 'Traffic light',
+  mood: 'Mood check',
+  this_or_that: 'This or That',
+  budget: 'Budget split',
+  probability: 'Probability slider',
+  cloze: 'Fill in the blank',
+  matching: 'Matching pairs',
+  timeline: 'Timeline order',
+  exit_ticket: 'Exit ticket',
 };
 
 /**
@@ -67,6 +84,15 @@ export const TYPE_BLURBS = {
   spectrum: 'Place yourself between two poles.',
   sample_vote: 'Two samples side by side — which works, and why?',
   heatmap: 'Tap the sentence that does the work.',
+  traffic: 'Green, yellow, red — am I going too fast?',
+  mood: 'One icon each. How the room walked in.',
+  this_or_that: 'A stack of either/ors, answered on instinct.',
+  budget: 'A hundred points to spend. Trade-offs, not preferences.',
+  probability: 'How likely is it? Everyone commits to a number.',
+  cloze: 'A sentence with the load-bearing words taken out.',
+  matching: 'Match each one to its partner.',
+  timeline: 'Put them in the order they actually happened.',
+  exit_ticket: 'Learned it, still wondering, muddiest point.',
 };
 
 /** The config a brand-new slide of each type starts life with. */
@@ -81,9 +107,48 @@ export function defaultConfig(type) {
     case 'ranking': return { items: ['', ''] };
     case 'sample_vote': return { samples: ['', ''], allow_rationale: true };
     case 'heatmap': return { passage: '', segments: [], mode: 'highlight', max_picks: 1 };
+    case 'traffic': return { labels: [...DEFAULT_TRAFFIC] };
+    case 'mood': return { icons: DEFAULT_MOODS.map((m) => ({ ...m })) };
+    case 'this_or_that': return { pairs: [{ left: '', right: '' }], allow_skip: false };
+    case 'budget': return { options: ['', ''], total: 100 };
+    case 'probability': return { truth: null };
+    case 'cloze': return { text: '', case_sensitive: false };
+    case 'matching': return { pairs: [{ left: '', right: '' }, { left: '', right: '' }] };
+    case 'timeline': return { items: ['', ''] };
+    case 'exit_ticket': return { prompts: [...DEFAULT_EXIT_PROMPTS], max_length: 200 };
     default: return {};
   }
 }
+
+/**
+ * Traffic light's three states, in the order a room reads them: fine,
+ * wobbling, lost. Editable, because "I'm with you" is a different
+ * sentence in a lab than in a seminar — but three of them, always: a
+ * fourth state is a multiple choice question wearing a costume.
+ */
+export const DEFAULT_TRAFFIC = ['I\'m with you', 'Losing the thread', 'Lost'];
+
+/**
+ * Mood check's default faces.
+ *
+ * Weather rather than emoji faces: a room will report "foggy" about
+ * itself long before it will report "sad", and the metaphor gives the
+ * instructor something to say back that isn't about the student.
+ */
+export const DEFAULT_MOODS = [
+  { emoji: '☀️', label: 'Clear' },
+  { emoji: '⛅', label: 'Alright' },
+  { emoji: '🌫️', label: 'Foggy' },
+  { emoji: '🌧️', label: 'Rough' },
+  { emoji: '⚡', label: 'Wired' },
+];
+
+/** The exit ticket's three questions — the classic, pre-written. */
+export const DEFAULT_EXIT_PROMPTS = [
+  'One thing you learned',
+  'A question you still have',
+  'The muddiest point',
+];
 
 /**
  * The one list a type is built around, if it has one. Retyping between
@@ -96,6 +161,10 @@ const LIST_FIELD = {
   ranking: 'items',
   scales: 'statements',
   sample_vote: 'samples',
+  traffic: 'labels',
+  budget: 'options',
+  timeline: 'items',
+  exit_ticket: 'prompts',
 };
 
 /** What each type keeps besides its list, for carrying across a retype. */
@@ -111,6 +180,15 @@ const CARRIES = {
   heatmap: ['mode', 'labels', 'max_picks'],
   instructions: ['show_join', 'note'],
   qa: [],
+  traffic: [],
+  mood: ['icons'],
+  this_or_that: ['pairs', 'allow_skip'],
+  budget: ['total', 'confidence'],
+  probability: ['truth', 'confidence'],
+  cloze: ['text', 'case_sensitive'],
+  matching: ['pairs', 'allow_partial'],
+  timeline: ['allow_partial'],
+  exit_ticket: ['max_length'],
 };
 
 /** Human name for what a type's list holds, for the "this will be lost" line. */
@@ -122,6 +200,14 @@ const LIST_NOUN = {
   sample_vote: 'samples',
   instructions: 'join steps',
   heatmap: 'the passage',
+  traffic: 'the three states',
+  budget: 'the things to fund',
+  timeline: 'the events',
+  exit_ticket: 'the three prompts',
+  this_or_that: 'the pairs',
+  matching: 'the pairs',
+  mood: 'the icons',
+  cloze: 'the sentence',
 };
 
 /**
@@ -163,6 +249,16 @@ export function retypeQuestion(from, to, config = {}) {
   }
   if (from === 'heatmap' && to !== 'heatmap' && String(cfg.passage || '').trim()) {
     dropped.push(LIST_NOUN.heatmap);
+  }
+  if (from === 'cloze' && to !== 'cloze' && String(cfg.text || '').trim()) {
+    dropped.push(LIST_NOUN.cloze);
+  }
+  // Pairs survive between the two types built on them and nowhere else.
+  if (PAIR_TYPES.has(from) && !PAIR_TYPES.has(to) && pairList(cfg).length) {
+    dropped.push(LIST_NOUN[from]);
+  }
+  if (from === 'mood' && to !== 'mood' && Array.isArray(cfg.icons) && cfg.icons.length) {
+    dropped.push(LIST_NOUN.mood);
   }
 
   const keep = new Set(CARRIES[to] || []);
@@ -311,6 +407,114 @@ export function optionLabel(opt) {
 export function optionLabels(config) {
   const opts = Array.isArray(config?.options) ? config.options : [];
   return opts.map(optionLabel);
+}
+
+// =====================================================================
+// Shapes the newer types are built on
+//
+// Each of these reads a config defensively and returns the canonical
+// shape, so a half-written slide in the editor renders instead of
+// throwing, and so the phone, the projector and the CSV can never
+// disagree about how many blanks or pairs a question has.
+// =====================================================================
+
+/** The two types whose content is a list of {left, right} pairs. */
+export const PAIR_TYPES = new Set(['this_or_that', 'matching']);
+
+export function pairList(config) {
+  const raw = Array.isArray(config?.pairs) ? config.pairs : [];
+  return raw
+    .map((p) => ({
+      left: String(typeof p === 'string' ? p : p?.left ?? '').trim(),
+      right: String(typeof p === 'string' ? '' : p?.right ?? '').trim(),
+    }))
+    .filter((p) => p.left || p.right);
+}
+
+export function trafficLabels(config) {
+  const raw = Array.isArray(config?.labels) ? config.labels : [];
+  return DEFAULT_TRAFFIC.map((dflt, i) => String(raw[i] ?? '').trim() || dflt);
+}
+
+export function moodIcons(config) {
+  const raw = Array.isArray(config?.icons) ? config.icons : [];
+  const list = raw
+    .map((m) => ({
+      emoji: String(typeof m === 'string' ? m : m?.emoji ?? '').trim(),
+      label: String(typeof m === 'string' ? '' : m?.label ?? '').trim(),
+    }))
+    .filter((m) => m.emoji);
+  return list.length ? list : DEFAULT_MOODS.map((m) => ({ ...m }));
+}
+
+export function exitPrompts(config) {
+  const raw = Array.isArray(config?.prompts) ? config.prompts : [];
+  const list = raw.map((p) => String(optionLabel(p)).trim()).filter(Boolean);
+  return list.length ? list : [...DEFAULT_EXIT_PROMPTS];
+}
+
+export function timelineItems(config) {
+  const raw = Array.isArray(config?.items) ? config.items : [];
+  return raw.map((it) => String(optionLabel(it)));
+}
+
+/** Budget's pot. Always a whole number of points, always at least 1. */
+export function budgetTotal(config) {
+  const n = Number(config?.total);
+  return Number.isFinite(n) && n >= 1 ? Math.round(n) : 100;
+}
+
+/**
+ * Split a fill-in-the-blank sentence into text and blanks.
+ *
+ * The answer key is written inline — "The [mitochondrion|mitochondria] is
+ * the powerhouse" — rather than in a list beside the sentence. One string
+ * to edit means the key cannot drift out of step with the blanks, which is
+ * the failure mode of every cloze tool that keeps them apart. A pipe
+ * separates answers that should all count.
+ */
+export function clozeParts(text) {
+  const src = String(text || '');
+  const out = [];
+  const re = /\[([^\]]*)\]/g;
+  let last = 0;
+  let m = re.exec(src);
+  while (m) {
+    if (m.index > last) out.push({ kind: 'text', text: src.slice(last, m.index) });
+    out.push({
+      kind: 'blank',
+      answers: m[1].split('|').map((s) => s.trim()).filter(Boolean),
+    });
+    last = m.index + m[0].length;
+    m = re.exec(src);
+  }
+  if (last < src.length) out.push({ kind: 'text', text: src.slice(last) });
+  return out;
+}
+
+export function clozeBlanks(config) {
+  return clozeParts(config?.text).filter((p) => p.kind === 'blank');
+}
+
+/**
+ * Does a typed answer match a blank's key?
+ *
+ * Case and surrounding punctuation are ignored by default, because a
+ * student who typed "Mitochondria." knew the answer and marking them
+ * wrong for a full stop teaches them about the software, not the subject.
+ * An unkeyed blank is never wrong — some blanks exist to be discussed.
+ */
+export function clozeMatches(answers, given, caseSensitive = false) {
+  const keys = (answers || []).filter(Boolean);
+  if (!keys.length) return null;
+  const norm = (s) => {
+    const t = String(s || '').normalize('NFKC').replace(/\s+/g, ' ').trim()
+      .replace(/^[^\p{L}\p{N}]+/u, '').replace(/[^\p{L}\p{N}]+$/u, '');
+    return caseSensitive ? t : t.toLocaleLowerCase();
+  };
+  const g = norm(given);
+  if (!g) return false;
+  return keys.some((k) => norm(k) === g);
 }
 
 /** Indices of correct options — presenter side only, never sent to phones. */
@@ -479,6 +683,117 @@ export function validateResponse(type, config, raw) {
         return { ok: false, error: 'Rank every item.' };
       }
       return { ok: true, payload: withRiders({ order: clean }, raw) };
+    }
+
+    case 'traffic': {
+      const choice = raw?.choice;
+      if (!Number.isInteger(choice) || choice < 0 || choice > 2) {
+        return { ok: false, error: 'Pick one first.' };
+      }
+      return { ok: true, payload: withRiders({ choice }, raw) };
+    }
+
+    case 'mood': {
+      const icons = moodIcons(cfg);
+      const choice = raw?.choice;
+      if (!Number.isInteger(choice) || choice < 0 || choice >= icons.length) {
+        return { ok: false, error: 'Pick one first.' };
+      }
+      return { ok: true, payload: withRiders({ choice }, raw) };
+    }
+
+    case 'this_or_that': {
+      const pairs = pairList(cfg);
+      if (!pairs.length) return { ok: false, error: 'This question has no pairs yet.' };
+      const given = Array.isArray(raw?.picks) ? raw.picks : [];
+      const picks = pairs.map((_, i) => (given[i] === 0 || given[i] === 1 ? given[i] : null));
+      const answered = picks.filter((p) => p != null).length;
+      if (!answered) return { ok: false, error: 'Pick a side on at least one.' };
+      if (!cfg.allow_skip && answered < pairs.length) {
+        return { ok: false, error: 'Pick a side on every one.' };
+      }
+      return { ok: true, payload: withRiders({ picks }, raw) };
+    }
+
+    case 'budget': {
+      const labels = optionLabels(cfg);
+      if (!labels.length) return { ok: false, error: 'This question has nothing to fund yet.' };
+      const total = budgetTotal(cfg);
+      const given = Array.isArray(raw?.alloc) ? raw.alloc : [];
+      const alloc = labels.map((_, i) => {
+        const n = Number(given[i]);
+        return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+      });
+      const spent = alloc.reduce((s, n) => s + n, 0);
+      if (spent === 0) return { ok: false, error: `Spend your ${total} points first.` };
+      // Spending exactly the pot is the whole exercise: a half-spent budget
+      // is a preference, and preferences are what the other types are for.
+      if (spent !== total) {
+        return {
+          ok: false,
+          error: spent > total
+            ? `That's ${spent} of ${total} — take ${spent - total} back.`
+            : `That's ${spent} of ${total} — ${total - spent} still to place.`,
+        };
+      }
+      return { ok: true, payload: withRiders({ alloc }, raw) };
+    }
+
+    case 'probability': {
+      const n = Number(raw?.pct);
+      if (!Number.isFinite(n)) return { ok: false, error: 'Slide to your estimate first.' };
+      const pct = Math.min(100, Math.max(0, Math.round(n)));
+      return { ok: true, payload: withRiders({ pct }, raw) };
+    }
+
+    case 'cloze': {
+      const blanks = clozeBlanks(cfg);
+      if (!blanks.length) return { ok: false, error: 'This question has no blanks yet.' };
+      const given = Array.isArray(raw?.blanks) ? raw.blanks : [];
+      const filled = blanks.map((_, i) => cleanText(given[i], 40));
+      if (!filled.some(Boolean)) return { ok: false, error: 'Fill in at least one blank.' };
+      return { ok: true, payload: withRiders({ blanks: filled }, raw) };
+    }
+
+    case 'matching': {
+      const pairs = pairList(cfg);
+      if (!pairs.length) return { ok: false, error: 'This question has no pairs yet.' };
+      const given = Array.isArray(raw?.matches) ? raw.matches : [];
+      const matches = pairs.map((_, i) => {
+        const v = given[i];
+        return Number.isInteger(v) && v >= 0 && v < pairs.length ? v : null;
+      });
+      const answered = matches.filter((m) => m != null).length;
+      if (!answered) return { ok: false, error: 'Match at least one.' };
+      if (!cfg.allow_partial && answered < pairs.length) {
+        return { ok: false, error: 'Match every one.' };
+      }
+      return { ok: true, payload: withRiders({ matches }, raw) };
+    }
+
+    case 'timeline': {
+      const items = timelineItems(cfg);
+      const order = Array.isArray(raw?.order) ? raw.order : [];
+      const clean = [];
+      for (const i of order) {
+        if (Number.isInteger(i) && i >= 0 && i < items.length && !clean.includes(i)) clean.push(i);
+      }
+      if (!clean.length) return { ok: false, error: 'Put them in order first.' };
+      if (!cfg.allow_partial && clean.length !== items.length) {
+        return { ok: false, error: 'Place every one.' };
+      }
+      return { ok: true, payload: withRiders({ order: clean }, raw) };
+    }
+
+    case 'exit_ticket': {
+      const prompts = exitPrompts(cfg);
+      const limit = clampInt(cfg.max_length, 20, 1000, 200);
+      const given = Array.isArray(raw?.answers) ? raw.answers : [];
+      const answers = prompts.map((_, i) => cleanText(given[i], limit));
+      // Any one of the three is a real answer — a student who has a
+      // question but nothing else to report should still be able to send.
+      if (!answers.some(Boolean)) return { ok: false, error: 'Answer at least one of them.' };
+      return { ok: true, payload: withRiders({ answers }, raw) };
     }
 
     case 'qa':
@@ -717,6 +1032,264 @@ export function aggregate(type, config, rows) {
       };
     }
 
+    case 'traffic':
+    case 'mood': {
+      const slots = type === 'traffic'
+        ? trafficLabels(cfg).map((label) => ({ label, emoji: null }))
+        : moodIcons(cfg).map((m) => ({ label: m.label, emoji: m.emoji }));
+      const counts = new Array(slots.length).fill(0);
+      let total = 0;
+      for (const p of payloads) {
+        if (!Number.isInteger(p.choice) || p.choice < 0 || p.choice >= counts.length) continue;
+        counts[p.choice] += 1;
+        total += 1;
+      }
+      return {
+        type, total,
+        options: slots.map((s, i) => ({
+          ...s, count: counts[i], pct: total ? (counts[i] / total) * 100 : 0,
+        })),
+      };
+    }
+
+    case 'this_or_that': {
+      const pairs = pairList(cfg);
+      const left = new Array(pairs.length).fill(0);
+      const right = new Array(pairs.length).fill(0);
+      let total = 0;
+      for (const p of payloads) {
+        const picks = Array.isArray(p.picks) ? p.picks : [];
+        let any = false;
+        picks.forEach((v, i) => {
+          if (i >= pairs.length) return;
+          if (v === 0) { left[i] += 1; any = true; }
+          else if (v === 1) { right[i] += 1; any = true; }
+        });
+        if (any) total += 1;
+      }
+      return {
+        type, total,
+        pairs: pairs.map((pair, i) => {
+          const n = left[i] + right[i];
+          return {
+            left: pair.left, right: pair.right,
+            leftCount: left[i], rightCount: right[i], count: n,
+            // the split, as the left side's share — the bar is a rope,
+            // and 50 means the room is genuinely torn
+            leftPct: n ? (left[i] / n) * 100 : 50,
+          };
+        }),
+      };
+    }
+
+    case 'budget': {
+      const labels = optionLabels(cfg);
+      const total = budgetTotal(cfg);
+      const sums = new Array(labels.length).fill(0);
+      const values = labels.map(() => []);
+      let n = 0;
+      for (const p of payloads) {
+        const alloc = Array.isArray(p.alloc) ? p.alloc : [];
+        if (!alloc.some((v) => Number(v) > 0)) continue;
+        n += 1;
+        labels.forEach((_, i) => {
+          const v = Number(alloc[i]);
+          const clean = Number.isFinite(v) && v > 0 ? v : 0;
+          sums[i] += clean;
+          values[i].push(clean);
+        });
+      }
+      const pot = n * total;
+      return {
+        type, total: n, pot: total,
+        // Share of the whole room's money, not the mean of the means —
+        // the two differ the moment anyone skips, and the first is the
+        // one that answers "what did the room fund?"
+        options: labels.map((label, i) => ({
+          label,
+          points: sums[i],
+          share: pot ? (sums[i] / pot) * 100 : 0,
+          avg: n ? sums[i] / n : 0,
+          // every individual allocation, so the chart can show that an
+          // average of 25 was six people at zero and two at a hundred
+          values: values[i],
+          zeros: values[i].filter((v) => v === 0).length,
+        })),
+      };
+    }
+
+    case 'probability': {
+      const values = [];
+      for (const p of payloads) {
+        const v = Number(p.pct);
+        if (Number.isFinite(v)) values.push(Math.min(100, Math.max(0, v)));
+      }
+      const bins = new Array(10).fill(0);
+      for (const v of values) bins[Math.min(9, Math.floor(v / 10))] += 1;
+      const sorted = [...values].sort((a, b) => a - b);
+      const median = sorted.length
+        ? (sorted.length % 2
+          ? sorted[(sorted.length - 1) / 2]
+          : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2)
+        : null;
+      const truth = Number.isFinite(Number(cfg.truth)) && cfg.truth !== null && cfg.truth !== ''
+        ? Math.min(100, Math.max(0, Math.round(Number(cfg.truth))))
+        : null;
+      return { type, total: values.length, values, bins, median, truth };
+    }
+
+    case 'cloze': {
+      const blanks = clozeBlanks(cfg);
+      const tallies = blanks.map(() => new Map());
+      let total = 0;
+      for (const p of payloads) {
+        const given = Array.isArray(p.blanks) ? p.blanks : [];
+        let any = false;
+        blanks.forEach((_, i) => {
+          const text = cleanText(given[i], 40);
+          if (!text) return;
+          const key = cfg.case_sensitive ? text : text.toLocaleLowerCase();
+          const cur = tallies[i].get(key) || { text, count: 0 };
+          cur.count += 1;
+          tallies[i].set(key, cur);
+          any = true;
+        });
+        if (any) total += 1;
+      }
+      return {
+        type, total,
+        // the sentence travels with its results: the projector draws the
+        // prose, not just the tally, and shouldn't have to re-read config
+        parts: clozeParts(cfg.text),
+        blanks: blanks.map((b, i) => {
+          const answers = [...tallies[i].values()]
+            .map((a) => ({
+              ...a,
+              correct: clozeMatches(b.answers, a.text, !!cfg.case_sensitive),
+            }))
+            .sort((x, y) => y.count - x.count || x.text.localeCompare(y.text));
+          const answered = answers.reduce((s, a) => s + a.count, 0);
+          const right = answers.filter((a) => a.correct === true)
+            .reduce((s, a) => s + a.count, 0);
+          return {
+            key: b.answers,
+            answers: answers.slice(0, 12),
+            distinct: answers.length,
+            count: answered,
+            correct: right,
+            pct: answered ? (right / answered) * 100 : 0,
+          };
+        }),
+      };
+    }
+
+    case 'matching': {
+      const pairs = pairList(cfg);
+      const n = pairs.length;
+      // counts[left][right] — the confusion matrix. The diagonal is
+      // "right"; everything off it is a specific, nameable mix-up, which
+      // is the thing worth teaching to.
+      const counts = pairs.map(() => new Array(n).fill(0));
+      let total = 0;
+      let exact = 0;
+      for (const p of payloads) {
+        const matches = Array.isArray(p.matches) ? p.matches : [];
+        let any = false;
+        let allRight = true;
+        pairs.forEach((_, i) => {
+          const v = matches[i];
+          if (!Number.isInteger(v) || v < 0 || v >= n) { allRight = false; return; }
+          counts[i][v] += 1;
+          any = true;
+          if (v !== i) allRight = false;
+        });
+        if (any) total += 1;
+        if (any && allRight) exact += 1;
+      }
+      const rows = pairs.map((pair, i) => {
+        const answered = counts[i].reduce((s, c) => s + c, 0);
+        const worst = counts[i]
+          .map((c, j) => ({ j, c }))
+          .filter((x) => x.j !== i && x.c > 0)
+          .sort((a, b) => b.c - a.c)[0] || null;
+        return {
+          left: pair.left,
+          right: pair.right,
+          counts: counts[i],
+          count: answered,
+          correct: counts[i][i],
+          pct: answered ? (counts[i][i] / answered) * 100 : 0,
+          confusedWith: worst ? { index: worst.j, label: pairs[worst.j].right, count: worst.c } : null,
+        };
+      });
+      return {
+        type, total, exact,
+        rights: pairs.map((p) => p.right),
+        rows,
+      };
+    }
+
+    case 'timeline': {
+      const items = timelineItems(cfg);
+      const n = items.length;
+      // places[item][position] — where the room put each event. The
+      // config's own order IS the answer key, so item i belongs at i.
+      const places = items.map(() => new Array(n).fill(0));
+      const points = new Array(n).fill(0);
+      let total = 0;
+      let exact = 0;
+      for (const p of payloads) {
+        const order = Array.isArray(p.order) ? p.order : [];
+        if (!order.length) continue;
+        total += 1;
+        let allRight = order.length === n;
+        order.forEach((itemIndex, place) => {
+          if (itemIndex < 0 || itemIndex >= n) return;
+          if (place < n) places[itemIndex][place] += 1;
+          points[itemIndex] += Math.max(0, n - place);
+          if (itemIndex !== place) allRight = false;
+        });
+        if (allRight) exact += 1;
+      }
+      const consensus = items
+        .map((label, i) => ({ label, index: i, points: points[i] }))
+        .sort((a, b) => b.points - a.points || a.index - b.index)
+        .map((it, i) => ({ ...it, place: i }));
+      return {
+        type, total, exact,
+        items: items.map((label, i) => {
+          const answered = places[i].reduce((s, c) => s + c, 0);
+          return {
+            label,
+            index: i,
+            places: places[i],
+            count: answered,
+            correct: places[i][i] || 0,
+            pct: answered ? ((places[i][i] || 0) / answered) * 100 : 0,
+          };
+        }),
+        consensus,
+      };
+    }
+
+    case 'exit_ticket': {
+      const prompts = exitPrompts(cfg);
+      const columns = prompts.map((label) => ({ label, entries: [] }));
+      let total = 0;
+      for (const p of payloads) {
+        const answers = Array.isArray(p.answers) ? p.answers : [];
+        let any = false;
+        prompts.forEach((_, i) => {
+          const text = cleanText(answers[i], 1000);
+          if (!text) return;
+          columns[i].entries.push({ text });
+          any = true;
+        });
+        if (any) total += 1;
+      }
+      return { type, total, columns };
+    }
+
     default:
       return { type, total: 0 };
   }
@@ -905,8 +1478,120 @@ export function payloadToText(type, config, payload) {
       }
       return (payload.picks || []).map((i) => `S${i + 1}`).join(' | ');
     }
+    case 'traffic':
+      return trafficLabels(cfg)[payload.choice] ?? '';
+    case 'mood': {
+      const m = moodIcons(cfg)[payload.choice];
+      return m ? (m.label || m.emoji) : '';
+    }
+    case 'this_or_that': {
+      const pairs = pairList(cfg);
+      return (payload.picks || [])
+        .map((v, i) => {
+          const p = pairs[i];
+          if (!p || v == null) return null;
+          return `${p.left} vs ${p.right}=${v === 0 ? p.left : p.right}`;
+        })
+        .filter(Boolean).join(' | ');
+    }
+    case 'budget': {
+      const labels = optionLabels(cfg);
+      return (payload.alloc || [])
+        .map((v, i) => (v > 0 ? `${labels[i] || `#${i + 1}`}=${v}` : null))
+        .filter(Boolean).join(' | ');
+    }
+    case 'probability':
+      return payload.pct == null ? '' : `${payload.pct}%`;
+    case 'cloze': {
+      const blanks = clozeBlanks(cfg);
+      return (payload.blanks || [])
+        .map((text, i) => {
+          if (!text) return null;
+          const hit = clozeMatches(blanks[i]?.answers, text, !!cfg.case_sensitive);
+          return `${i + 1}. ${text}${hit === null ? '' : hit ? ' ✓' : ' ✗'}`;
+        })
+        .filter(Boolean).join(' | ');
+    }
+    case 'matching': {
+      const pairs = pairList(cfg);
+      return (payload.matches || [])
+        .map((v, i) => {
+          if (v == null || !pairs[i]) return null;
+          return `${pairs[i].left}=${pairs[v]?.right ?? `#${v}`}${v === i ? ' ✓' : ' ✗'}`;
+        })
+        .filter(Boolean).join(' | ');
+    }
+    case 'timeline': {
+      const items = timelineItems(cfg);
+      return (payload.order || [])
+        .map((i, place) => `${place + 1}. ${items[i] || `#${i}`}${i === place ? ' ✓' : ' ✗'}`)
+        .join(' | ');
+    }
+    case 'exit_ticket': {
+      const prompts = exitPrompts(cfg);
+      return (payload.answers || [])
+        .map((text, i) => (text ? `${prompts[i] || `#${i + 1}`}: ${text}` : null))
+        .filter(Boolean).join(' | ');
+    }
     default:
       return JSON.stringify(payload);
+  }
+}
+
+/**
+ * The `correct` CSV column, for the types that have a key.
+ *
+ * Empty string, not "no", for everything unkeyed: an opinion has no
+ * correctness, and a column of "no" against a mood check would read as a
+ * verdict on students for how their day is going.
+ *
+ * For the types answered in several parts (blanks, pairs, an order) the
+ * cell is "3/4" rather than yes/no, because a partly-right answer is the
+ * normal case there and flattening it to "no" throws away the grade.
+ */
+export function answerCorrectness(type, config, payload) {
+  if (!payload) return '';
+  const cfg = config || {};
+  const part = (right, of) => (of ? `${right}/${of}` : '');
+
+  switch (type) {
+    case 'quiz':
+      return correctIndices(cfg).includes(payload.choice) ? 'yes' : 'no';
+    case 'multiple_choice': {
+      const key = correctIndices(cfg);
+      if (cfg.mode !== 'best' || !key.length) return '';
+      const picks = Array.isArray(payload.choices) ? payload.choices : [];
+      if (!picks.length) return '';
+      return picks.every((i) => key.includes(i)) ? 'yes' : 'no';
+    }
+    case 'cloze': {
+      const blanks = clozeBlanks(cfg);
+      const given = Array.isArray(payload.blanks) ? payload.blanks : [];
+      let keyed = 0;
+      let right = 0;
+      blanks.forEach((b, i) => {
+        const hit = clozeMatches(b.answers, given[i], !!cfg.case_sensitive);
+        if (hit === null) return;
+        keyed += 1;
+        if (hit) right += 1;
+      });
+      return part(right, keyed);
+    }
+    case 'matching': {
+      const pairs = pairList(cfg);
+      const matches = Array.isArray(payload.matches) ? payload.matches : [];
+      const answered = matches.filter((m) => m != null).length;
+      if (!answered) return '';
+      return part(matches.filter((m, i) => m === i).length, pairs.length);
+    }
+    case 'timeline': {
+      const items = timelineItems(cfg);
+      const order = Array.isArray(payload.order) ? payload.order : [];
+      if (!order.length) return '';
+      return part(order.filter((itemIndex, place) => itemIndex === place).length, items.length);
+    }
+    default:
+      return '';
   }
 }
 
@@ -931,9 +1616,7 @@ export function sessionToCSVRows(session, questions, responses) {
       round: r.round,
       respondent: r.pseudonym,
       answer: payloadToText(q.type, q.config, r.payload),
-      correct: q.type === 'quiz'
-        ? (correctIndices(q.config).includes(r.payload?.choice) ? 'yes' : 'no')
-        : '',
+      correct: answerCorrectness(q.type, q.config, r.payload),
       points: q.type === 'quiz' ? scoreAnswer(r.payload, q.config) : '',
       submitted_at: r.created_at || '',
     });

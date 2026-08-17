@@ -17,15 +17,26 @@ import {
   neighbourQuestion, sortedQuestions, MULTI_SUBMIT_TYPES,
   splitPassage, promptKey, isContentSlide, fillJoinPlaceholders, DEFAULT_JOIN_STEPS,
   questionNumber, retypeQuestion, defaultConfig, TYPE_LABELS, promptScale, showSlideLabel, QUESTION_TYPES, CONTENT_TYPES,
+  clozeParts, clozeMatches, answerCorrectness,
 } from '../app/logic.js';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { parseDeck, serialiseDeck, SAMPLE_DECK } from '../app/deck-format.js';
 import { ambiencePlan, ambienceLevel } from '../app/ambience.js';
-import { BACKGROUND_PRESETS, CHART_STYLES } from '../app/themes.js';
+import {
+  BACKGROUND_PRESETS, CHART_STYLES, THEMES, CUSTOM_FONTS,
+  getTheme, auditTheme, contrastRatio, buildCustomTheme, deriveTokens,
+} from '../app/themes.js';
 import { CHART_ICONS } from '../app/icons.js';
 import {
+  ELEMENT_LIST, getElement, hasElement, searchElements,
+  anchorId, anchorPos, anchorLabel, ANCHORS, RESERVED_ZONES, reservedAt,
+  coord, readPos, posName, posLabel, LAYERS, layerId, DEFAULT_LAYER,
+  sizeId, colorId, colorValue, weightValue, rotValue, opacityValue,
+  normaliseDecor, decorOf, MAX_DECOR, SIZES, COLOR_TOKENS, WEIGHTS,
+} from '../app/elements.js';
+import {
   Spring, SpringGroup, PRESETS, stagger, easeOutExpo, easeOutCubic,
-  toRGB, rgba, mixColor, luminance, readableOn, harmonicSeries,
+  toRGB, rgba, mixColor, luminance, readableOn, harmonicSeries, hueWheel,
   srgbToOklab, oklabToSrgb,
 } from '../app/motion.js';
 
@@ -1442,6 +1453,332 @@ describe('new types stay FERPA-clean in the CSV', () => {
   });
 });
 
+// =====================================================================
+// Second-wave slide types
+// =====================================================================
+
+describe('traffic light and mood check', () => {
+  it('accepts only a real light, and names it in the CSV', () => {
+    const cfg = defaultConfig('traffic');
+    ok(validateResponse('traffic', cfg, { choice: 2 }).ok);
+    notOk(validateResponse('traffic', cfg, { choice: 3 }).ok);
+    notOk(validateResponse('traffic', cfg, {}).ok);
+    eq(payloadToText('traffic', cfg, { choice: 1 }), 'Losing the thread');
+  });
+
+  it('falls back to the default wording per slot, not wholesale', () => {
+    const agg = aggregate('traffic', { labels: ['All good', '', ''] },
+      [{ payload: { choice: 0 } }, { payload: { choice: 0 } }, { payload: { choice: 2 } }]);
+    eq(agg.options[0].label, 'All good');
+    eq(agg.options[1].label, 'Losing the thread');   // the untouched slot
+    eq(agg.total, 3);
+    eq(Math.round(agg.options[0].pct), 67);
+  });
+
+  it('mood carries the emoji through to the chart and the label to the CSV', () => {
+    const cfg = { icons: [{ emoji: '☀️', label: 'Clear' }, { emoji: '🌧️', label: 'Rough' }] };
+    const agg = aggregate('mood', cfg, [{ payload: { choice: 1 } }]);
+    eq(agg.options[1].emoji, '🌧️');
+    eq(agg.options[1].count, 1);
+    eq(payloadToText('mood', cfg, { choice: 1 }), 'Rough');
+  });
+});
+
+describe('this or that', () => {
+  const cfg = { pairs: [{ left: 'Cats', right: 'Dogs' }, { left: 'Tea', right: 'Coffee' }] };
+
+  it('demands a side on every pair unless skipping is allowed', () => {
+    notOk(validateResponse('this_or_that', cfg, { picks: [0] }).ok);
+    ok(validateResponse('this_or_that', { ...cfg, allow_skip: true }, { picks: [0] }).ok);
+    notOk(validateResponse('this_or_that', cfg, { picks: [] }).ok);
+    eq(validateResponse('this_or_that', cfg, { picks: [0, 1] }).payload.picks.join(','), '0,1');
+  });
+
+  it('counts each rope separately and sits at 50 with nothing in', () => {
+    const agg = aggregate('this_or_that', cfg, [
+      { payload: { picks: [0, 1] } },
+      { payload: { picks: [0, null] } },
+    ]);
+    eq(agg.total, 2);
+    eq(agg.pairs[0].leftCount, 2);
+    eq(agg.pairs[0].leftPct, 100);
+    eq(agg.pairs[1].count, 1);
+    const empty = aggregate('this_or_that', cfg, []);
+    eq(empty.pairs[0].leftPct, 50);
+  });
+});
+
+describe('budget split', () => {
+  const cfg = { options: ['Labs', 'Readings', 'Review'], total: 100 };
+
+  it('insists the pot is spent exactly, and says by how much', () => {
+    ok(validateResponse('budget', cfg, { alloc: [50, 30, 20] }).ok);
+    notOk(validateResponse('budget', cfg, { alloc: [0, 0, 0] }).ok);
+    ok(validateResponse('budget', cfg, { alloc: [50, 30, 10] }).error.includes('10 still'));
+    ok(validateResponse('budget', cfg, { alloc: [90, 30, 0] }).error.includes('20 back'));
+  });
+
+  it('reports the room’s share and keeps every individual allocation', () => {
+    const agg = aggregate('budget', cfg, [
+      { payload: { alloc: [100, 0, 0] } },
+      { payload: { alloc: [0, 50, 50] } },
+    ]);
+    eq(agg.total, 2);
+    eq(agg.options[0].points, 100);
+    eq(agg.options[0].share, 50);
+    // the spread is the point: an average of 50 was one 100 and one 0
+    eq(agg.options[0].values.join(','), '100,0');
+    eq(agg.options[0].zeros, 1);
+  });
+});
+
+describe('probability slider', () => {
+  it('clamps to a whole percentage', () => {
+    eq(validateResponse('probability', {}, { pct: 73.6 }).payload.pct, 74);
+    eq(validateResponse('probability', {}, { pct: 120 }).payload.pct, 100);
+    notOk(validateResponse('probability', {}, {}).ok);
+    eq(payloadToText('probability', {}, { pct: 30 }), '30%');
+  });
+
+  it('bins the room and reports a median, not a mean', () => {
+    const rows = [0, 60, 65, 70, 100].map((pct) => ({ payload: { pct } }));
+    const agg = aggregate('probability', { truth: 70 }, rows);
+    eq(agg.total, 5);
+    eq(agg.median, 65);           // a mean would be dragged to 59 by the 0
+    eq(agg.truth, 70);
+    eq(agg.bins[6], 2);           // 60–69
+    eq(agg.bins.reduce((s, n) => s + n, 0), 5);
+  });
+
+  it('treats a blank answer key as no key at all', () => {
+    eq(aggregate('probability', { truth: null }, []).truth, null);
+    eq(aggregate('probability', { truth: '' }, []).truth, null);
+    eq(aggregate('probability', { truth: 0 }, []).truth, 0);   // 0% is an answer
+  });
+});
+
+describe('fill in the blank', () => {
+  const cfg = { text: 'The [mitochondrion|mitochondria] is the powerhouse of the [cell].' };
+
+  it('parses blanks and their accepted answers out of the sentence', () => {
+    const parts = clozeParts(cfg.text);
+    eq(parts.filter((p) => p.kind === 'blank').length, 2);
+    eq(parts[1].answers.join('|'), 'mitochondrion|mitochondria');
+    eq(clozeParts('no blanks here').length, 1);
+  });
+
+  it('forgives case and trailing punctuation, but not the wrong word', () => {
+    ok(clozeMatches(['cell'], 'Cell.'));
+    ok(clozeMatches(['colour', 'color'], 'COLOR'));
+    notOk(clozeMatches(['cell'], 'nucleus'));
+    notOk(clozeMatches(['cell'], ''));
+    notOk(clozeMatches(['cell'], 'Cell', true));      // case-sensitive slide
+    eq(clozeMatches([], 'anything'), null);           // unkeyed blank: never wrong
+  });
+
+  it('tallies per blank and marks which answers were right', () => {
+    const agg = aggregate('cloze', cfg, [
+      { payload: { blanks: ['mitochondria', 'cell'] } },
+      { payload: { blanks: ['Mitochondria', 'nucleus'] } },
+      { payload: { blanks: ['ribosome', 'cell'] } },
+    ]);
+    eq(agg.total, 3);
+    eq(agg.blanks[0].correct, 2);
+    eq(agg.blanks[0].answers[0].text, 'mitochondria');
+    eq(agg.blanks[0].answers[0].count, 2);
+    ok(agg.blanks[0].answers[0].correct);
+    eq(Math.round(agg.blanks[1].pct), 67);
+    // the sentence travels with the results so the projector can draw it
+    eq(agg.parts.filter((p) => p.kind === 'blank').length, 2);
+  });
+
+  it('scores partly-right answers as a fraction in the CSV', () => {
+    eq(answerCorrectness('cloze', cfg, { blanks: ['mitochondria', 'nucleus'] }), '1/2');
+    eq(answerCorrectness('cloze', { text: 'A [] b' }, { blanks: ['x'] }), '');
+  });
+});
+
+describe('matching pairs', () => {
+  const cfg = { pairs: [
+    { left: 'Weber', right: 'The Protestant Ethic' },
+    { left: 'Durkheim', right: 'Suicide' },
+    { left: 'Marx', right: 'Capital' },
+  ] };
+
+  it('accepts a full set of matches, and rejects a partial one by default', () => {
+    ok(validateResponse('matching', cfg, { matches: [0, 1, 2] }).ok);
+    notOk(validateResponse('matching', cfg, { matches: [0, null, null] }).ok);
+    ok(validateResponse('matching', { ...cfg, allow_partial: true },
+      { matches: [0, null, null] }).ok);
+    notOk(validateResponse('matching', cfg, { matches: [9, 9, 9] }).ok);
+  });
+
+  it('builds the confusion matrix and names the specific mix-up', () => {
+    const agg = aggregate('matching', cfg, [
+      { payload: { matches: [0, 1, 2] } },
+      { payload: { matches: [1, 0, 2] } },   // Weber ↔ Durkheim swapped
+      { payload: { matches: [1, 0, 2] } },
+    ]);
+    eq(agg.total, 3);
+    eq(agg.exact, 1);
+    eq(agg.rows[0].correct, 1);
+    eq(agg.rows[0].confusedWith.label, 'Suicide');
+    eq(agg.rows[0].confusedWith.count, 2);
+    eq(agg.rows[2].pct, 100);
+    eq(agg.rows[2].confusedWith, null);
+  });
+
+  it('marks the answer against the row it was written on', () => {
+    eq(answerCorrectness('matching', cfg, { matches: [0, 1, 2] }), '3/3');
+    eq(answerCorrectness('matching', cfg, { matches: [1, 0, 2] }), '1/3');
+  });
+});
+
+describe('timeline order', () => {
+  const cfg = { items: ['Treaty signed', 'Border redrawn', 'Election held'] };
+
+  it('takes a full order only, unless partial is allowed', () => {
+    ok(validateResponse('timeline', cfg, { order: [2, 0, 1] }).ok);
+    notOk(validateResponse('timeline', cfg, { order: [0] }).ok);
+    ok(validateResponse('timeline', { ...cfg, allow_partial: true }, { order: [0] }).ok);
+    // duplicates are dropped rather than rejected — a phone can only send
+    // them by racing itself, and half an order beats a lost answer
+    eq(validateResponse('timeline', cfg, { order: [0, 0, 1, 2] }).payload.order.join(','), '0,1,2');
+  });
+
+  it('counts where each event was placed, with config order as the key', () => {
+    const agg = aggregate('timeline', cfg, [
+      { payload: { order: [0, 1, 2] } },
+      { payload: { order: [1, 0, 2] } },
+    ]);
+    eq(agg.total, 2);
+    eq(agg.exact, 1);
+    eq(agg.items[0].places.join(','), '1,1,0');
+    eq(agg.items[2].correct, 2);
+    eq(agg.items[2].pct, 100);
+    eq(agg.consensus[0].label, 'Treaty signed');
+  });
+});
+
+describe('exit ticket', () => {
+  it('sends on any one of the three, and keeps the columns apart', () => {
+    const cfg = defaultConfig('exit_ticket');
+    ok(validateResponse('exit_ticket', cfg, { answers: ['', 'why entropy?', ''] }).ok);
+    notOk(validateResponse('exit_ticket', cfg, { answers: ['', '', ''] }).ok);
+
+    const agg = aggregate('exit_ticket', cfg, [
+      { payload: { answers: ['Borda counts', 'why entropy?', ''] } },
+      { payload: { answers: ['', 'what is a warrant?', 'the middle bit'] } },
+    ]);
+    eq(agg.total, 2);
+    eq(agg.columns[0].entries.length, 1);
+    eq(agg.columns[1].entries.length, 2);
+    eq(agg.columns[2].entries[0].text, 'the middle bit');
+    eq(agg.columns[1].label, 'A question you still have');
+  });
+});
+
+describe('the second wave round-trips the plain-text deck format', () => {
+  const src = `# Deck
+## traffic
+Still with me?
+- All good
+- Wobbling
+- Lost
+
+## this_or_that
+Pick a side
+- Cats | Dogs
+- Tea | Coffee
+allow_skip: true
+
+## budget
+Fund the semester
+- Labs
+- Readings
+total: 60
+
+## probability
+How likely is a recession this year?
+truth: 35
+
+## cloze
+Fill it in
+> The [mitochondrion|mitochondria] is the powerhouse of the [cell].
+
+## matching
+Match them up
+- Weber | The Protestant Ethic
+- Durkheim | Suicide
+
+## timeline
+Put these in order
+- Treaty signed
+- Border redrawn
+
+## exit_ticket
+Before you go
+- One thing you learned
+- A question you still have
+- The muddiest point
+`;
+
+  it('parses every one of them, with no errors', () => {
+    const deck = parseDeck(src);
+    eq(deck.errors.length, 0, deck.errors.join('; '));
+    eq(deck.questions.length, 8);
+    const [tr, tot, bu, pr, cl, ma, ti, ex] = deck.questions;
+    eq(tr.config.labels.join(','), 'All good,Wobbling,Lost');
+    eq(tot.config.pairs[1].right, 'Coffee');
+    eq(tot.config.allow_skip, true);
+    eq(bu.config.total, 60);
+    eq(pr.config.truth, 35);
+    eq(clozeParts(cl.config.text).filter((p) => p.kind === 'blank').length, 2);
+    eq(ma.config.pairs[0].right, 'The Protestant Ethic');
+    eq(ti.config.items.join(','), 'Treaty signed,Border redrawn');
+    eq(ex.config.prompts.length, 3);
+  });
+
+  it('serialise → parse survives the pairs, the pot and the answer key', () => {
+    const deck = parseDeck(src);
+    const again = parseDeck(serialiseDeck({ title: 'Deck', theme: 'lecture-hall' }, deck.questions));
+    eq(again.errors.length, 0, again.errors.join('; '));
+    const [tr, tot, bu, pr, cl, ma, ti, ex] = again.questions;
+    eq(tr.config.labels.join(','), 'All good,Wobbling,Lost');
+    eq(tot.config.pairs[0].left, 'Cats');
+    eq(bu.config.total, 60);
+    eq(pr.config.truth, 35);
+    eq(cl.config.text, deck.questions[4].config.text);
+    eq(ma.config.pairs[1].left, 'Durkheim');
+    eq(ti.config.items.length, 2);
+    eq(ex.config.prompts.join('|'), deck.questions[7].config.prompts.join('|'));
+  });
+
+  it('says so when a matching pair is missing its other half', () => {
+    const bad = parseDeck('# D\n## matching\nMatch\n- Weber | The Protestant Ethic\n- Durkheim\n');
+    ok(bad.errors.some((e) => e.includes('both halves')));
+  });
+});
+
+describe('the second wave stays FERPA-clean in the CSV', () => {
+  it('renders a readable cell for every one of them', () => {
+    eq(payloadToText('this_or_that', { pairs: [{ left: 'Cats', right: 'Dogs' }] },
+      { picks: [1] }), 'Cats vs Dogs=Dogs');
+    eq(payloadToText('budget', { options: ['Labs', 'Readings'] }, { alloc: [60, 40] }),
+      'Labs=60 | Readings=40');
+    eq(payloadToText('timeline', { items: ['A', 'B'] }, { order: [1, 0] }), '1. B ✗ | 2. A ✗');
+    eq(payloadToText('exit_ticket', defaultConfig('exit_ticket'),
+      { answers: ['Borda', '', ''] }), 'One thing you learned: Borda');
+  });
+
+  it('leaves the correctness column empty for everything unkeyed', () => {
+    eq(answerCorrectness('mood', {}, { choice: 1 }), '');
+    eq(answerCorrectness('traffic', {}, { choice: 0 }), '');
+    eq(answerCorrectness('probability', { truth: 50 }, { pct: 50 }), '');
+    eq(answerCorrectness('budget', {}, { alloc: [100] }), '');
+  });
+});
+
 describe('ambience — decorative backdrop motion', () => {
   const plan = (bg, theme = 'lecture-hall') => ambiencePlan(bg, theme);
 
@@ -1687,6 +2024,526 @@ describe('chart styles are all real', () => {
 });
 
 // =====================================================================
+describe('slide elements — the catalog', () => {
+  it('every element has markup, a label and a home', () => {
+    ok(ELEMENT_LIST.length > 200, `only ${ELEMENT_LIST.length} elements`);
+    for (const e of ELEMENT_LIST) {
+      ok(e.markup && e.markup.includes('<'), `${e.id} has no markup`);
+      ok(e.label && e.label.length > 1, `${e.id} has no label`);
+      ok(e.category, `${e.id} has no category`);
+    }
+  });
+
+  it('ids are unique — a duplicate silently loses one to the other', () => {
+    const ids = ELEMENT_LIST.map((e) => e.id);
+    eq(ids.length, new Set(ids).size, 'duplicate element id');
+  });
+
+  it('no element markup carries a hard-coded colour', () => {
+    // Colour is applied by elementSvg from theme tokens. A stray fill= or
+    // stroke= in the path data would survive re-theming and be the one
+    // sticker that stays blue on the chalkboard.
+    for (const e of ELEMENT_LIST) {
+      ok(!/(?:fill|stroke)="(?!none)(?!currentColor)[^"]*#/.test(e.markup),
+        `${e.id} hard-codes a colour`);
+    }
+  });
+
+  it('finds the obvious thing first', () => {
+    eq(searchElements('gavel')[0].id, 'gavel');
+    eq(searchElements('microscope')[0].id, 'microscope');
+    ok(searchElements('arrow').slice(0, 6).every((e) => /arrow|arc/.test(e.id)));
+    eq(searchElements('zzzznope').length, 0);
+    eq(searchElements('').length, ELEMENT_LIST.length);
+  });
+
+  it('an unknown id is null, not a broken element', () => {
+    eq(getElement('no-such-thing'), null);
+    notOk(hasElement('no-such-thing'));
+    ok(hasElement('microscope'));
+  });
+});
+
+describe('slide elements — placement', () => {
+  it('takes a free position as a percentage of the slide', () => {
+    eq(readPos('31.5,68.2'), { x: 31.5, y: 68.2 });
+    eq(readPos('50, 50'), { x: 50, y: 50 });
+    eq(readPos({ x: 12, y: 90 }), { x: 12, y: 90 });
+    eq(readPos('nonsense'), null);
+    eq(readPos(''), null);
+  });
+
+  it('clamps to the slide and rounds to a tenth', () => {
+    // pixels would be tied to one projector; percentages are not, and a
+    // tenth of a percent is finer than any eye at the back of a hall
+    eq(coord(120), 100);
+    eq(coord(-9), 0);
+    eq(coord(31.4567), 31.5);
+    eq(coord('nope'), null);
+    eq(coord('nope', 50), 50);
+  });
+
+  it('still understands the names, so old decks keep working', () => {
+    // placement used to be a grid of named slots; a deck written then
+    // must land in exactly the same place now
+    eq(readPos('top-right'), anchorPos('top-right'));
+    eq(readPos('center'), { x: 50, y: 50 });
+    eq(anchorId('top-right'), 'top-right');
+    eq(anchorId('Top Right'), 'top-right');
+    eq(anchorId('nowhere'), null);
+  });
+
+  it('writes a name back out when it sits exactly on one', () => {
+    // so a corner element still reads "@ top-right", not "@ 94,10"
+    const p = anchorPos('top-right');
+    eq(posName(p.x, p.y), 'top-right');
+    eq(posName(50, 50), 'mid-center');
+    eq(posName(31.5, 68.2), null);
+  });
+
+  it('describes a free position in words', () => {
+    eq(posLabel(50, 50), 'centre');
+    const free = posLabel(31.5, 68.2);
+    ok(free.startsWith('bottom left'), free);
+    ok(free.includes('32% across') && free.includes('68% down'), free);
+    // a position that lands exactly on a named spot is named, not numbered
+    const tr = anchorPos('top-right');
+    eq(posLabel(tr.x, tr.y), 'top right');
+  });
+
+  it('knows where the projector puts its own furniture', () => {
+    // decor draws under both, so this is a warning rather than a ban —
+    // but it has to describe real rectangles or the warning never fires
+    ok(RESERVED_ZONES.length >= 2);
+    for (const z of RESERVED_ZONES) {
+      ok(z.x2 > z.x1 && z.y2 > z.y1, `${z.id} is not a rectangle`);
+      ok(z.y2 <= 100 && z.x2 <= 100, `${z.id} runs off the slide`);
+    }
+    ok(reservedAt(95, 95), 'the QR corner must be flagged');
+    ok(reservedAt(50, 95), 'the control bar must be flagged');
+    eq(reservedAt(50, 20), null);
+  });
+});
+
+describe('slide elements — paint', () => {
+  it('takes theme tokens and hex, and refuses anything else', () => {
+    eq(colorId('accent'), 'accent');
+    eq(colorId('#1d4ed8'), '#1d4ed8');
+    eq(colorId('#ABC'), '#abc');
+    eq(colorId('none'), 'none');
+    eq(colorId('rebeccapurple'), null);
+    eq(colorId('javascript:alert(1)'), null);
+    eq(colorId('url(#x)'), null);
+  });
+
+  it('resolves a token to a CSS variable so it re-themes', () => {
+    eq(colorValue('accent'), 'var(--accent)');
+    eq(colorValue('#1d4ed8'), '#1d4ed8');
+    eq(colorValue('none'), 'none');
+    eq(colorValue('nonsense'), 'none');
+  });
+
+  it('every colour token names a real theme variable', () => {
+    for (const [, , cssVar] of COLOR_TOKENS) ok(cssVar.startsWith('--'), cssVar);
+  });
+
+  it('snaps a stroke weight to one that is offered', () => {
+    eq(weightValue(2), 2);
+    eq(weightValue('3'), 3);
+    eq(weightValue(2.37), 2.5);
+    eq(weightValue(99), 4);
+    eq(weightValue('fat'), null);
+  });
+
+  it('snaps rotation to 15 degrees and wraps it', () => {
+    eq(rotValue(15), 15);
+    eq(rotValue(17), 15);
+    eq(rotValue(-15), 345);
+    eq(rotValue(370), 15);
+    eq(rotValue('nope'), 0);
+  });
+
+  it('keeps opacity visible', () => {
+    eq(opacityValue(100), 100);
+    eq(opacityValue(0), 5);
+    eq(opacityValue(1000), 100);
+    eq(opacityValue('nope'), 100);
+  });
+
+  it('has a size scale that only grows', () => {
+    const vals = Object.values(SIZES);
+    for (let i = 1; i < vals.length; i += 1) ok(vals[i] > vals[i - 1], 'sizes must ascend');
+    eq(sizeId('LG'), 'lg');
+    eq(sizeId('enormous'), null);
+  });
+});
+
+describe('slide elements — normalising a placed one', () => {
+  it('fills in every default from a bare id', () => {
+    const home = anchorPos('top-right');
+    eq(normaliseDecor({ id: 'star' }), {
+      id: 'star', x: home.x, y: home.y, layer: 'front', size: 'md',
+      stroke: 'accent', fill: 'none', w: 2, rot: 0, flip: false, op: 100,
+    });
+  });
+
+  it('drops an element it cannot draw rather than leaving a hole', () => {
+    eq(normaliseDecor({ id: 'not-real' }), null);
+    eq(normaliseDecor(null), null);
+    eq(normaliseDecor('star'), null);
+  });
+
+  it('refuses a fill on an open line', () => {
+    // An arc has no inside; filling it produces a blob, so the fill is
+    // dropped here rather than rendered wrong.
+    eq(normaliseDecor({ id: 'mark-arc-right', fill: 'accent' }).fill, 'none');
+    eq(normaliseDecor({ id: 'star', fill: 'accent' }).fill, 'accent');
+  });
+
+  it('never produces an element with nothing to draw', () => {
+    // No stroke and no fill is an invisible element the instructor cannot
+    // find or select — one of the two has to hold.
+    const item = normaliseDecor({ id: 'star', w: 0, fill: 'none' });
+    ok(item.w > 0 || item.fill !== 'none', 'element would be invisible');
+  });
+
+  it('caps how much can be piled onto one slide', () => {
+    const many = Array.from({ length: 40 }, () => ({ id: 'star' }));
+    eq(decorOf({ decor: many }).length, MAX_DECOR);
+    eq(decorOf({}), []);
+    eq(decorOf(null), []);
+    eq(decorOf({ decor: 'not a list' }), []);
+  });
+});
+
+describe('slide elements — the deck format', () => {
+  const parseOne = (line) => {
+    const d = parseDeck(`# T\n\n## qa\nQ\n${line}\n`);
+    return { item: d.questions[0].config.decor?.[0], errors: d.errors };
+  };
+
+  it('reads a bare placement', () => {
+    const { item, errors } = parseOne('+ microscope');
+    eq(errors, []);
+    eq(item.id, 'microscope');
+    eq({ x: item.x, y: item.y }, anchorPos('top-right'));
+  });
+
+  it('reads a free position, and clamps one that runs off', () => {
+    const free = parseOne('+ star @ 31.5,68.2');
+    eq(free.errors, []);
+    eq({ x: free.item.x, y: free.item.y }, { x: 31.5, y: 68.2 });
+    const off = parseOne('+ star @ 120,-9');
+    eq({ x: off.item.x, y: off.item.y }, { x: 100, y: 0 });
+  });
+
+  it('reads every property, in any order', () => {
+    const { item, errors } = parseOne(
+      '+ star @ bottom-left xl fill:accent-soft w:3 rot:15 op:70 flip');
+    eq(errors, []);
+    const bl = anchorPos('bottom-left');
+    eq(item, {
+      id: 'star', x: bl.x, y: bl.y, layer: 'front', size: 'xl',
+      stroke: 'accent', fill: 'accent-soft', w: 3, rot: 15, flip: true, op: 70,
+    });
+  });
+
+  it('takes "@ top-right" and "@top-right" alike', () => {
+    const want = anchorPos('top-right');
+    eq({ x: parseOne('+ star @top-right').item.x, y: parseOne('+ star @top-right').item.y }, want);
+    eq({ x: parseOne('+ star @ top-right').item.x, y: parseOne('+ star @ top-right').item.y }, want);
+  });
+
+  it('treats a bare colour word as the line colour', () => {
+    eq(parseOne('+ star accent-2').item.stroke, 'accent-2');
+    eq(parseOne('+ star #ff0000').item.stroke, '#ff0000');
+  });
+
+  it('names the line and the mistake rather than dropping it quietly', () => {
+    ok(parseOne('+ nope-not-real').errors[0].includes('no element called'));
+    ok(parseOne('+ star @ nowhere').errors[0].includes('not a place'));
+    ok(parseOne('+ star bananas').errors[0].includes("don't know what"));
+    ok(parseOne('+ star fill:rebeccapurple').errors[0].includes('not a colour'));
+    ok(parseOne('+ mark-arc-right fill:accent').errors[0].includes('open line'));
+  });
+
+  it('a "+" line without a slide is not a crash', () => {
+    const d = parseDeck('# T\n+ star\n\n## qa\nQ\n');
+    ok(Array.isArray(d.questions));
+  });
+
+  it('round-trips through text without drifting', () => {
+    const src = [
+      '# Decor deck', 'theme: chalkboard', '',
+      '## multiple_choice', 'Which one?', '- A', '- B',
+      '+ microscope @ top-right lg',
+      '+ mark-arc-right @ 31.5,68.2 stroke:accent-2 w:3 rot:15 op:70 flip',
+      '+ mark-ring @ mid-center', '',
+    ].join('\n');
+
+    const first = parseDeck(src);
+    eq(first.errors, []);
+    const text = serialiseDeck(first, first.questions);
+    const second = parseDeck(text);
+    eq(second.errors, []);
+    eq(second.questions[0].config.decor, first.questions[0].config.decor);
+    // and again, so serialise(parse(serialise(x))) is a fixed point
+    eq(serialiseDeck(second, second.questions), text);
+  });
+
+  it('writes only what differs from the defaults', () => {
+    const d = parseDeck('# T\n\n## qa\nQ\n+ star @ top-right\n');
+    const text = serialiseDeck(d, d.questions);
+    eq(text.match(/^\+ .*$/m)[0], '+ star @ top-right');
+    notOk(/w:2|op:100|rot:0/.test(text), 'default values were written out');
+  });
+
+  it('leaves slides without elements alone', () => {
+    const d = parseDeck(SAMPLE_DECK);
+    eq(d.errors, []);
+    for (const q of d.questions) eq(q.config.decor, undefined);
+    notOk(serialiseDeck(d, d.questions).includes('\n+ '));
+  });
+
+  it('will not let a deck file pile on more than a slide can hold', () => {
+    const lines = Array.from({ length: 20 }, () => '+ star').join('\n');
+    const d = parseDeck(`# T\n\n## qa\nQ\n${lines}\n`);
+    eq(d.questions[0].config.decor.length, MAX_DECOR);
+    ok(d.errors.some((e) => e.includes(String(MAX_DECOR))));
+  });
+});
+
+describe('slide elements — layering', () => {
+  it('sits in front by default, because a mark points at something', () => {
+    eq(DEFAULT_LAYER, 'front');
+    eq(normaliseDecor({ id: 'star' }).layer, 'front');
+  });
+
+  it('takes "behind" as the word a person would use', () => {
+    eq(layerId('behind'), 'back');
+    eq(layerId('back'), 'back');
+    eq(layerId('front'), 'front');
+    eq(layerId('sideways'), null);
+    eq(layerId(''), null);
+    eq(normaliseDecor({ id: 'star', layer: 'behind' }).layer, 'back');
+    eq(normaliseDecor({ id: 'star', layer: 'nonsense' }).layer, 'front');
+  });
+
+  it('offers exactly the two layers, each with a reason', () => {
+    eq(LAYERS.length, 2);
+    for (const [id, label, why] of LAYERS) {
+      ok(layerId(id), `${id} is not a layer`);
+      ok(label && why, `${id} has no label or explanation`);
+    }
+  });
+
+  it('round-trips a watermark through the text format', () => {
+    const src = ['# T', '', '## qa', 'Q',
+      '+ microscope @ center behind xl op:15',
+      '+ mark-arc-right @ 31.5,68.2', ''].join('\n');
+    const d = parseDeck(src);
+    eq(d.errors, []);
+    eq(d.questions[0].config.decor.map((i) => i.layer), ['back', 'front']);
+
+    const text = serialiseDeck(d, d.questions);
+    ok(text.includes('behind'), text);
+    // the default side is never written out
+    eq((text.match(/front/g) || []).length, 0);
+    eq(parseDeck(text).questions[0].config.decor, d.questions[0].config.decor);
+  });
+
+  it('names a bad layer rather than silently fronting it', () => {
+    const d = parseDeck('# T\n\n## qa\nQ\n+ star layer:sideways\n');
+    ok(d.errors[0].includes('layer'), d.errors[0]);
+    eq(d.questions[0].config.decor[0].layer, 'front');
+  });
+});
+
+// =====================================================================
+
+describe('theme typography is self-hosted', () => {
+  // The regression this guards: a theme naming 'Optima' or 'Charter'
+  // first renders one way on a Mac, another on Windows and a third on
+  // Linux — the same deck, three different lectures. Every family a
+  // theme asks for FIRST has to be one we actually ship in fonts/, so
+  // the fallbacks after it are insurance against a failed download,
+  // never the thing most of the room sees.
+  const css = readFileSync(new URL('../styles/fonts.css', import.meta.url), 'utf8');
+  const declared = new Set([...css.matchAll(/font-family:\s*'([^']+)'/g)].map((m) => m[1]));
+  const files = new Set([...css.matchAll(/url\('\.\.\/fonts\/([^']+)'\)/g)].map((m) => m[1]));
+  const firstFamily = (stack) => stack.split(',')[0].trim().replace(/^['"]|['"]$/g, '');
+
+  it('declares every family with both a latin and a latin-ext file', () => {
+    ok(declared.size >= 8, `only ${declared.size} families declared`);
+    for (const fam of declared) {
+      const stem = fam.replace(/[^A-Za-z0-9]/g, '');
+      ok(files.has(`${stem}-Variable.woff2`), `${fam} has no latin file`);
+      ok(files.has(`${stem}-Variable-ext.woff2`), `${fam} has no latin-ext file`);
+    }
+  });
+
+  it('ships every declared font file', () => {
+    for (const f of files) {
+      const p = new URL(`../fonts/${f}`, import.meta.url);
+      ok(statSync(p).size > 1000, `fonts/${f} is missing or empty`);
+    }
+  });
+
+  it('never lets a theme lead with a font we do not ship', () => {
+    for (const [id, theme] of Object.entries(THEMES)) {
+      for (const token of ['--display', '--body']) {
+        const fam = firstFamily(theme.tokens[token]);
+        ok(declared.has(fam), `${id} ${token} leads with unshipped "${fam}"`);
+      }
+    }
+  });
+
+  it('never lets a custom-theme headline lead with a font we do not ship', () => {
+    for (const [id, font] of Object.entries(CUSTOM_FONTS)) {
+      const fam = firstFamily(font.css);
+      ok(declared.has(fam), `builder font ${id} leads with unshipped "${fam}"`);
+    }
+  });
+});
+
+// =====================================================================
+// Accessibility — WCAG 2.1 AA, asserted rather than audited.
+//
+// The point of these is that they fail when someone adds a 21st theme,
+// nudges an accent, or reaches for a raw palette token where type goes.
+// The long-form findings and the reasoning live in docs/accessibility.md;
+// `node tools/a11y-contrast.mjs` prints the same checks with ratios.
+// =====================================================================
+
+describe('accessibility — theme contrast', () => {
+  it('every built-in theme passes AA on every pair we draw', () => {
+    for (const id of Object.keys(THEMES)) {
+      const bad = auditTheme(getTheme(id));
+      ok(bad.length === 0,
+        `${id}: ${bad.map((b) => `${b.what} ${b.ratio.toFixed(2)}:1 (need ${b.need})`).join('; ')}`);
+    }
+  });
+
+  it('derives the tokens every themed surface reads', () => {
+    const need = ['--on-accent', '--on-good', '--on-bad', '--edge-strong',
+      '--accent-text', '--accent-2-text', '--good-text', '--bad-text'];
+    for (const id of Object.keys(THEMES)) {
+      const t = getTheme(id).tokens;
+      need.forEach((k) => ok(/^#[0-9a-f]{6}$/i.test(t[k] || ''), `${id} ${k}: ${t[k]}`));
+    }
+  });
+
+  it('never lets a theme state its own failing override', () => {
+    // deriveTokens honours an explicit value; auditTheme must still catch it
+    const broken = { tokens: { ...THEMES['clean-slate'].tokens, '--on-accent': '#e8f4ff' } };
+    ok(auditTheme(broken).some((b) => b.what.includes('Button text')),
+      'an authored --on-accent below AA should be reported');
+  });
+
+  it('control borders clear 3:1 — they are the only edge an input has', () => {
+    for (const id of Object.keys(THEMES)) {
+      const t = getTheme(id).tokens;
+      for (const bg of ['--surface', '--ground']) {
+        const r = contrastRatio(t['--edge-strong'], t[bg]);
+        ok(r >= 3, `${id} --edge-strong on ${bg}: ${r.toFixed(2)}:1`);
+      }
+    }
+  });
+
+  it('the focus ring is a solid accent, legible on ground and surface', () => {
+    for (const id of Object.keys(THEMES)) {
+      const t = getTheme(id).tokens;
+      for (const bg of ['--ground', '--surface']) {
+        const r = contrastRatio(t['--accent'], t[bg]);
+        ok(r >= 3, `${id} focus ring on ${bg}: ${r.toFixed(2)}:1`);
+      }
+    }
+  });
+
+  it('every chart palette swatch clears 3:1 against the page', () => {
+    for (const id of Object.keys(THEMES)) {
+      const t = getTheme(id).tokens;
+      const g = t['--ground'];
+      for (const n of [2, 3, 5, 8, 12]) {
+        const sets = [
+          ['hueWheel', hueWheel(t['--accent'], n, g)],
+          ['harmonicSeries', harmonicSeries(t['--accent'], t['--accent-2'], n, g)],
+        ];
+        for (const [what, colors] of sets) {
+          eq(colors.length, n);
+          colors.forEach((c, i) => {
+            const r = contrastRatio(c, g);
+            ok(r >= 3, `${id} ${what} n=${n} #${i + 1} (${c}): ${r.toFixed(2)}:1`);
+          });
+        }
+      }
+    }
+  });
+
+  it('a custom theme cannot be built below AA unless the picks are hopeless', () => {
+    const picks = [
+      // ink-soft's 35% walk toward the page lands at 2.9:1 here; the
+      // clamp is what pulls it back over the line
+      { ground: '#ffffff', ink: '#6b6b6b' },
+      { ground: '#101010', ink: '#9a9a9a', accent: '#7cc4ff' },
+      // light accents on a dark page: on-accent has to flip to a dark
+      // value, the very case a hardcoded #fff got wrong
+      { ground: '#1e2a24', ink: '#f2f5ef', accent: '#ffd76e', accent2: '#74b816' },
+      // light-mid ground — the case a luminance threshold gets backwards
+      { ground: '#b8b8b8', ink: '#000000', accent: '#123a8a', accent2: '#5a1010' },
+    ];
+    for (const p of picks) {
+      const t = buildCustomTheme(p);
+      ok(auditTheme(t).length === 0,
+        `picks ${JSON.stringify(p)}: ${JSON.stringify(auditTheme(t))}`);
+    }
+  });
+
+  it('reports the picks it genuinely cannot rescue, so the builder can refuse', () => {
+    // These are stated by the instructor, not derived, so nothing can
+    // save them without silently rendering a colour they did not pick.
+    const hopeless = [
+      { ground: '#ffffff', ink: '#ffffff' },              // invisible ink
+      { ground: '#ffffff', ink: '#777777' },              // ink itself is 4.48:1
+      { ground: '#888888', accent: '#1d4ed8' },           // accent lost in the ground
+      // a mid-grey page makes every tint mid-grey too: the accent chip
+      // tops out around 4:1 even with pure black type on it
+      { ground: '#8a8a8a', ink: '#000000', accent: '#101828', accent2: '#3d1010' },
+    ];
+    for (const p of hopeless) {
+      const bad = auditTheme(buildCustomTheme(p));
+      ok(bad.length > 0, `${JSON.stringify(p)} must be reported, not shipped`);
+      ok(bad[0].ratio <= bad[bad.length - 1].ratio, 'the worst pair comes first');
+    }
+  });
+
+  it('picks the pole that actually buys contrast, not the one a threshold guesses', () => {
+    // #8a8a8a is below a naive "is it dark?" cutoff of 0.4 luminance but
+    // black beats white on it, 5.6:1 to 3.4:1. Deriving toward white here
+    // makes the type LESS legible, which is how the bug reads in practice.
+    const t = deriveTokens({
+      '--ink': '#000000', '--ink-soft': '#222222', '--ground': '#8a8a8a',
+      '--surface': '#909090', '--edge': '#6a6a6a', '--accent': '#123a8a',
+      '--accent-soft': '#7a7f8f', '--accent-2': '#7a2020',
+      '--good': '#1c6b2c', '--bad': '#8a1c1c',
+    });
+    ok(luminance(t['--accent-2-text']) < luminance('#8a8a8a'),
+      `--accent-2-text ${t['--accent-2-text']} went the wrong way on a mid-tone page`);
+    ok(contrastRatio(t['--accent-2-text'], '#8a8a8a') >= 4.5,
+      `only reached ${contrastRatio(t['--accent-2-text'], '#8a8a8a').toFixed(2)}:1`);
+  });
+
+  it('leaves fills alone — only the -text siblings move', () => {
+    // the whole point of the split: a theme stays as loud as it was drawn
+    for (const id of Object.keys(THEMES)) {
+      const raw = THEMES[id].tokens;
+      const t = deriveTokens(raw);
+      for (const k of ['--accent', '--accent-2', '--good', '--bad', '--ground', '--ink']) {
+        eq(t[k], raw[k], `${id} ${k} must not be rewritten`);
+      }
+    }
+  });
+});
 
 console.log('\n');
 if (failures.length) {

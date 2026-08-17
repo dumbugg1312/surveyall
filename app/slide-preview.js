@@ -19,9 +19,11 @@
 
 import {
   TYPE_LABELS, optionLabels, DEFAULT_JOIN_STEPS, fillJoinPlaceholders,
+  trafficLabels, moodIcons, pairList, clozeParts, exitPrompts, timelineItems,
 } from './logic.js';
 import { getTheme, applyTheme, backgroundStyles, scrimOpacity } from './themes.js';
 import { ambiencePlan, applyAmbience } from './ambience.js';
+import { renderDecor, decorLayers } from './elements.js';
 
 /** Deterministic bar lengths — a sketch must not jitter on every repaint. */
 const BAR_WIDTHS = [88, 61, 44, 30, 22, 16];
@@ -86,7 +88,15 @@ export function renderSlide(host, q, deck, themeRef, opts = {}) {
   body.append(sketch(q || {}, opts));
   content.append(body);
 
-  slide.append(backdrop, scrim, content);
+  // Placed elements, in two layers so an element can sit either side of
+  // the content — a mark that points at a bar has to be on top of it, a
+  // watermark has to be under it. The rail gets these too: a thumbnail
+  // that omitted the decoration would be a worse map of the deck than one
+  // that showed it, and arranging slides is what the rail is for.
+  const decor = decorLayers();
+  renderDecor(decor, q?.config);
+
+  slide.append(backdrop, scrim, decor.back, content, decor.front);
   frame.append(slide);
   host.append(frame);
   return slide;
@@ -106,6 +116,15 @@ function sketch(q, opts) {
     case 'spectrum': return spectrumSketch(cfg);
     case 'sample_vote': return showdownSketch(cfg);
     case 'heatmap': return heatmapSketch(cfg);
+    case 'traffic': return trafficSketch(cfg);
+    case 'mood': return moodSketch(cfg);
+    case 'this_or_that': return tugSketch(cfg);
+    case 'budget': return budgetSketch(cfg);
+    case 'probability': return probabilitySketch(cfg);
+    case 'cloze': return clozeSketch(cfg);
+    case 'matching': return matchingSketch(cfg);
+    case 'timeline': return timelineSketch(cfg);
+    case 'exit_ticket': return exitSketch(cfg);
     case 'qa': return qaSketch();
     default: return el('div', 'sp-blank', opts.placeholder ? '' : 'Slide');
   }
@@ -326,6 +345,162 @@ function heatmapSketch(cfg) {
       seg.style.width = blankWidths[i] ?? '50%';
     }
     wrap.append(seg);
+  });
+  return wrap;
+}
+
+// ------------------------------------------------ second-wave sketches
+//
+// Same contract as the ones above: deterministic, no randomness, and the
+// instructor's own words wherever they have typed any — a thumbnail that
+// invents plausible data is a thumbnail you learn to distrust.
+
+function trafficSketch(cfg) {
+  const wrap = el('div', 'sp-traffic');
+  trafficLabels(cfg).forEach((text, i) => {
+    const row = el('div', 'sp-traffic-row');
+    const dot = el('span', 'sp-traffic-dot');
+    dot.style.setProperty('--lamp-i', String(i));
+    const bar = el('span', 'sp-traffic-bar');
+    bar.style.width = `${[74, 42, 18][i] ?? 20}%`;
+    bar.style.setProperty('--lamp-i', String(i));
+    row.append(dot, bar, el('span', 'sp-traffic-label', short(text, 22)));
+    wrap.append(row);
+  });
+  return wrap;
+}
+
+function moodSketch(cfg) {
+  const wrap = el('div', 'sp-mood');
+  moodIcons(cfg).slice(0, 5).forEach((m, i) => {
+    const cell = el('div', 'sp-mood-cell');
+    const glyph = el('span', 'sp-mood-glyph', m.emoji);
+    glyph.style.setProperty('--mood-scale', String([0.72, 1, 0.86, 0.62, 0.78][i] ?? 0.7));
+    cell.append(glyph);
+    wrap.append(cell);
+  });
+  return wrap;
+}
+
+function tugSketch(cfg) {
+  const wrap = el('div', 'sp-tug');
+  const pairs = pairList(cfg);
+  const rows = pairs.length ? pairs.slice(0, 3) : [{ left: '', right: '' }, { left: '', right: '' }];
+  rows.forEach((pair, i) => {
+    const row = el('div', 'sp-tug-row');
+    row.append(el('span', 'sp-tug-name', short(pair.left, 12)));
+    const rope = el('div', 'sp-tug-rope');
+    const knot = el('span', 'sp-tug-knot');
+    knot.style.left = `${[68, 34, 52][i] ?? 50}%`;
+    rope.append(knot);
+    row.append(rope, el('span', 'sp-tug-name', short(pair.right, 12)));
+    wrap.append(row);
+  });
+  return wrap;
+}
+
+function budgetSketch(cfg) {
+  const wrap = el('div', 'sp-budget');
+  const labels = optionLabels(cfg);
+  const rows = labels.length ? labels.slice(0, 4) : ['', '', ''];
+  rows.forEach((text, i) => {
+    const row = el('div', 'sp-budget-row');
+    if (text) row.append(el('span', 'sp-bar-label', short(text, 18)));
+    const track = el('div', 'sp-budget-track');
+    const fill = el('div', 'sp-budget-fill');
+    fill.style.width = `${[58, 74, 28, 12][i] ?? 20}%`;
+    track.append(fill);
+    row.append(track);
+    wrap.append(row);
+  });
+  return wrap;
+}
+
+function probabilitySketch() {
+  const wrap = el('div', 'sp-prob');
+  [8, 16, 34, 62, 96, 78, 44, 26, 14, 6].forEach((h) => {
+    const bar = el('span', 'sp-prob-bar');
+    bar.style.height = `${h}%`;
+    wrap.append(bar);
+  });
+  return wrap;
+}
+
+function clozeSketch(cfg) {
+  const wrap = el('div', 'sp-cloze');
+  const parts = clozeParts(cfg.text);
+  if (!parts.length) {
+    // nothing typed yet: show the shape a cloze makes, not a blank slide
+    [['', 42], [null, 0], ['', 26], [null, 0], ['', 34]].forEach(([, w], i) => {
+      if (i % 2) wrap.append(el('span', 'sp-cloze-blank'));
+      else {
+        const line = el('span', 'sp-cloze-run');
+        line.style.width = `${w}%`;
+        wrap.append(line);
+      }
+    });
+    return wrap;
+  }
+  parts.slice(0, 7).forEach((p) => {
+    if (p.kind === 'text') wrap.append(el('span', 'sp-cloze-text', short(p.text, 40)));
+    else wrap.append(el('span', 'sp-cloze-blank'));
+  });
+  return wrap;
+}
+
+function matchingSketch(cfg) {
+  const wrap = el('div', 'sp-match');
+  const pairs = pairList(cfg);
+  const rows = pairs.length ? pairs.slice(0, 4) : [{ left: '', right: '' }, { left: '', right: '' }, { left: '', right: '' }];
+  rows.forEach((pair, i) => {
+    const row = el('div', 'sp-match-row');
+    row.append(el('span', 'sp-match-side', short(pair.left, 14)));
+    const track = el('div', 'sp-match-track');
+    const key = el('span', 'sp-match-seg is-key');
+    key.style.width = `${[72, 55, 88, 40][i] ?? 60}%`;
+    const rest = el('span', 'sp-match-seg');
+    rest.style.width = `${100 - ([72, 55, 88, 40][i] ?? 60)}%`;
+    track.append(key, rest);
+    row.append(track, el('span', 'sp-match-side', short(pair.right, 14)));
+    wrap.append(row);
+  });
+  return wrap;
+}
+
+function timelineSketch(cfg) {
+  const wrap = el('div', 'sp-timeline');
+  const items = timelineItems(cfg).filter(Boolean);
+  const rows = items.length ? items.slice(0, 4) : ['', '', ''];
+  const n = rows.length;
+  rows.forEach((text, i) => {
+    const row = el('div', 'sp-timeline-row');
+    row.append(el('span', 'sp-timeline-label', text ? short(text, 18) : ''));
+    const cells = el('div', 'sp-timeline-cells');
+    for (let k = 0; k < n; k += 1) {
+      const cell = el('span', 'sp-timeline-cell');
+      // a mostly-right room: the diagonal lit, one pair swapped
+      const heat = k === i ? 0.85 : (Math.abs(k - i) === 1 ? 0.22 : 0.05);
+      cell.style.setProperty('--heat', String(heat));
+      if (k === i) cell.classList.add('is-key');
+      cells.append(cell);
+    }
+    row.append(cells);
+    wrap.append(row);
+  });
+  return wrap;
+}
+
+function exitSketch(cfg) {
+  const wrap = el('div', 'sp-exit');
+  exitPrompts(cfg).slice(0, 3).forEach((text, i) => {
+    const col = el('div', 'sp-exit-col');
+    col.append(el('span', 'sp-exit-head', short(text, 16)));
+    for (let k = 0; k < [3, 2, 2][i]; k += 1) {
+      const card = el('span', 'sp-exit-card');
+      card.style.height = `${[1.5, 1.1, 1.3][k] ?? 1.2}em`;
+      col.append(card);
+    }
+    wrap.append(col);
   });
   return wrap;
 }

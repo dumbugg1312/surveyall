@@ -52,9 +52,31 @@
  *
  *   ## qa
  *   Open floor
+ *
+ * A "+" line places an element on the slide:
+ *
+ *   ## multiple_choice
+ *   Which of these is a primary source?
+ *   + microscope @ top-right lg
+ *   + mark-arc-right @ 31.5,68 accent-2 w:3 rot:15
+ *
+ * Placement is "x,y" as a PERCENTAGE of the slide, so it is free but
+ * still resolution-free — it means the same thing on a laptop and on a
+ * lecture-hall projector, which a pixel coordinate would not. The nine
+ * corner and edge names still parse, and are written back out whenever
+ * an element sits exactly on one, so the common case stays readable.
  */
 
-import { QUESTION_TYPES, splitPassage, DEFAULT_JOIN_STEPS } from './logic.js';
+import {
+  QUESTION_TYPES, splitPassage, DEFAULT_JOIN_STEPS,
+  DEFAULT_TRAFFIC, DEFAULT_EXIT_PROMPTS,
+} from './logic.js';
+import {
+  hasElement, readPos, posName, anchorPos, sizeId, colorId, weightValue,
+  rotValue, opacityValue, layerId, normaliseDecor, decorOf, MAX_DECOR,
+  DEFAULT_ANCHOR, DEFAULT_SIZE, DEFAULT_STROKE, DEFAULT_FILL, DEFAULT_WEIGHT,
+  DEFAULT_LAYER,
+} from './elements.js';
 
 const TYPE_ALIASES = {
   instructions: 'instructions', instruction: 'instructions', intro: 'instructions',
@@ -69,6 +91,15 @@ const TYPE_ALIASES = {
   spectrum: 'spectrum', opinion: 'spectrum',
   sample_vote: 'sample_vote', showdown: 'sample_vote', samples: 'sample_vote',
   heatmap: 'heatmap', passage: 'heatmap',
+  traffic: 'traffic', traffic_light: 'traffic', pulse: 'traffic',
+  mood: 'mood', mood_check: 'mood', weather: 'mood',
+  this_or_that: 'this_or_that', thisorthat: 'this_or_that', either_or: 'this_or_that',
+  budget: 'budget', budget_split: 'budget', allocate: 'budget',
+  probability: 'probability', likelihood: 'probability', percent: 'probability',
+  cloze: 'cloze', fill_in_the_blank: 'cloze', blanks: 'cloze', fill: 'cloze',
+  matching: 'matching', match: 'matching', pairs: 'matching',
+  timeline: 'timeline', order: 'timeline', chronology: 'timeline',
+  exit_ticket: 'exit_ticket', exit: 'exit_ticket', ticket: 'exit_ticket',
 };
 
 /**
@@ -130,6 +161,7 @@ export function parseDeck(source) {
         options: [],
         statements: [],
         passage: [],
+        decor: [],
         config: { ...parsed.config },
       };
       return;
@@ -143,6 +175,21 @@ export function parseDeck(source) {
       } else if (!sawTitle) {
         deck.title = trimmed;
         sawTitle = true;
+      }
+      return;
+    }
+
+    // ---- placed element ("+ microscope @ top-right lg") -------------
+    const decorMatch = trimmed.match(/^\+\s+(.*)$/);
+    if (decorMatch) {
+      const placed = parseDecorLine(decorMatch[1], errors, lineNo + 1);
+      if (placed) {
+        if (current.decor.length >= MAX_DECOR) {
+          errors.push(`Line ${lineNo + 1}: a slide can hold ${MAX_DECOR} elements; `
+            + 'this one was dropped.');
+        } else {
+          current.decor.push(placed);
+        }
       }
       return;
     }
@@ -164,9 +211,10 @@ export function parseDeck(source) {
       return;
     }
 
-    // passage lines for heatmap questions ("> The text under study.")
+    // passage lines: the text under study for a heatmap, the sentence
+    // with the gaps in it for a cloze
     const passMatch = trimmed.match(/^>\s?(.*)$/);
-    if (passMatch && current.type === 'heatmap') {
+    if (passMatch && (current.type === 'heatmap' || current.type === 'cloze')) {
       if (passMatch[1].trim()) current.passage.push(passMatch[1].trim());
       return;
     }
@@ -208,6 +256,118 @@ export function parseDeck(source) {
   return { ...deck, errors };
 }
 
+/**
+ * One "+" line -> a decor record.
+ *
+ *   + microscope
+ *   + microscope @ top-right lg
+ *   + mark-arc-right @ mid-left accent-2 fill:accent-soft w:3 rot:15 op:70 flip
+ *
+ * Everything after the element id is optional and order-free, because
+ * this is a line a person types. Bare words are accepted where they are
+ * unambiguous — `lg` can only be a size and `accent` can only be a colour
+ * — so the common case stays short, while `stroke:`/`fill:` spell it out
+ * when both colours are set. Anything unrecognised is reported against
+ * its line number rather than silently ignored: a typo'd element that
+ * just doesn't appear on the projector is the worst possible outcome.
+ */
+function parseDecorLine(body, errors, lineNo) {
+  // "@ top-right" and "@top-right" are the same thing to a person
+  const parts = String(body).replace(/@\s+/g, '@').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return null;
+
+  const id = parts.shift().toLowerCase();
+  if (!hasElement(id)) {
+    errors.push(`Line ${lineNo}: no element called "${id}".`);
+    return null;
+  }
+
+  const home = anchorPos(DEFAULT_ANCHOR);
+  const out = {
+    id,
+    x: home.x,
+    y: home.y,
+    layer: DEFAULT_LAYER,
+    size: DEFAULT_SIZE,
+    stroke: DEFAULT_STROKE,
+    fill: DEFAULT_FILL,
+    w: DEFAULT_WEIGHT,
+    rot: 0,
+    flip: false,
+    op: 100,
+  };
+
+  for (const raw of parts) {
+    const token = raw.toLowerCase();
+
+    if (token.startsWith('@')) {
+      const pos = readPos(token.slice(1));
+      if (pos) { out.x = pos.x; out.y = pos.y; } else {
+        errors.push(`Line ${lineNo}: "${raw.slice(1)}" is not a place on the slide — `
+          + 'use "x,y" as percentages, or a name like top-right.');
+      }
+      continue;
+    }
+
+    if (token === 'flip') { out.flip = true; continue; }
+
+    // "behind" / "front" — which side of the slide's content it sits on
+    const bare = layerId(token);
+    if (bare) { out.layer = bare; continue; }
+
+    const kv = token.match(/^([a-z]+):(.*)$/);
+    if (kv) {
+      const [, key, value] = kv;
+      if (key === 'stroke' || key === 'color' || key === 'colour') {
+        const c = colorId(value);
+        if (c) out.stroke = c;
+        else errors.push(`Line ${lineNo}: "${value}" is not a colour.`);
+      } else if (key === 'fill') {
+        const c = colorId(value);
+        if (c) out.fill = c;
+        else errors.push(`Line ${lineNo}: "${value}" is not a colour.`);
+      } else if (key === 'w' || key === 'weight' || key === 'width') {
+        out.w = weightValue(value);
+      } else if (key === 'rot' || key === 'rotate') {
+        out.rot = rotValue(value);
+      } else if (key === 'op' || key === 'opacity') {
+        out.op = opacityValue(value);
+      } else if (key === 'layer') {
+        const l = layerId(value);
+        if (l) out.layer = l;
+        else errors.push(`Line ${lineNo}: a layer is "front" or "behind", not "${value}".`);
+      } else if (key === 'size') {
+        const s = sizeId(value);
+        if (s) out.size = s;
+        else errors.push(`Line ${lineNo}: "${value}" is not a size.`);
+      } else {
+        errors.push(`Line ${lineNo}: "${key}" is not something an element has.`);
+      }
+      continue;
+    }
+
+    // bare words: a size, or a colour for the stroke
+    const size = sizeId(token);
+    if (size) { out.size = size; continue; }
+    const color = colorId(token);
+    if (color) { out.stroke = color; continue; }
+
+    errors.push(`Line ${lineNo}: don't know what "${raw}" means on an element line.`);
+  }
+
+  // normaliseDecor owns the final say on every field, so a hand-written
+  // line and one placed by dragging can never disagree
+  const item = normaliseDecor(out);
+
+  // An open path — an arc, a brace, an underline — has no inside to
+  // colour, so normaliseDecor drops the fill. Say so, rather than let the
+  // instructor wonder why the line they wrote had no effect.
+  if (item && out.fill !== DEFAULT_FILL && item.fill === DEFAULT_FILL) {
+    errors.push(`Line ${lineNo}: "${id}" is an open line, so it has no fill to set.`);
+  }
+  return item;
+}
+
 function parseTypeHeader(header) {
   // "quiz (25s)"  |  "scales 1..7"  |  "multiple_choice"
   const config = {};
@@ -238,6 +398,7 @@ const KNOWN_SETTINGS = new Set([
   'mode', 'confidence', 'hold', 'left', 'right', 'labels', 'max_picks',
   'rationale', 'corners', 'anchors',
   'join', 'show_join', 'note',
+  'total', 'truth', 'case_sensitive',
 ]);
 
 function isKnownSetting(key) { return KNOWN_SETTINGS.has(key); }
@@ -305,6 +466,11 @@ function finaliseQuestion(q, errors, number) {
   const config = { ...q.config };
   const out = { type: q.type, prompt: q.prompt, config };
 
+  // Only written when the slide actually carries elements — an empty
+  // `decor: []` on every question would bloat a deck's stored config for
+  // a feature most slides never use.
+  if (q.decor?.length) config.decor = q.decor;
+
   switch (q.type) {
     case 'instructions': {
       // "- " lines are the steps; an empty list falls back to the built-in
@@ -370,6 +536,73 @@ function finaliseQuestion(q, errors, number) {
       if (config.allow_rationale == null) config.allow_rationale = true;
       break;
     }
+    case 'traffic': {
+      const labels = q.options.map((o) => o.label);
+      // three lights, always — a fourth would silently become a poll
+      config.labels = [0, 1, 2].map((i) => labels[i] || DEFAULT_TRAFFIC[i]);
+      break;
+    }
+    case 'mood': {
+      // "- ☀️ Clear" — the glyph, then what it means
+      config.icons = q.options.map((o) => {
+        const m = o.label.match(/^(\S+)\s*(.*)$/);
+        return { emoji: m ? m[1] : o.label, label: m ? m[2].trim() : '' };
+      }).filter((m) => m.emoji);
+      if (!config.icons.length) delete config.icons;
+      break;
+    }
+    case 'this_or_that':
+    case 'matching': {
+      // "- this | or that" — one pair per line
+      config.pairs = q.options.map((o) => {
+        const [left, right] = o.label.split('|');
+        return { left: (left || '').trim(), right: (right || '').trim() };
+      }).filter((p) => p.left || p.right);
+      if (config.pairs.length < (q.type === 'matching' ? 2 : 1)) {
+        errors.push(`Question ${number}: needs pairs, written as "- this | or that".`);
+      }
+      if (q.type === 'matching' && config.pairs.some((p) => !p.right)) {
+        errors.push(`Question ${number}: every matching pair needs both halves.`);
+      }
+      break;
+    }
+    case 'budget': {
+      config.options = q.options.map((o) => o.label);
+      if (config.options.length < 2) {
+        errors.push(`Question ${number}: needs at least two things to fund.`);
+      }
+      if (config.total == null) config.total = 100;
+      break;
+    }
+    case 'probability': {
+      if (config.truth === '' || config.truth == null) config.truth = null;
+      else config.truth = Math.min(100, Math.max(0, Number(config.truth) || 0));
+      break;
+    }
+    case 'cloze': {
+      const text = q.passage.join(' ');
+      if (!text) {
+        errors.push(`Question ${number}: needs a sentence (a line starting with ">").`);
+      }
+      config.text = text;
+      if (text && !/\[[^\]]*\]/.test(text)) {
+        errors.push(`Question ${number}: no blanks — put an answer in [square brackets].`);
+      }
+      break;
+    }
+    case 'timeline': {
+      config.items = q.options.map((o) => o.label);
+      if (config.items.length < 2) {
+        errors.push(`Question ${number}: needs at least two events, listed in the correct order.`);
+      }
+      break;
+    }
+    case 'exit_ticket': {
+      const prompts = q.options.map((o) => o.label).filter(Boolean);
+      config.prompts = prompts.length ? prompts : [...DEFAULT_EXIT_PROMPTS];
+      if (config.max_length == null) config.max_length = 200;
+      break;
+    }
     case 'heatmap': {
       const passage = q.passage.join(' ');
       if (!passage) {
@@ -432,6 +665,19 @@ export function serialiseDeck(deck, questions) {
     if (Array.isArray(cfg.items)) cfg.items.forEach((it) => out.push(`- ${it}`));
     if (Array.isArray(cfg.samples)) cfg.samples.forEach((s) => out.push(`- ${s}`));
     if (Array.isArray(cfg.statements)) cfg.statements.forEach((s) => out.push(`~ ${s}`));
+    if (q.type === 'traffic' && Array.isArray(cfg.labels)) {
+      cfg.labels.forEach((l) => out.push(`- ${l}`));
+    }
+    if (q.type === 'mood' && Array.isArray(cfg.icons)) {
+      cfg.icons.forEach((m) => out.push(`- ${m.emoji}${m.label ? ` ${m.label}` : ''}`));
+    }
+    if (Array.isArray(cfg.pairs)) {
+      cfg.pairs.forEach((p) => out.push(`- ${p.left || ''} | ${p.right || ''}`));
+    }
+    if (q.type === 'exit_ticket' && Array.isArray(cfg.prompts)) {
+      cfg.prompts.forEach((p) => out.push(`- ${p}`));
+    }
+    if (q.type === 'cloze' && cfg.text) out.push(`> ${cfg.text}`);
     // segments joined with ' | ' round-trip to the exact same segmentation
     if (q.type === 'heatmap' && (cfg.segments || cfg.passage)) {
       out.push(`> ${Array.isArray(cfg.segments) && cfg.segments.length
@@ -446,10 +692,33 @@ export function serialiseDeck(deck, questions) {
     }
     if (cfg.allow_rationale === false) out.push('rationale: false');
 
+    // Placed elements. Written last so the text view reads the way the
+    // slide is built: what it asks, then what it offers, then how it is
+    // dressed. Only non-default properties are printed — a deck full of
+    // `w:2 op:100 rot:0` would be noise nobody wants to diff.
+    for (const item of decorOf(cfg)) {
+      // a name when it sits exactly on one, numbers otherwise: an
+      // untouched corner element still reads "@ top-right"
+      const where = posName(item.x, item.y) || `${item.x},${item.y}`;
+      const bits = [item.id, `@ ${where}`];
+      if (item.layer !== DEFAULT_LAYER) bits.push('behind');
+      if (item.size !== DEFAULT_SIZE) bits.push(item.size);
+      if (item.stroke !== DEFAULT_STROKE) bits.push(`stroke:${item.stroke}`);
+      if (item.fill !== DEFAULT_FILL) bits.push(`fill:${item.fill}`);
+      if (item.w !== DEFAULT_WEIGHT) bits.push(`w:${item.w}`);
+      if (item.rot) bits.push(`rot:${item.rot}`);
+      if (item.op !== 100) bits.push(`op:${item.op}`);
+      if (item.flip) bits.push('flip');
+      out.push(`+ ${bits.join(' ')}`);
+    }
+
     for (const key of ['multiple', 'max_choices', 'max_words', 'max_length',
                        'scoring', 'allow_skip', 'allow_partial', 'chart']) {
       if (cfg[key] != null && cfg[key] !== '') out.push(`${key}: ${cfg[key]}`);
     }
+    if (q.type === 'budget' && cfg.total != null) out.push(`total: ${cfg.total}`);
+    if (q.type === 'probability' && cfg.truth != null) out.push(`truth: ${cfg.truth}`);
+    if (q.type === 'cloze' && cfg.case_sensitive) out.push('case_sensitive: true');
     // newer settings: only serialised when meaningfully set
     for (const key of ['mode', 'confidence', 'hold', 'max_picks', 'corners']) {
       if (cfg[key] != null && cfg[key] !== '' && cfg[key] !== false) {

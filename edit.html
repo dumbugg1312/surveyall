@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="styles/app.css">
 <link rel="stylesheet" href="styles/ambience.css">
 <link rel="stylesheet" href="styles/preview.css">
+<link rel="stylesheet" href="styles/elements.css">
 </head>
 <body class="edit-body">
 
@@ -125,9 +126,13 @@
           <select id="ctBackdrop"></select>
         </div>
         <div id="ctPreviewHost"></div>
-        <p class="ct-warn" id="ctWarn" hidden></p>
+        <!-- role=status so the reason a save is blocked is announced as the
+             picks change, and described-by so it is read again when focus
+             lands on the disabled button (3.3.1) -->
+        <p class="ct-warn" id="ctWarn" role="status" aria-live="polite" hidden></p>
         <div class="ct-actions">
-          <button class="btn btn-primary" id="ctSave" type="button">Save &amp; apply</button>
+          <button class="btn btn-primary" id="ctSave" type="button"
+                  aria-describedby="ctWarn">Save &amp; apply</button>
           <button class="btn" id="ctCancel" type="button">Cancel</button>
           <span class="spacer"></span>
           <button class="btn btn-danger" id="ctDelete" type="button" hidden>Delete</button>

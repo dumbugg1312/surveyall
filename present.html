@@ -12,12 +12,27 @@
 <link rel="stylesheet" href="styles/charts.css">
 <link rel="stylesheet" href="styles/present.css">
 <link rel="stylesheet" href="styles/ambience.css">
+<link rel="stylesheet" href="styles/elements.css">
 </head>
 <body class="present-body">
 
 <div class="stage" id="stage">
   <div class="stage-backdrop" id="backdrop"></div>
   <div class="stage-scrim" id="scrim"></div>
+
+  <!-- placed elements ---------------------------------------------- -->
+  <!-- A direct child of .stage, which the overlay-lift list above it in
+       present.css deliberately does not name — the same arrangement as
+       the backdrop, the scrim, the join corner, the Q&A drawer and the
+       flash. All of those set their own position and z-index and stay
+       out of the flex column; this one does too, at z-index 3, which is
+       above the slide's content (2) and below the join card (6) and the
+       controls (7). That ordering is the guarantee: a mark can point at
+       a bar, and nothing an instructor places can ever cover the QR the
+       room is trying to scan. See app/elements.js. -->
+  <!-- Behind the slide's content (z-index 1, after the scrim in DOM so it
+       paints above it) — for watermarks and scene-setting. -->
+  <div class="decor-layer decor-layer-back" id="decorBack" hidden></div>
 
   <!-- lobby ------------------------------------------------------- -->
   <div class="lobby" id="lobby" hidden>
@@ -34,6 +49,15 @@
         <span class="join-code" id="lobbyCode">——————</span>
       </div>
     </div>
+
+    <!-- Live headcount: how many phones are connected right now, so the
+         presenter knows the room is in before starting. Fed by the Durable
+         Object's own socket set (see subscribeToPresence), hidden until the
+         first count arrives so it never flashes a stale "0". -->
+    <p class="lobby-presence" id="lobbyPresence" role="status" aria-live="polite" hidden>
+      <span class="presence-dot" aria-hidden="true"></span>
+      <span id="lobbyPresenceText">Waiting for the room…</span>
+    </p>
 
     <!-- No privacy paragraph here. This is projected in front of the whole
          room at the start of every session, and a promise that nothing can
@@ -92,6 +116,11 @@
     </div>
     <div class="panel-body" id="qaBody"></div>
   </aside>
+
+  <!-- In front of the slide's content (z-index 3) — for marks that point
+       at something. Still below the join card (6) and the controls (7),
+       which is what keeps the QR uncoverable. -->
+  <div class="decor-layer decor-layer-front" id="decorFront" hidden></div>
 
   <div class="stage-flash" id="flash" aria-hidden="true"></div>
 

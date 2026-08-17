@@ -116,7 +116,7 @@ export const THEMES = {
       '--accent-2': '#a8632c',
       '--good': '#2f6d4f',
       '--bad': '#b4472e',
-      '--display': "'Optima','Gill Sans','Gill Sans MT','Fraunces',serif",
+      '--display': "'Faustina','Optima','Gill Sans MT',Georgia,serif",
       '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
       '--bar-radius': '999px',
     },
@@ -139,7 +139,7 @@ export const THEMES = {
       '--good': '#3f6b3a',
       '--bad': '#8c2f28',
       '--display': "'Fraunces','Hoefler Text','Baskerville','Times New Roman',serif",
-      '--body': "'Charter','Georgia',serif",
+      '--body': "'Source Serif 4','Charter',Georgia,serif",
       '--bar-radius': '0px',
     },
     background: { kind: 'preset', id: 'paper-cream' },
@@ -277,6 +277,181 @@ export const THEMES = {
     },
     background: { kind: 'preset', id: 'grid-glow' },
   },
+  observatory: {
+    name: 'Observatory',
+    blurb: 'Ink-black sky, brass instruments, a scatter of stars. Planetarium calm.',
+    dark: true,
+    tokens: {
+      '--ink': '#f4f1e8',
+      '--ink-soft': '#9d9a8e',
+      '--ground': '#0b0e14',
+      '--surface': '#151a24',
+      '--edge': '#2a3140',
+      '--accent': '#d4a94e',
+      '--accent-soft': '#3a3222',
+      '--accent-2': '#8fb8d8',
+      '--good': '#79c98f',
+      '--bad': '#e08a7a',
+      '--display': "'Fraunces','Hoefler Text','Baskerville',Georgia,serif",
+      '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+      '--bar-radius': '999px',
+    },
+    background: { kind: 'preset', id: 'starfield' },
+  },
+
+  kiln: {
+    name: 'Kiln',
+    blurb: 'Terracotta, sand and glaze-blue. Sun-baked and unhurried.',
+    dark: false,
+    tokens: {
+      '--ink': '#3a241a',
+      '--ink-soft': '#7d6152',
+      '--ground': '#f4e9dc',
+      '--surface': '#fbf4ea',
+      '--edge': '#e0cdb8',
+      '--accent': '#b8502e',
+      '--accent-soft': '#f2d9cd',
+      '--accent-2': '#3e6f8a',
+      '--good': '#5a7d3f',
+      '--bad': '#a33a2a',
+      '--display': "'Fraunces','Iowan Old Style',Palatino,Georgia,serif",
+      '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+      '--bar-radius': '999px',
+    },
+    background: { kind: 'preset', id: 'arches' },
+  },
+
+  blueprint: {
+    name: 'Blueprint',
+    blurb: 'Drafting-table cyanotype: deep engineer blue, white line-work.',
+    dark: true,
+    tokens: {
+      '--ink': '#eef5fb',
+      '--ink-soft': '#98b2c9',
+      '--ground': '#12365c',
+      '--surface': '#1a4270',
+      '--edge': '#2f5b8c',
+      '--accent': '#ffd166',
+      '--accent-soft': '#4a4226',
+      '--accent-2': '#7fd8f5',
+      '--good': '#7fd8a8',
+      '--bad': '#ff9d8a',
+      '--display': "'Oswald','Avenir Next Condensed','Helvetica Neue',sans-serif",
+      '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+      '--bar-radius': '0px',
+    },
+    background: { kind: 'preset', id: 'drafting' },
+  },
+
+  gallery: {
+    name: 'Gallery',
+    blurb: 'Museum white, near-black ink, one vermilion stroke. Let the work breathe.',
+    dark: false,
+    tokens: {
+      '--ink': '#161513',
+      '--ink-soft': '#6e6a63',
+      '--ground': '#f5f3ef',
+      '--surface': '#fdfcfa',
+      '--edge': '#dcd8d0',
+      '--accent': '#d43d2a',
+      '--accent-soft': '#f7ddd8',
+      '--accent-2': '#8a8377',
+      '--good': '#4a7c59',
+      '--bad': '#b0342a',
+      '--display': "'Cinzel','Optima','Gill Sans MT',Georgia,serif",
+      '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+      '--bar-radius': '0px',
+    },
+    background: { kind: 'preset', id: 'plinth' },
+  },
+
+  broadsheet: {
+    name: 'Broadsheet',
+    blurb: 'Newsprint grey, headline black, one red stamp. Stop the presses.',
+    dark: false,
+    tokens: {
+      '--ink': '#191817',
+      '--ink-soft': '#5c5a56',
+      '--ground': '#eceae4',
+      '--surface': '#f6f4ef',
+      '--edge': '#c9c6bd',
+      '--accent': '#c0201e',
+      '--accent-soft': '#f0d6d3',
+      '--accent-2': '#28527a',
+      '--good': '#2e6b45',
+      '--bad': '#c0201e',
+      '--display': "'Oswald','Avenir Next Condensed','Franklin Gothic Medium','Helvetica Neue',sans-serif",
+      '--body': "'Source Serif 4','Charter',Georgia,serif",
+      '--bar-radius': '0px',
+    },
+    background: { kind: 'preset', id: 'halftone' },
+  },
+
+  velvet: {
+    name: 'Velvet',
+    blurb: 'Theatre burgundy and champagne gold. Curtain up.',
+    dark: true,
+    tokens: {
+      '--ink': '#f7ecdf',
+      '--ink-soft': '#bfa294',
+      '--ground': '#2a1015',
+      '--surface': '#3a1a21',
+      '--edge': '#5a2e35',
+      '--accent': '#e4bb6f',
+      '--accent-soft': '#4a3626',
+      '--accent-2': '#d98a9e',
+      '--good': '#8fca9a',
+      '--bad': '#f08f7d',
+      '--display': "'Playfair Display','Didot','Bodoni MT',Georgia,serif",
+      '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+      '--bar-radius': '3px',
+    },
+    background: { kind: 'preset', id: 'vignette' },
+  },
+
+  fjord: {
+    name: 'Fjord',
+    blurb: 'Glacier blues and cold granite. Nordic quiet, sharp air.',
+    dark: false,
+    tokens: {
+      '--ink': '#1d2b33',
+      '--ink-soft': '#576d7b',
+      '--ground': '#e9f0f2',
+      '--surface': '#f7fafb',
+      '--edge': '#cddade',
+      '--accent': '#1f6f8b',
+      '--accent-soft': '#d5e8ee',
+      '--accent-2': '#c76b4a',
+      '--good': '#3d8168',
+      '--bad': '#bb4430',
+      '--display': "'Inter','Inter var','Avenir Next','Helvetica Neue',sans-serif",
+      '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+      '--bar-radius': '6px',
+    },
+    background: { kind: 'preset', id: 'ridgeline' },
+  },
+
+  'rice-paper': {
+    name: 'Rice Paper',
+    blurb: 'Sumi ink on washi, a vermilion seal. Wave-pattern calm.',
+    dark: false,
+    tokens: {
+      '--ink': '#26221e',
+      '--ink-soft': '#6d6357',
+      '--ground': '#f6f1e7',
+      '--surface': '#fcf9f2',
+      '--edge': '#ded4c2',
+      '--accent': '#c93a2f',
+      '--accent-soft': '#f4dbd6',
+      '--accent-2': '#3f6c6a',
+      '--good': '#4f7d52',
+      '--bad': '#b03427',
+      '--display': "'Fraunces','Hiragino Mincho ProN','Yu Mincho',Georgia,serif",
+      '--body': "'Inter','Inter var','Hiragino Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+      '--bar-radius': '2px',
+    },
+    background: { kind: 'preset', id: 'seigaiha' },
+  },
 };
 
 export const DEFAULT_THEME = 'lecture-hall';
@@ -355,6 +530,61 @@ export const BACKGROUND_PRESETS = {
                  radial-gradient(circle at 88% 66%, ${hexA(t['--accent'], 0.4)} 0 4px, transparent 4px)`,
     size: '340px 340px',
   },
+
+  starfield: {
+    name: 'Starfield',
+    css: (t) => `radial-gradient(circle at 18% 22%, ${hexA('#ffffff', 0.9)} 0 1px, transparent 1.5px),
+                 radial-gradient(circle at 62% 8%, ${hexA('#ffffff', 0.6)} 0 1px, transparent 1.5px),
+                 radial-gradient(circle at 84% 46%, ${hexA('#ffffff', 0.75)} 0 1.5px, transparent 2px),
+                 radial-gradient(circle at 38% 64%, ${hexA(t['--accent'], 0.8)} 0 1px, transparent 1.5px),
+                 radial-gradient(circle at 8% 82%, ${hexA('#ffffff', 0.5)} 0 1px, transparent 1.5px),
+                 radial-gradient(circle at 72% 88%, ${hexA(t['--accent-2'], 0.7)} 0 1px, transparent 1.5px),
+                 radial-gradient(ellipse 90% 60% at 50% -20%, ${hexA(t['--accent-2'], 0.10)}, transparent 60%)`,
+    size: '260px 260px, 260px 260px, 260px 260px, 260px 260px, 260px 260px, 260px 260px, 100% 100%',
+  },
+  arches: {
+    name: 'Adobe arches',
+    css: (t) => `radial-gradient(ellipse 60% 45% at 50% 108%, ${hexA(t['--accent'], 0.14)}, transparent 70%),
+                 radial-gradient(ellipse 70% 52% at 50% 116%, ${hexA(t['--accent-2'], 0.10)}, transparent 72%),
+                 linear-gradient(180deg, ${hexA(t['--accent-2'], 0.05)} 0%, transparent 30%)`,
+  },
+  drafting: {
+    name: 'Drafting grid',
+    css: (t) => `linear-gradient(${hexA('#ffffff', 0.08)} 1px, transparent 1px),
+                 linear-gradient(90deg, ${hexA('#ffffff', 0.08)} 1px, transparent 1px),
+                 linear-gradient(${hexA('#ffffff', 0.04)} 1px, transparent 1px),
+                 linear-gradient(90deg, ${hexA('#ffffff', 0.04)} 1px, transparent 1px)`,
+    size: '120px 120px, 120px 120px, 24px 24px, 24px 24px',
+  },
+  plinth: {
+    name: 'Plinth',
+    css: (t) => `linear-gradient(180deg, transparent 78%, ${hexA(t['--ink'], 0.05)} 78%, ${hexA(t['--ink'], 0.05)} 100%),
+                 radial-gradient(ellipse 70% 40% at 50% 0%, ${hexA(t['--ink'], 0.03)}, transparent 60%)`,
+  },
+  halftone: {
+    name: 'Halftone',
+    css: (t) => `radial-gradient(${hexA(t['--ink'], 0.07)} 1px, transparent 1.5px),
+                 radial-gradient(${hexA(t['--ink'], 0.05)} 1px, transparent 1.5px)`,
+    size: '14px 14px, 14px 14px',
+  },
+  vignette: {
+    name: 'Vignette',
+    css: (t) => `radial-gradient(ellipse 120% 90% at 50% 40%, transparent 45%, ${hexA('#000000', 0.35)} 100%),
+                 radial-gradient(ellipse 80% 50% at 50% -10%, ${hexA(t['--accent'], 0.12)}, transparent 60%)`,
+  },
+  ridgeline: {
+    name: 'Ridgeline',
+    css: (t) => `linear-gradient(172deg, transparent 62%, ${hexA(t['--accent'], 0.08)} 62%, ${hexA(t['--accent'], 0.08)} 100%),
+                 linear-gradient(188deg, transparent 74%, ${hexA(t['--ink'], 0.06)} 74%, ${hexA(t['--ink'], 0.06)} 100%),
+                 radial-gradient(ellipse 80% 45% at 50% -15%, ${hexA(t['--accent-2'], 0.07)}, transparent 60%)`,
+  },
+  seigaiha: {
+    name: 'Wave crests',
+    css: (t) => `radial-gradient(circle at 50% 130%, transparent 0 36px, ${hexA(t['--accent-2'], 0.10)} 36px 38px, transparent 38px 52px, ${hexA(t['--accent-2'], 0.08)} 52px 54px, transparent 54px 68px, ${hexA(t['--accent-2'], 0.06)} 68px 70px, transparent 70px),
+                 radial-gradient(circle at 0% 130%, transparent 0 36px, ${hexA(t['--accent-2'], 0.08)} 36px 38px, transparent 38px 52px, ${hexA(t['--accent-2'], 0.06)} 52px 54px, transparent 54px),
+                 radial-gradient(circle at 100% 130%, transparent 0 36px, ${hexA(t['--accent-2'], 0.08)} 36px 38px, transparent 38px 52px, ${hexA(t['--accent-2'], 0.06)} 52px 54px, transparent 54px)`,
+    size: '160px 80px',
+  },
 };
 
 /** #rrggbb + alpha → rgba(). Accepts #rgb too. */
@@ -366,11 +596,33 @@ export function hexA(hex, alpha) {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
 }
 
+/**
+ * Themes come back with their derived contrast tokens already filled in,
+ * so no consumer has to remember to ask for them — a projector, a phone,
+ * a preview tile and a saved custom theme all see the same complete set.
+ * Cached because this runs on every render and the derivation walks a
+ * colour ramp looking for a contrast floor.
+ */
+// keyed on the raw token bag rather than the theme wrapper: resolveTheme()
+// hands back a fresh wrapper for custom themes on every call, but the
+// tokens it wraps are the stable object living on the deck
+const derivedCache = new WeakMap();
+
+function withDerived(theme) {
+  if (!theme || !theme.tokens) return theme;
+  let tokens = derivedCache.get(theme.tokens);
+  if (!tokens) {
+    tokens = deriveTokens(theme.tokens);
+    derivedCache.set(theme.tokens, tokens);
+  }
+  return tokens === theme.tokens ? theme : { ...theme, tokens };
+}
+
 export function getTheme(id) {
   // a resolved custom theme object passes straight through, so every
   // consumer (applyTheme, backgroundStyles, previews) works unchanged
-  if (id && typeof id === 'object' && id.tokens) return id;
-  return THEMES[id] || THEMES[DEFAULT_THEME];
+  if (id && typeof id === 'object' && id.tokens) return withDerived(id);
+  return withDerived(THEMES[id] || THEMES[DEFAULT_THEME]);
 }
 
 /**
@@ -392,7 +644,7 @@ export function resolveTheme(themeId, deck) {
 }
 
 export function themeList() {
-  return Object.entries(THEMES).map(([id, t]) => ({ id, ...t }));
+  return Object.entries(THEMES).map(([id, t]) => ({ id, ...withDerived(t) }));
 }
 
 /**
@@ -518,6 +770,10 @@ export const CUSTOM_FONTS = {
   oswald: { name: 'Bold condensed', css: "'Oswald','Avenir Next Condensed','Helvetica Neue',sans-serif" },
   caveat: { name: 'Hand-written', css: "'Caveat','Bradley Hand','Segoe Print',cursive" },
   inter: { name: 'Clean sans', css: "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" },
+  playfair: { name: 'Elegant Didone', css: "'Playfair Display','Didot','Bodoni MT',Georgia,serif" },
+  cinzel: { name: 'Inscribed caps', css: "'Cinzel','Optima','Gill Sans MT',Georgia,serif" },
+  faustina: { name: 'Warm humanist', css: "'Faustina','Optima','Gill Sans MT',Georgia,serif" },
+  sourceserif: { name: 'Text serif', css: "'Source Serif 4','Charter',Georgia,serif" },
 };
 
 export const CUSTOM_RADII = {
@@ -550,6 +806,160 @@ export function contrastRatio(a, b) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
+// =====================================================================
+// Contrast-safe derived tokens.
+//
+// A palette above is authored for character. These five are COMPUTED
+// from it so that no theme — built-in, or one an instructor assembles in
+// the builder — can ship a combination that fails WCAG 2.1 AA:
+//
+//   --on-accent / --on-good / --on-bad  text drawn ON that fill  (4.5:1)
+//   --edge-strong                       borders that are the only thing
+//                                       identifying a control     (3:1)
+//   --accent-2-text                     accent-2 where it carries
+//                                       small text                (4.5:1)
+//
+// Deriving rather than authoring is the point: adding a 21st theme, or
+// nudging an accent, cannot silently reintroduce the failure.
+// =====================================================================
+
+/** AA floor for normal text. A hair over 4.5 so rounding can't sink it. */
+const AA_TEXT = 4.55;
+/** 1.4.11 floor for control boundaries and graphical objects. */
+const AA_NONTEXT = 3.05;
+
+/**
+ * Text colour for a filled surface. Prefers a colour the theme already
+ * uses — ground first, then ink — so a button reads as part of the
+ * palette rather than a white sticker; falls back to hard black/white
+ * only when neither theme colour clears AA.
+ */
+function onFill(fill, ground, ink) {
+  let best = '#ffffff';
+  let bestRatio = 0;
+  for (const c of [ground, ink, '#ffffff', '#0b0b0d']) {
+    const r = contrastRatio(c, fill);
+    if (r >= AA_TEXT) return toHex(c);
+    if (r > bestRatio) { bestRatio = r; best = c; }
+  }
+  return toHex(best);
+}
+
+/**
+ * Walk `color` toward `anchor` until it clears `need` against every
+ * background it has to sit on. Returns the FIRST passing step, so the
+ * result keeps as much of the original colour as the floor allows.
+ */
+function liftContrast(color, anchor, need, ...backgrounds) {
+  const ok = (c) => backgrounds.every((bg) => contrastRatio(c, bg) >= need);
+  if (ok(color)) return toHex(color);
+  for (let t = 0.02; t <= 1.0001; t += 0.02) {
+    const c = mixHex(color, anchor, t);
+    if (ok(c)) return c;
+  }
+  return toHex(anchor);
+}
+
+/**
+ * Whichever pole a colour has to be pushed toward to gain contrast.
+ * Compared rather than thresholded: the black/white crossover sits at a
+ * relative luminance of ~0.18, so any "is it dark?" threshold picked by
+ * eye sends mid-tone grounds the wrong way — on #888888, white tops out
+ * at 3.5:1 while black reaches 5.9:1.
+ */
+const poleFor = (bg) => (contrastRatio('#000000', bg) >= contrastRatio('#ffffff', bg)
+  ? '#000000' : '#ffffff');
+
+/**
+ * Fill in the derived tokens. Idempotent, and never overrides a value a
+ * theme states explicitly — a theme that wants a specific `--on-accent`
+ * can still say so.
+ */
+export function deriveTokens(tokens) {
+  const ground = tokens['--ground'];
+  const ink = tokens['--ink'];
+  const surface = tokens['--surface'] || ground;
+  const out = { ...tokens };
+
+  if (!out['--on-accent']) out['--on-accent'] = onFill(tokens['--accent'], ground, ink);
+  if (!out['--on-good']) out['--on-good'] = onFill(tokens['--good'], ground, ink);
+  if (!out['--on-bad']) out['--on-bad'] = onFill(tokens['--bad'], ground, ink);
+
+  // The control border carries the whole affordance: --surface sits at
+  // 1.0–1.2:1 against --ground in every theme, so if the hairline is
+  // faint the input has no visible boundary at all.
+  if (!out['--edge-strong']) {
+    out['--edge-strong'] = liftContrast(tokens['--edge'], ink, AA_NONTEXT, surface, ground);
+  }
+
+  // Text siblings. The palette colours stay exactly as authored where
+  // they are FILLS — a bar, a chip, a chart segment, a backdrop, where
+  // 3:1 is the bar and vividness is the point. These are the versions
+  // used where the same colour sets type, and they carry the 4.5:1 floor
+  // against every ground that colour's type actually lands on, including
+  // its own tinted chip. Splitting fill from type is what lets a theme
+  // stay loud and still be legible.
+  const pole = poleFor(ground);
+  const tint = (c, t) => mixHex(c, surface, t);
+  if (!out['--accent-text']) {
+    out['--accent-text'] = liftContrast(
+      tokens['--accent'], pole, AA_TEXT, ground, surface, tokens['--accent-soft'],
+    );
+  }
+  if (!out['--accent-2-text']) {
+    out['--accent-2-text'] = liftContrast(
+      tokens['--accent-2'], pole, AA_TEXT, ground, surface, tint(tokens['--accent-2'], 0.82),
+    );
+  }
+  if (!out['--good-text']) {
+    out['--good-text'] = liftContrast(
+      tokens['--good'], pole, AA_TEXT, ground, surface, tint(tokens['--good'], 0.82),
+    );
+  }
+  if (!out['--bad-text']) {
+    out['--bad-text'] = liftContrast(
+      tokens['--bad'], pole, AA_TEXT, ground, surface, tint(tokens['--bad'], 0.82),
+    );
+  }
+
+  return out;
+}
+
+/**
+ * Every AA violation left in a theme, as plain sentences. The builder
+ * shows these before an instructor can save; the test suite asserts the
+ * list is empty for every built-in.
+ */
+export function auditTheme(theme) {
+  const t = deriveTokens(theme.tokens || {});
+  const bad = [];
+  const text = (fg, bg, what) => {
+    const r = contrastRatio(t[fg], t[bg]);
+    if (r < 4.5) bad.push({ ratio: r, need: 4.5, what, pair: [t[fg], t[bg]] });
+  };
+  const nontext = (fg, bg, what) => {
+    const r = contrastRatio(t[fg], t[bg]);
+    if (r < 3) bad.push({ ratio: r, need: 3, what, pair: [t[fg], t[bg]] });
+  };
+
+  text('--ink', '--ground', 'Body text on the background');
+  text('--ink', '--surface', 'Body text on panels');
+  text('--ink-soft', '--ground', 'Secondary text on the background');
+  text('--ink-soft', '--surface', 'Secondary text on panels');
+  text('--on-accent', '--accent', 'Button text on the accent');
+  text('--on-good', '--good', 'Text on the "correct" colour');
+  text('--on-bad', '--bad', 'Text on the "wrong" colour');
+  text('--accent-text', '--ground', 'Links and accent type');
+  text('--accent-text', '--accent-soft', 'Accent type on its own chip');
+  text('--accent-2-text', '--ground', 'Second accent as text');
+  text('--good-text', '--surface', 'The "correct" colour as text');
+  text('--bad-text', '--surface', 'The "wrong" colour as text');
+  nontext('--edge-strong', '--surface', 'Input and button borders');
+  nontext('--accent', '--ground', 'Accent bars and the focus ring');
+
+  return bad.sort((a, b) => a.ratio - b.ratio);
+}
+
 /**
  * Derive a full theme from the builder's picks.
  * @param {object} p {name, ground, ink, accent, accent2, font, radius, backdrop}
@@ -562,16 +972,23 @@ export function buildCustomTheme(p) {
   const accent = toHex(p.accent || '#1d4ed8');
   const accent2 = toHex(p.accent2 || '#b45309');
   const dark = luminance(ground) < 0.4;
+  const surface = mixHex(ground, '#ffffff', dark ? 0.05 : 0.6);
+
+  // A 35% walk toward the background is the look we want for secondary
+  // text, but on a low-contrast pair it lands under AA — so take the
+  // walk, then pull back toward the ink until it clears the floor on
+  // both the page and a panel. Most picks never hit the clamp.
+  const inkSoft = liftContrast(mixHex(ink, ground, 0.35), ink, AA_TEXT, ground, surface);
 
   return {
     id: p.id || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())),
     name: (p.name || 'My theme').slice(0, 40),
     dark,
-    tokens: {
+    tokens: deriveTokens({
       '--ink': ink,
-      '--ink-soft': mixHex(ink, ground, 0.35),
+      '--ink-soft': inkSoft,
       '--ground': ground,
-      '--surface': mixHex(ground, dark ? '#ffffff' : '#ffffff', dark ? 0.05 : 0.6),
+      '--surface': surface,
       '--edge': dark ? mixHex(ground, '#ffffff', 0.12) : mixHex(ground, ink, 0.12),
       '--accent': accent,
       '--accent-soft': mixHex(accent, ground, dark ? 0.72 : 0.82),
@@ -581,7 +998,7 @@ export function buildCustomTheme(p) {
       '--display': (CUSTOM_FONTS[p.font] || CUSTOM_FONTS.inter).css,
       '--body': BODY_STACK,
       '--bar-radius': (CUSTOM_RADII[p.radius] || CUSTOM_RADII.soft).css,
-    },
+    }),
     background: p.backdrop && p.backdrop !== 'none'
       ? { kind: 'preset', id: p.backdrop }
       : { kind: 'none' },

@@ -1,0 +1,180 @@
+/* =====================================================================
+   SurveyAll — slide elements ("decor").
+
+   One layer, three hosts: the projector (.stage), the editor canvas and
+   the rail thumbnails. All three position from the same percentages and
+   size from the same `em`, so a slide that reads well in a 9rem thumbnail
+   reads the same way on a 4K panel — the trick the rest of the app uses,
+   applied to art instead of type.
+
+   See app/elements.js for why placement is a percentage of the slide
+   rather than a pixel coordinate, and why colour defaults to a theme
+   token.
+   ===================================================================== */
+
+.decor-layer {
+  position: absolute;
+  inset: 0;
+  /* A size container, so .decor-item can measure itself in `cqh` — a
+     percentage of the slide's height. That is the one measurement that
+     means the same thing on the projector and in a rail thumbnail; see
+     SIZES in app/elements.js for why em is wrong here.
+     `container-type: size` implies layout/style/size containment but not
+     paint, so the highlighter's nine-unit stroke still overhangs. */
+  container-type: size;
+  /* z-index is set per layer below, because which side of the content an
+     element sits on is the whole point of having two of them. */
+  /* Nothing here is clickable. On the projector there is nothing to
+     click; in the editor the placement overlay owns hits itself. */
+  pointer-events: none;
+  /* Strokes and round caps overshoot the 24-unit box (the highlighter is
+     nine units wide on a line at y=12), so the layer must not clip. */
+  overflow: visible;
+}
+
+/* In front: over the question and the results. An arrow that points at a
+   bar has to be over the bar to mean anything. Still below the join card
+   (6) and the control bar (7), which is what guarantees a scannable QR
+   can never be covered no matter where an instructor places something. */
+.decor-layer-front { z-index: 3; }
+
+/* Behind: under the question and the results, for watermarks. z-index 1
+   ties with .stage-scrim, and this layer comes after it in the DOM, so it
+   paints above the scrim and below the content at 2 — the one gap in the
+   stack that has no integer of its own. */
+.decor-layer-back { z-index: 1; }
+
+.decor-item {
+  position: absolute;
+  width: var(--decor-size, 12.5cqh);
+  height: var(--decor-size, 12.5cqh);
+  /* left/top are the element's own percentages; the translate centres it
+     on that point, so a position means the middle of the art rather than
+     its top-left corner — which is what makes dropping it somewhere land
+     where the cursor was. */
+  transform:
+    translate(-50%, -50%)
+    rotate(var(--decor-rot, 0deg))
+    scaleX(var(--decor-flip, 1));
+  transform-origin: center;
+  display: block;
+}
+
+.decor-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+/* ---------------------------------------------------------------------
+   Entrance.
+
+   Decor arrives with the slide rather than fading in on its own beat —
+   one movement, so the eye isn't pulled off the question by a sticker.
+   Purely an entrance, so `bouncy` is allowed here per the motion rules in
+   docs/visual-craft.md; nothing about a quantity is being animated. */
+
+@keyframes decor-in {
+  from { opacity: 0; transform: translate(-50%, -50%) rotate(var(--decor-rot, 0deg)) scaleX(var(--decor-flip, 1)) scale(.86); }
+  to   { opacity: 1; }
+}
+
+.stage .decor-item {
+  animation: decor-in .42s cubic-bezier(.22, 1.2, .36, 1) both;
+  /* stagger by placement order, capped so a busy slide still settles fast */
+  animation-delay: calc(var(--decor-i, 0) * 55ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage .decor-item { animation: none; }
+}
+
+/* The peer-instruction discussion phase takes the whole slide over with
+   one instruction and a clock (.pair-overlay). That overlay is a child of
+   .stage-body and so cannot stack above this layer; rather than fight the
+   z-index, the decoration simply gets out of the way — which is what it
+   should do during a takeover anyway. */
+.stage.is-pairing .decor-layer {
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+
+/* ---------------------------------------------------------------------
+   The editor's placement surface.
+
+   Only the editor canvas gets this. The rail thumbnails and the
+   projector draw decor and nothing else. */
+
+.decor-edit {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+.decor-edit.is-active { pointer-events: auto; }
+
+/* Where the projector's own furniture will be. Decor draws underneath
+   both, so these are shown quietly and always rather than as an error at
+   the moment of the drop — the instructor can see what they are moving
+   into while they move into it. */
+.decor-zones { position: absolute; inset: 0; pointer-events: none; }
+
+.decor-zone {
+  position: absolute;
+  border: 1px dashed color-mix(in srgb, var(--ink) 22%, transparent);
+  border-radius: 6px;
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--ink) 5%, transparent) 0 4px,
+    transparent 4px 9px);
+  opacity: 0;
+  transition: opacity .18s ease;
+}
+/* only while placing — a permanent hatch over the corner would be a
+   worse preview of the slide than no hatch at all */
+.decor-edit.is-dragging .decor-zone { opacity: 1; }
+
+/* Alignment guides. Two lines, moved to whatever the drag has found to
+   line up with: the slide's centre, its thirds and margins, or another
+   element's centre. */
+.decor-guides { position: absolute; inset: 0; pointer-events: none; }
+
+.decor-guide {
+  position: absolute;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity .1s ease;
+}
+.decor-guide.is-on { opacity: .85; }
+
+.decor-guide-x { top: 0; bottom: 0; width: 1px; margin-left: -.5px; }
+.decor-guide-y { left: 0; right: 0; height: 1px; margin-top: -.5px; }
+
+/* Hit targets over each placed element, for select and drag. */
+.decor-handle {
+  position: absolute;
+  width: var(--decor-size, 12.5cqh);
+  height: var(--decor-size, 12.5cqh);
+  transform: translate(-50%, -50%);
+  border: 1.5px solid transparent;
+  border-radius: 10px;
+  cursor: grab;
+  pointer-events: auto;
+  background: none;
+  padding: 0;
+  transition: border-color .14s ease, background .14s ease;
+}
+.decor-handle:hover { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.decor-handle:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  /* solid, not a 28% wash: the wash composited under 3:1 on most themes */
+  box-shadow: var(--focus);
+}
+.decor-handle.is-selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  cursor: grab;
+}
+.decor-handle.is-dragging { cursor: grabbing; }

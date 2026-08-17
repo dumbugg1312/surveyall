@@ -60,6 +60,12 @@ export class SessionRoom {
 
     this.state.acceptWebSocket(server, [role]);
 
+    // Someone just arrived — tell the presenters the new headcount. This
+    // covers both directions: a phone connecting bumps the number a
+    // presenter sees, and a presenter connecting learns the current count
+    // immediately rather than waiting for the next join.
+    this.broadcastPresence();
+
     // If the client offered subprotocols we MUST select one, or the
     // browser rejects the handshake. A presenter offers
     // ['surveyall.bearer', <token>] because a WebSocket has no other way
@@ -70,6 +76,26 @@ export class SessionRoom {
     if (offered.length) headers['Sec-WebSocket-Protocol'] = offered[0];
 
     return new Response(null, { status: 101, webSocket: client, headers });
+  }
+
+  /**
+   * How many phones are connected right now, sent to PRESENTERS ONLY.
+   *
+   * It is a count and nothing else — no pseudonyms, no identities — so it
+   * carries no FERPA weight, but it still goes only to presenter sockets
+   * because it is the presenter's readiness signal, not the room's. The
+   * count comes straight from the live socket set, so it costs no database
+   * read and is always current.
+   *
+   * @param {WebSocket} [excluding] a socket that is closing; a just-closed
+   *   phone can still appear in the set for an instant, so drop it and
+   *   anything not fully OPEN to avoid an off-by-one on disconnect.
+   */
+  broadcastPresence(excluding = null) {
+    const OPEN = 1; // WebSocket.READY_STATE_OPEN
+    const participants = this.state.getWebSockets('participant')
+      .filter((ws) => ws !== excluding && ws.readyState === OPEN).length;
+    this.broadcast('presence', { participants }, 'presenter');
   }
 
   /**
@@ -109,9 +135,12 @@ export class SessionRoom {
 
   async webSocketClose(ws, code, reason, wasClean) {
     try { ws.close(code, reason); } catch { /* already closed */ }
+    // A phone left; the presenter's headcount should fall to match.
+    this.broadcastPresence(ws);
   }
 
   async webSocketError(ws) {
     try { ws.close(1011, 'error'); } catch { /* already closed */ }
+    this.broadcastPresence(ws);
   }
 }

@@ -245,6 +245,32 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Lobby headcount pill — the live "N here" the presenter reads before
+   starting. Shares the count-pill look so it belongs to the same family. */
+.lobby-presence {
+  display: inline-flex; align-items: center; gap: .5em;
+  margin: 0;
+  padding: .35em .9em .35em .8em;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
+  font-size: .82em; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.presence-dot {
+  width: .55em; height: .55em; border-radius: 50%;
+  background: var(--accent); flex: none;
+  animation: presence-pulse 2.2s ease-out infinite;
+}
+@keyframes presence-pulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent); }
+  70%  { box-shadow: 0 0 0 .55em transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .presence-dot { animation: none; }
+}
+
 .progress-dots { display: flex; gap: .3em; align-items: center; }
 .progress-dot {
   width: .5em; height: .5em; border-radius: 50%;
@@ -267,7 +293,7 @@
 }
 .timer.is-urgent {
   background: color-mix(in srgb, var(--bad) 16%, transparent);
-  color: var(--bad);
+  color: var(--bad-text);
   animation: timer-tick 1s steps(2) infinite;
 }
 @keyframes timer-tick { 50% { opacity: .55; } }
@@ -336,7 +362,7 @@
 }
 .ctrl:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 8%, transparent); }
 .ctrl:disabled { opacity: .35; cursor: not-allowed; }
-.ctrl.is-active { background: var(--accent); color: #fff; }
+.ctrl.is-active { background: var(--accent); color: var(--on-accent); }
 .ctrl-sep { width: 1px; height: 1.4em; background: var(--edge); }
 
 /* --------------------------------------------- discussion engine (PI) */
@@ -376,7 +402,7 @@
   color: color-mix(in srgb, var(--accent) 85%, var(--ink));
   line-height: 1;
 }
-.pair-clock.is-done { color: var(--bad); animation: timer-tick 1s steps(2) infinite; }
+.pair-clock.is-done { color: var(--bad-text); animation: timer-tick 1s steps(2) infinite; }
 .pair-sub { font-size: .75em; color: var(--ink-soft); }
 
 /* Mazur's decision band, tray-only */
@@ -388,9 +414,9 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.pi-hint[data-band="low"] { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
+.pi-hint[data-band="low"] { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad-text); }
 .pi-hint[data-band="mid"] { background: var(--accent-soft); color: color-mix(in srgb, var(--accent) 80%, var(--ink)); }
-.pi-hint[data-band="high"] { background: color-mix(in srgb, var(--good) 14%, transparent); color: var(--good); }
+.pi-hint[data-band="high"] { background: color-mix(in srgb, var(--good) 14%, transparent); color: var(--good-text); }
 
 .hands-pill { background: var(--accent-soft); }
 
@@ -407,7 +433,7 @@
 .hold-note { color: var(--ink-soft); font-weight: 600; }
 .hold-chip {
   padding: .3em .7em;
-  border: 1px dashed var(--edge);
+  border: 1px dashed var(--edge-strong);
   border-radius: 999px;
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   color: var(--ink);
@@ -419,7 +445,7 @@
 .hold-all { border-style: solid; background: var(--accent-soft); }
 
 .curate-chip {
-  border: 1px solid var(--edge);
+  border: 1px solid var(--edge-strong);
   border-radius: 999px;
   padding: .3em .75em;
   background: color-mix(in srgb, var(--accent-2) 10%, transparent);
@@ -454,7 +480,7 @@
 .compare-bar select {
   font: inherit;
   padding: .3em .5em;
-  border: 1px solid var(--edge);
+  border: 1px solid var(--edge-strong);
   border-radius: 8px;
   background: var(--surface);
   color: var(--ink);
@@ -638,7 +664,7 @@ kbd {
   display: inline-grid; place-items: center;
   border-radius: 50%;
   background: var(--accent);
-  color: var(--ground);
+  color: var(--on-accent);
   font-size: .8em;
   font-weight: 700;
   font-variant-numeric: tabular-nums;

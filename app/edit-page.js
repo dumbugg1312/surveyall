@@ -24,20 +24,23 @@ import {
 import {
   TYPE_LABELS, TYPE_BLURBS, splitPassage, DEFAULT_JOIN_STEPS, isContentSlide, joinURL,
   PROMPT_SCALES, DEFAULT_PROMPT_SCALE, promptScale, showSlideLabel,
-  defaultConfig, retypeQuestion,
+  defaultConfig, retypeQuestion, clozeParts,
 } from './logic.js';
 import { typeIcon, chartIcon } from './icons.js';
 import { TEMPLATES } from './templates.js';
 import {
   THEMES, BACKGROUND_PRESETS, getTheme, applyTheme,
   backgroundStyles, scrimOpacity, CHART_STYLES,
-  resolveTheme, buildCustomTheme, CUSTOM_FONTS, CUSTOM_RADII, contrastRatio,
+  resolveTheme, buildCustomTheme, CUSTOM_FONTS, CUSTOM_RADII, auditTheme,
 } from './themes.js';
 import { ambiencePlan, ambienceLevel } from './ambience.js';
 import { prefersReducedMotion } from './motion.js';
 import { parseDeck, serialiseDeck } from './deck-format.js';
 import { renderSlide } from './slide-preview.js';
 import { openPreview } from './preview-panel.js';
+import {
+  elementsEditor, mountDecorEditor, clearDecorSelection,
+} from './elements-editor.js';
 import { qrSVG, qrInk } from './qr.js';
 import { joinBase } from './config.js';
 
@@ -181,6 +184,10 @@ function selected() {
 function selectSlide(id) {
   if (selectedId === id) return;
   selectedId = id;
+  // A selected element belongs to the slide it sits on. Carrying the
+  // index across would point at whatever happens to be third on the next
+  // slide, which is how you edit the wrong thing without noticing.
+  clearDecorSelection();
   renderRail();
   renderStage();
   document.querySelector('.rail-item.is-selected')
@@ -373,17 +380,47 @@ async function move(index, step) {
  */
 const SLIDE_TYPES = [
   ['instructions', 'How to join, projected. Big QR, big code, your own steps.'],
+  ['traffic', 'Green, amber, red. One tap, mid-lecture, as often as you like.'],
+  ['mood', 'One icon each. A soft read on how the room walked in.'],
+  ['this_or_that', 'Rapid either/ors, answered on instinct. Warms a room up fast.'],
   ['multiple_choice', 'The everyday poll. Bars, donut, opinion or best answer.'],
   ['word_cloud', 'One or two words each; the room writes the headline.'],
   ['open_ended', 'Sentences, shown as cards. Hold them for review if you like.'],
   ['scales', 'Rate several statements 1–5. Good for confidence checks.'],
   ['ranking', 'Put items in order. Counted by Borda points.'],
-  ['quiz', 'Timed, scored, with a leaderboard.'],
+  ['budget', 'A hundred points to spend across your options. Real trade-offs.'],
+  ['probability', 'How likely is it? Everyone commits to a number, then you reveal.'],
   ['spectrum', 'Where do you stand? A slider, drawn as a scatter, never averaged.'],
+  ['quiz', 'Timed, scored, with a leaderboard.'],
+  ['cloze', 'A sentence with the load-bearing words taken out.'],
+  ['matching', 'Terms to their partners. Shows you exactly what gets mixed up.'],
+  ['timeline', 'Put events in order. Marked against the real sequence.'],
   ['sample_vote', 'Two or more samples; the room picks the strongest and says why.'],
   ['heatmap', 'A short passage the room highlights or labels.'],
+  ['exit_ticket', 'Learned it, still wondering, muddiest point. The classic closer.'],
   ['qa', 'Open floor. Questions from the room, upvoted, moderated by you.'],
 ];
+
+/**
+ * Eleven tiles is one scroll too many when you know what you want. The
+ * tabs group them the way an instructor asks for them out loud — not by
+ * how the answers are stored, but by what the slide asks the room to do:
+ * get on their phones, choose from what you wrote, say it themselves, or
+ * show you whether it landed.
+ */
+const SLIDE_CATEGORIES = [
+  ['all', 'All', null],
+  ['start', 'Start here', ['instructions']],
+  ['pulse', 'Quick pulse', ['traffic', 'mood', 'this_or_that']],
+  ['ask', 'Ask the room', ['multiple_choice', 'scales', 'ranking', 'budget',
+    'probability', 'spectrum']],
+  ['words', 'In their words', ['word_cloud', 'open_ended', 'exit_ticket', 'qa']],
+  ['check', 'Check understanding', ['quiz', 'cloze', 'matching', 'timeline',
+    'sample_vote', 'heatmap']],
+];
+
+/** The tab you last used, so a deck built of quizzes stops costing a click. */
+let galleryCat = 'all';
 
 function toggleSlideGallery() {
   const open = document.getElementById('slideGallery');
@@ -414,11 +451,16 @@ function openSlideGallery() {
 
   const grid = document.createElement('div');
   grid.className = 'gallery-grid';
+  grid.id = 'galleryGrid';
+  grid.setAttribute('role', 'tabpanel');
+
+  head.append(buildGalleryTabs(pop, grid));
 
   SLIDE_TYPES.forEach(([type, blurb]) => {
     const tile = document.createElement('button');
     tile.type = 'button';
     tile.className = 'gallery-tile';
+    tile.dataset.type = type;
 
     const thumb = document.createElement('span');
     thumb.className = 'gallery-thumb';
@@ -442,13 +484,90 @@ function openSlideGallery() {
 
   pop.append(grid);
   document.body.append(backdrop, pop);
+  applyGalleryFilter(pop);
   $('addSlide').setAttribute('aria-expanded', 'true');
 
-  // anchor under the button, kept inside the viewport
+  // Anchor to the button, kept inside the viewport. It opens upward — the
+  // button lives at the foot of the rail — but on a short window there may
+  // be more room below, and a gallery whose tabs have run off the top of
+  // the screen is a gallery you cannot steer.
   const r = $('addSlide').getBoundingClientRect();
+  const above = r.top - 20;
+  const below = window.innerHeight - r.bottom - 20;
+  const up = above >= 260 || above >= below;
   pop.style.left = `${Math.max(12, Math.min(r.left, window.innerWidth - pop.offsetWidth - 12))}px`;
-  pop.style.bottom = `${Math.max(12, window.innerHeight - r.top + 8)}px`;
-  pop.querySelector('.gallery-tile')?.focus();
+  pop.style.maxHeight = `${Math.max(160, Math.min(480, up ? above : below))}px`;
+  if (up) {
+    pop.style.top = 'auto';
+    pop.style.bottom = `${window.innerHeight - r.top + 8}px`;
+  } else {
+    pop.style.bottom = 'auto';
+    pop.style.top = `${r.bottom + 8}px`;
+  }
+  pop.querySelector('.gallery-tile:not([hidden])')?.focus();
+}
+
+/**
+ * The tab strip. A real tablist: arrows walk it, only the current tab is
+ * a tab stop, and picking one hides tiles rather than rebuilding them —
+ * every tile carries a rendered miniature of the slide, and re-rendering
+ * eleven of those on a click is a stutter you can see.
+ */
+function buildGalleryTabs(pop, grid) {
+  const bar = document.createElement('div');
+  bar.className = 'gallery-tabs';
+  bar.setAttribute('role', 'tablist');
+  bar.setAttribute('aria-label', 'Slide categories');
+
+  const pick = (id) => {
+    galleryCat = id;
+    applyGalleryFilter(pop);
+  };
+
+  SLIDE_CATEGORIES.forEach(([id, label]) => {
+    const tab = document.createElement('button');
+    tab.type = 'button';
+    tab.className = 'gallery-tab';
+    tab.dataset.cat = id;
+    tab.id = `galleryTab-${id}`;
+    tab.textContent = label;
+    tab.setAttribute('role', 'tab');
+    tab.setAttribute('aria-controls', grid.id);
+    tab.addEventListener('click', () => pick(id));
+    tab.addEventListener('keydown', (e) => {
+      const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+      const jump = e.key === 'Home' ? 0 : e.key === 'End' ? SLIDE_CATEGORIES.length - 1 : null;
+      if (!step && jump == null) return;
+      e.preventDefault();
+      const i = SLIDE_CATEGORIES.findIndex(([c]) => c === galleryCat);
+      const next = SLIDE_CATEGORIES[jump ?? (i + step + SLIDE_CATEGORIES.length) % SLIDE_CATEGORIES.length][0];
+      pick(next);
+      bar.querySelector(`[data-cat="${next}"]`).focus();
+    });
+    bar.append(tab);
+  });
+
+  return bar;
+}
+
+function applyGalleryFilter(pop) {
+  const cat = SLIDE_CATEGORIES.find(([id]) => id === galleryCat) || SLIDE_CATEGORIES[0];
+  const [id, , types] = cat;
+  galleryCat = id;
+
+  pop.querySelectorAll('.gallery-tab').forEach((tab) => {
+    const on = tab.dataset.cat === id;
+    tab.setAttribute('aria-selected', String(on));
+    tab.classList.toggle('is-active', on);
+    tab.tabIndex = on ? 0 : -1;
+  });
+
+  pop.querySelectorAll('.gallery-tile').forEach((tile) => {
+    tile.hidden = !!types && !types.includes(tile.dataset.type);
+  });
+
+  pop.querySelector('.gallery-grid').setAttribute('aria-labelledby', `galleryTab-${id}`);
+  pop.scrollTop = 0;
 }
 
 /** New slides land after the one you're on, the way a deck actually grows. */
@@ -530,13 +649,16 @@ function renderCanvas() {
   // projector does — including hiding the label, or you would be trusting
   // a picture that disagrees with the room.
   host.style.setProperty('--prompt-scale', String(promptScale(deck)));
-  renderSlide(host, q, deck, resolveTheme(deck.theme, deck), {
+  const slide = renderSlide(host, q, deck, resolveTheme(deck.theme, deck), {
     kicker: showSlideLabel(deck)
       ? `${TYPE_LABELS[q.type] || q.type} · Slide ${index + 1} of ${questions.length}`
       : '',
     join: joinArt,
     ambience: true,
   });
+  // Only the big canvas is draggable. The rail draws the same decor and
+  // stays a picture — you arrange slides there, not the things on them.
+  mountDecorEditor(slide, q, decorCtx(q));
   note.textContent = isContentSlide(q.type)
     ? 'Nothing to answer — this slide just sits on the projector.'
     : 'A sketch of the projected slide. Real results appear when you run it.';
@@ -610,9 +732,199 @@ function slideForm(q) {
     body.append(listEditor(q, 'samples', 'Samples (anonymous, used with permission)'));
   }
   if (q.type === 'heatmap') body.append(passageEditor(q));
+  if (q.type === 'traffic') body.append(listEditor(q, 'labels', 'What the three lights mean'));
+  if (q.type === 'mood') body.append(moodEditor(q));
+  if (q.type === 'this_or_that') body.append(pairsEditor(q, 'This', 'or that'));
+  if (q.type === 'matching') body.append(pairsEditor(q, 'Term', 'Its partner'));
+  if (q.type === 'budget') body.append(listEditor(q, 'options', 'Things they can fund'));
+  if (q.type === 'timeline') body.append(listEditor(q, 'items', 'Events, in the CORRECT order'));
+  if (q.type === 'exit_ticket') body.append(listEditor(q, 'prompts', 'The three prompts'));
+  if (q.type === 'cloze') body.append(clozeEditor(q));
 
+  body.append(elementsEditor(q, decorCtx(q)));
   body.append(settingsFor(q));
   return body;
+}
+
+/**
+ * Two columns of text, for the types whose content is a list of pairs.
+ *
+ * Matching's answer key is the row itself — left matches the right beside
+ * it — so there is nothing extra to mark. The phone shuffles the right
+ * column, which is what keeps the key from being the answer.
+ */
+function pairsEditor(q, leftLabel, rightLabel) {
+  const wrap = document.createElement('div');
+  wrap.className = 'opt-editor';
+  const head = document.createElement('span');
+  head.className = 'label';
+  head.textContent = q.type === 'matching'
+    ? 'Pairs — each row is a correct match'
+    : 'Pairs — one either/or per row';
+  wrap.append(head);
+
+  const pairs = Array.isArray(q.config.pairs) ? q.config.pairs : [];
+
+  pairs.forEach((pair, i) => {
+    const line = document.createElement('div');
+    line.className = 'opt-line pair-line';
+
+    const make = (key, placeholder) => {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = String(pair?.[key] ?? '');
+      input.placeholder = `${placeholder} ${i + 1}`;
+      input.addEventListener('input', () => {
+        q.config.pairs[i] = { ...(q.config.pairs[i] || {}), [key]: input.value };
+        save(q, { config: q.config });
+      });
+      return input;
+    };
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'opt-remove';
+    remove.textContent = '×';
+    remove.addEventListener('click', () => {
+      q.config.pairs.splice(i, 1);
+      save(q, { config: q.config });
+      renderStage();
+    });
+
+    line.append(make('left', leftLabel), make('right', rightLabel), remove);
+    wrap.append(line);
+  });
+
+  wrap.append(btn('+ Add pair', 'btn-sm', () => {
+    q.config.pairs = [...pairs, { left: '', right: '' }];
+    save(q, { config: q.config });
+    renderStage();
+    focusLast(wrap.parentElement);
+  }));
+
+  return wrap;
+}
+
+/** An emoji and the word for it, so the projector can label the cluster. */
+function moodEditor(q) {
+  const wrap = document.createElement('div');
+  wrap.className = 'opt-editor';
+  const head = document.createElement('span');
+  head.className = 'label';
+  head.textContent = 'Icons';
+  wrap.append(head);
+
+  const icons = Array.isArray(q.config.icons) ? q.config.icons : [];
+
+  icons.forEach((m, i) => {
+    const line = document.createElement('div');
+    line.className = 'opt-line';
+
+    const emoji = document.createElement('input');
+    emoji.type = 'text';
+    emoji.className = 'emoji-input';
+    emoji.value = String(m?.emoji ?? '');
+    emoji.maxLength = 4;
+    emoji.setAttribute('aria-label', `Icon ${i + 1}`);
+
+    const label = document.createElement('input');
+    label.type = 'text';
+    label.value = String(m?.label ?? '');
+    label.placeholder = 'What it means';
+
+    const sync = () => {
+      q.config.icons[i] = { emoji: emoji.value, label: label.value };
+      save(q, { config: q.config });
+    };
+    emoji.addEventListener('input', () => { sync(); renderCanvas(); });
+    label.addEventListener('input', sync);
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'opt-remove';
+    remove.textContent = '×';
+    remove.addEventListener('click', () => {
+      q.config.icons.splice(i, 1);
+      save(q, { config: q.config });
+      renderStage();
+    });
+
+    line.append(emoji, label, remove);
+    wrap.append(line);
+  });
+
+  wrap.append(btn('+ Add icon', 'btn-sm', () => {
+    q.config.icons = [...icons, { emoji: '', label: '' }];
+    save(q, { config: q.config });
+    renderStage();
+  }));
+
+  return wrap;
+}
+
+/**
+ * The cloze sentence: one string, with the answers written inline in
+ * [brackets]. The parsed blank count is echoed back live, because the
+ * mistake this format invites is an unclosed bracket and the honest way
+ * to surface that is to show what actually parsed.
+ */
+function clozeEditor(q) {
+  const wrap = document.createElement('div');
+  wrap.className = 'opt-editor';
+  const head = document.createElement('span');
+  head.className = 'label';
+  head.textContent = 'The sentence';
+  wrap.append(head);
+
+  const area = document.createElement('textarea');
+  area.className = 'passage-input';
+  area.rows = 3;
+  area.placeholder = 'The [mitochondrion|mitochondria] is the powerhouse of the [cell].';
+  area.value = q.config.text || '';
+
+  const note = document.createElement('p');
+  note.className = 'muted';
+  note.style.fontSize = '.74rem';
+
+  const sync = () => {
+    const blanks = clozeParts(area.value).filter((p) => p.kind === 'blank');
+    const keyed = blanks.filter((b) => b.answers.length).length;
+    note.textContent = blanks.length === 0
+      ? 'Put the answer in [square brackets] to make a blank. Several accepted answers: [colour|color].'
+      : `${blanks.length} blank${blanks.length === 1 ? '' : 's'}`
+        + (keyed < blanks.length
+          ? ` · ${blanks.length - keyed} with no answer inside — those are never marked wrong`
+          : ' · all with an answer');
+  };
+
+  area.addEventListener('input', () => {
+    q.config.text = area.value;
+    save(q, { config: q.config });
+    sync();
+    renderCanvas();
+  });
+  sync();
+
+  wrap.append(area, note);
+  return wrap;
+}
+
+/**
+ * What the elements editor needs from the page: save the slide, and
+ * redraw.
+ *
+ * `quiet` is for changes that only move the selection — nothing about
+ * the deck changed, so there is nothing to write and nothing to tell the
+ * dashboard about; repainting is the whole job.
+ */
+function decorCtx(q) {
+  return {
+    onChange(opts = {}) {
+      if (!opts.quiet) save(q, { config: q.config });
+      renderStage();
+      refreshSelectedThumb();
+    },
+  };
 }
 
 // =====================================================================
@@ -1026,6 +1338,28 @@ function settingsFor(q) {
     grid.append(wrap);
   };
 
+  /**
+   * A percentage that is allowed to be nothing at all.
+   *
+   * `num` coerces an emptied box to 0, and 0% is a real answer to "how
+   * likely is this" — so a question with no known answer needs its own
+   * control rather than a number field with a sentinel in it.
+   */
+  const optionalPct = (key, label) => grid.append(field(label, (() => {
+    const i = document.createElement('input');
+    i.type = 'number';
+    i.min = '0'; i.max = '100';
+    i.placeholder = 'no answer';
+    i.value = cfg[key] == null || cfg[key] === '' ? '' : String(cfg[key]);
+    i.addEventListener('input', () => {
+      const raw = i.value.trim();
+      cfg[key] = raw === '' ? null : Math.min(100, Math.max(0, Number(raw)));
+      save(q, { config: cfg });
+      renderCanvas();
+    });
+    return i;
+  })()));
+
   // like bool, but the unset state reads as `dflt` rather than false
   const bool2 = (key, label, dflt) => grid.append(checkline(label, cfg[key] ?? dflt, (v) => {
     cfg[key] = v;
@@ -1106,6 +1440,29 @@ function settingsFor(q) {
       } else {
         num('max_picks', 'Sentences each person may pick', 1, 5, 1);
       }
+      break;
+    case 'this_or_that':
+      bool('allow_skip', 'Allow skipping any they can’t call');
+      break;
+    case 'budget':
+      num('total', 'Points to spend', 10, 1000, 100);
+      bool('confidence', 'Ask “how sure are you?”');
+      break;
+    case 'probability':
+      optionalPct('truth', 'The actual answer (optional)');
+      bool('confidence', 'Ask “how sure are you?”');
+      break;
+    case 'cloze':
+      bool('case_sensitive', 'Capital letters have to match');
+      break;
+    case 'matching':
+      bool('allow_partial', 'Allow leaving some unmatched');
+      break;
+    case 'timeline':
+      bool('allow_partial', 'Allow placing only some');
+      break;
+    case 'exit_ticket':
+      num('max_length', 'Max characters each', 20, 1000, 200);
       break;
     default:
       break;
@@ -1440,14 +1797,22 @@ function refreshBuilderPreview() {
   host.textContent = '';
   host.append(themeSlide({ id: 'custom', ...t }));
 
-  // legibility guard: warn when the projected text would fail WCAG AA
-  const ratio = contrastRatio(t.tokens['--ink'], t.tokens['--ground']);
+  // Legibility gate. Most of the palette is derived with a contrast floor
+  // already built in, so what survives to here is a pick the derivation
+  // cannot rescue — an ink and a ground too close to tell apart. That is
+  // not a matter of taste: a deck is projected to a room and archived for
+  // students on their own phones, so a theme below AA cannot be saved.
+  const problems = auditTheme(t);
   const warn = $('ctWarn');
-  warn.hidden = ratio >= 4.5;
-  if (!warn.hidden) {
-    warn.textContent = `Text on background is ${ratio.toFixed(1)}:1 — `
-      + 'aim for at least 4.5:1 so the back row can read it.';
+  warn.hidden = problems.length === 0;
+  if (problems.length) {
+    const worst = problems[0];
+    warn.textContent = `${worst.what} is only ${worst.ratio.toFixed(1)}:1 — `
+      + `needs ${worst.need}:1 so the back row can read it.`
+      + (problems.length > 1 ? ` (${problems.length - 1} more to fix.)` : '');
   }
+  $('ctSave').disabled = problems.length > 0;
+  return problems;
 }
 
 function openBuilder(existing) {
@@ -1503,6 +1868,9 @@ function wireThemeBuilder() {
   $('ctCancel').addEventListener('click', closeBuilder);
 
   $('ctSave').addEventListener('click', async () => {
+    // the button is disabled while the palette fails, but a stale click
+    // or a scripted one must not slip past the gate either
+    if (refreshBuilderPreview().length) return;
     const theme = buildCustomTheme(builderPicks());
     const list = loadMyThemes();
     const i = list.findIndex((t) => t.id === theme.id);

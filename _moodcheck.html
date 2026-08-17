@@ -1,0 +1,27 @@
+<!doctype html><html><head>
+<link rel="stylesheet" href="styles/base.css">
+<link rel="stylesheet" href="styles/join.css">
+</head><body>
+<div class="mood-picker" id="mp">
+  <button type="button" class="mood-btn is-selected"><div class="mood-btn-glyph">A</div><div class="mood-btn-label" id="lbl">Great</div></button>
+</div>
+<pre id="out"></pre>
+<script type="module">
+import { THEMES, getTheme } from './app/themes.js';
+import { luminance } from './app/motion.js';
+const ratio=(a,b)=>{const la=luminance(a),lb=luminance(b);const[hi,lo]=la>lb?[la,lb]:[lb,la];return (hi+0.05)/(lo+0.05);};
+const toHex=(rgb)=>{const m=rgb.match(/\d+/g);return '#'+m.slice(0,3).map(n=>(+n).toString(16).padStart(2,'0')).join('');};
+const lbl=document.getElementById('lbl'), btn=lbl.parentElement;
+const lines=[];
+for(const id of Object.keys(THEMES)){
+  const t=getTheme(id);
+  for(const [k,v] of Object.entries(t.tokens)) document.documentElement.style.setProperty(k,v);
+  const cs=getComputedStyle(lbl), cb=getComputedStyle(btn);
+  const fg=toHex(cs.color), bg=toHex(cb.backgroundColor);
+  const r=ratio(fg,bg);
+  lines.push(`${r<4.5?'FAIL':'ok  '} ${id.padEnd(15)} fg=${fg} bg=${bg} size=${cs.fontSize} weight=${cs.fontWeight} ratio=${(Math.round(r*100)/100)}`);
+}
+document.getElementById('out').textContent=lines.join('\n')+'\nfails='+lines.filter(l=>l.startsWith('FAIL')).length;
+window.__done=true;
+</script>
+</body></html>

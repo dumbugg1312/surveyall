@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Elements harness — SurveyAll</title>
+<link rel="stylesheet" href="../styles/fonts.css">
+<link rel="stylesheet" href="../styles/base.css">
+<link rel="stylesheet" href="../styles/charts.css">
+<link rel="stylesheet" href="../styles/present.css">
+<link rel="stylesheet" href="../styles/app.css">
+<link rel="stylesheet" href="../styles/preview.css">
+<link rel="stylesheet" href="../styles/elements.css">
+<style>
+  .wrap { padding: 1.5rem; display: flex; flex-direction: column; gap: 1.5rem; }
+  h2 { font-size: .85rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); }
+  .split { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+  .card { border: 1px solid var(--edge); border-radius: 14px; padding: 1rem; background: var(--surface); }
+  .rail { display: flex; gap: .6rem; }
+  .rail > div { width: 11rem; border: 1px solid var(--edge); border-radius: 8px; overflow: hidden; }
+  .catalog { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: .4rem; }
+  .cell { display: flex; flex-direction: column; align-items: center; gap: .3rem; padding: .6rem .2rem;
+          border: 1px solid var(--edge); border-radius: 10px; background: var(--ground); }
+  .cell svg { width: 40px; height: 40px; overflow: visible; }
+  .cell code { font-size: .55rem; color: var(--ink-soft); text-align: center; word-break: break-all; }
+  .status { padding: .7rem 1rem; border-radius: 10px; font-weight: 600; font-size: .85rem; }
+  .status.ok { background: color-mix(in srgb, var(--good) 14%, transparent); color: var(--good); }
+  .status.bad { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
+</style>
+</head>
+<body>
+
+<header class="appbar">
+  <span class="brand">Elements harness</span>
+  <span class="spacer"></span>
+  <label class="label" for="themeSel">Theme</label>
+  <select id="themeSel"></select>
+</header>
+
+<div class="wrap">
+  <div id="status" class="status">Running…</div>
+
+  <h2>Editor canvas — drag freely; guides snap to the centre, thirds and other elements. The microscope is a <em>behind</em> watermark.</h2>
+  <div class="split">
+    <div>
+      <div class="stage-canvas" id="canvas"></div>
+      <h2 style="margin-top:1rem">Rail thumbnails</h2>
+      <div class="rail" id="rail"></div>
+    </div>
+    <div class="card" id="form"></div>
+  </div>
+
+  <h2>Projector stage (16:9)</h2>
+  <div style="aspect-ratio:16/9; border:1px solid var(--edge); border-radius:12px; overflow:hidden; position:relative">
+    <div class="stage" id="stage" style="height:100%;min-height:0;font-size:clamp(9px,1.1vw,16px)">
+      <div class="stage-backdrop"></div>
+      <div class="stage-scrim"></div>
+      <div class="decor-layer decor-layer-back" id="decorBack"></div>
+      <div class="stage-head">
+        <div class="stage-heading">
+          <p class="stage-kicker">Multiple choice · Question 1 of 8</p>
+          <h1 class="stage-prompt" id="stagePrompt">Which of these is a primary source?</h1>
+        </div>
+      </div>
+      <div class="stage-body"><div class="chart" id="stageChart"></div></div>
+      <div class="decor-layer decor-layer-front" id="decorFront"></div>
+      <div class="join-corner">
+        <div class="join-qr" style="background:#fff"></div>
+        <div class="join-meta">
+          <span class="join-label">Join anytime</span>
+          <span class="join-url">surveyall.org</span>
+          <span class="join-code">ABC123</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Every size, at every corner</h2>
+  <div class="card"><div class="stage-canvas" id="sizes"></div></div>
+
+  <h2>Catalog — marks</h2>
+  <div class="catalog" id="marks"></div>
+</div>
+
+<script type="module">
+import { renderSlide } from '../app/slide-preview.js';
+import { renderAggregate } from '../app/charts.js';
+import { aggregate } from '../app/logic.js';
+import { THEMES, applyTheme } from '../app/themes.js';
+import {
+  ELEMENT_LIST, elementSvg, renderDecor, SIZES, decorOf, anchorPos,
+} from '../app/elements.js';
+import { elementsEditor, mountDecorEditor, selectDecor } from '../app/elements-editor.js';
+import { parseDeck, serialiseDeck } from '../app/deck-format.js';
+
+const errors = [];
+
+// ---- a deck that never touches the database -------------------------
+const deck = { id: 'demo', title: 'Harness', theme: 'lecture-hall', background: { kind: 'theme' } };
+
+const question = {
+  id: 'q1',
+  type: 'multiple_choice',
+  prompt: 'Which of these is a primary source?',
+  position: 0,
+  config: {
+    options: ['A textbook chapter', "A soldier's letter", 'An encyclopedia entry', 'A documentary'],
+    correct: [1],
+    decor: [
+      { id: 'microscope', x: 72, y: 55, layer: 'back', size: 'xl', stroke: 'accent', fill: 'none', w: 2, rot: 0, flip: false, op: 22 },
+      { id: 'mark-arc-right', x: 14, y: 62, size: 'md', stroke: 'accent-2', w: 3, rot: 15, flip: false, op: 100 },
+      { id: 'mark-ring', x: 66.5, y: 31.5, size: 'xl', stroke: 'bad', fill: 'none', w: 2.5, rot: 0, flip: false, op: 60 },
+      { id: 'star', x: 9.5, y: 88, size: 'sm', stroke: 'good', fill: 'good', w: 2, rot: 0, flip: false, op: 100 },
+    ],
+  },
+};
+
+const other = {
+  id: 'q2', type: 'word_cloud', prompt: 'One word for how the reading felt', position: 1,
+  config: { decor: [{ id: 'brain', x: 8, y: 12, size: 'md', stroke: 'accent', w: 2 }] },
+};
+
+const ctx = { onChange() { paint(); } };
+
+function paint() {
+  // canvas + drag surface (the real editor path)
+  const host = document.getElementById('canvas');
+  const slide = renderSlide(host, question, deck, deck.theme, { kicker: 'Multiple choice · Slide 1 of 2', ambience: false });
+  mountDecorEditor(slide, question, ctx);
+
+  // the form
+  const form = document.getElementById('form');
+  form.textContent = '';
+  form.append(elementsEditor(question, ctx));
+
+  // rail thumbnails
+  const rail = document.getElementById('rail');
+  rail.textContent = '';
+  [question, other].forEach((q) => {
+    const d = document.createElement('div');
+    renderSlide(d, q, deck, deck.theme, {});
+    rail.append(d);
+  });
+
+  // projector
+  renderDecor({ back: document.getElementById('decorBack'), front: document.getElementById('decorFront') },
+    question.config);
+}
+
+// ---- projector chart -------------------------------------------------
+const rows = [];
+// multiple_choice reads `choices` (an array); only quiz reads `choice`
+[9, 21, 4, 6].forEach((n, i) => { for (let k = 0; k < n; k += 1) rows.push({ payload: { choices: [i] } }); });
+renderAggregate(
+  document.getElementById('stageChart'),
+  question.type,
+  aggregate(question.type, question.config, rows),
+  { reveal: true },
+);
+
+// ---- every size at every corner --------------------------------------
+const sizeQ = {
+  type: 'qa', prompt: 'Size and placement check', config: {
+    decor: [
+      ...Object.keys(SIZES).map((size, i) => ({
+        id: 'circle', x: 10 + i * 20, y: 15 + i * 17, size, stroke: 'accent', w: 2,
+      })),
+      { id: 'mark-highlight', at: 'mid-center', size: 'xl', stroke: 'accent-2', w: 2 },
+      { id: 'mark-box', at: 'top-left', size: 'lg', stroke: 'ink', w: 2 },
+      { id: 'graduation-cap', at: 'bottom-right', size: 'md', stroke: 'accent', fill: 'accent-soft', w: 2 },
+    ],
+  },
+};
+renderSlide(document.getElementById('sizes'), sizeQ, deck, deck.theme, {});
+
+// ---- catalog ---------------------------------------------------------
+const marksHost = document.getElementById('marks');
+ELEMENT_LIST.filter((e) => e.category === 'marks').forEach((e) => {
+  const c = document.createElement('div');
+  c.className = 'cell';
+  c.append(elementSvg(e.id, { stroke: 'accent', w: 2 }));
+  const code = document.createElement('code');
+  code.textContent = e.id;
+  c.append(code);
+  marksHost.append(c);
+});
+
+// ---- theme switch ----------------------------------------------------
+const sel = document.getElementById('themeSel');
+Object.entries(THEMES).forEach(([id, t]) => {
+  const o = document.createElement('option');
+  o.value = id; o.textContent = t.name; sel.append(o);
+});
+sel.value = deck.theme;
+sel.addEventListener('change', () => {
+  deck.theme = sel.value;
+  applyTheme(document.documentElement, sel.value);
+  paint();
+  renderSlide(document.getElementById('sizes'), sizeQ, deck, deck.theme, {});
+});
+applyTheme(document.documentElement, deck.theme);
+
+paint();
+
+// ---- audit -----------------------------------------------------------
+function audit() {
+  errors.length = 0;   // re-runnable: the page calls this on every theme change
+  // every placed element made it to every surface
+  const want = decorOf(question.config).length;
+  const onStage = document.querySelectorAll('#decorBack .decor-item, #decorFront .decor-item').length;
+  const onCanvas = document.querySelectorAll('#canvas .decor-layer .decor-item').length;
+  const handles = document.querySelectorAll('#canvas .decor-handle').length;
+  const guides = document.querySelectorAll('#canvas .decor-guide').length;
+  const zones = document.querySelectorAll('#canvas .decor-zone').length;
+  if (onStage !== want) errors.push(`stage drew ${onStage} of ${want}`);
+  if (onCanvas !== want) errors.push(`canvas drew ${onCanvas} of ${want}`);
+  if (handles !== want) errors.push(`canvas has ${handles} handles for ${want}`);
+  if (guides !== 2) errors.push(`expected 2 alignment guides, found ${guides}`);
+  if (zones !== 2) errors.push(`expected 2 reserved zones, found ${zones}`);
+
+  // every element must be drawn at its own stored position
+  decorOf(question.config).forEach((it, i) => {
+    const node = document.querySelector(`#canvas .decor-item[data-decor-index="${i}"]`);
+    const inBack = !!node.closest('.decor-layer-back');
+    if (inBack !== (it.layer === 'back')) errors.push(`${it.id} is in the wrong layer`);
+    const left = parseFloat(node.style.left);
+    const top = parseFloat(node.style.top);
+    if (Math.abs(left - it.x) > 0.01 || Math.abs(top - it.y) > 0.01) {
+      errors.push(`${it.id} drawn at ${left},${top} but stored at ${it.x},${it.y}`);
+    }
+  });
+
+  // nothing may escape the slide
+  const slideBox = document.querySelector('#canvas .sp-slide').getBoundingClientRect();
+  document.querySelectorAll('#canvas .decor-layer .decor-item').forEach((n) => {
+    const b = n.getBoundingClientRect();
+    if (b.width < 2 || b.height < 2) errors.push(`${n.dataset.decorId} rendered at zero size`);
+    const outX = b.left < slideBox.left - b.width || b.right > slideBox.right + b.width;
+    if (outX) errors.push(`${n.dataset.decorId} is off the slide horizontally`);
+  });
+
+  // neither layer may reach the join card, or a QR could be covered
+  const joinZ = Number(getComputedStyle(document.querySelector('#stage .join-corner')).zIndex);
+  ['decorBack', 'decorFront'].forEach((id) => {
+    const z = Number(getComputedStyle(document.getElementById(id)).zIndex);
+    if (z >= joinZ) errors.push(`${id} z-index ${z} >= join ${joinZ}`);
+  });
+  // and the two must actually straddle the slide's content
+  const backZ = Number(getComputedStyle(document.getElementById('decorBack')).zIndex);
+  const frontZ = Number(getComputedStyle(document.getElementById('decorFront')).zIndex);
+  const contentZ = Number(getComputedStyle(document.querySelector('#stage .stage-body')).zIndex);
+  if (!(backZ < contentZ)) errors.push(`back layer ${backZ} is not under content ${contentZ}`);
+  if (!(frontZ > contentZ)) errors.push(`front layer ${frontZ} is not over content ${contentZ}`);
+  // in a preview the two layers must bracket .sp-content in DOM order
+  const kids = [...document.querySelector('#canvas .sp-slide').children].map((n) => n.className);
+  const iBack = kids.findIndex((c) => c.includes('decor-layer-back'));
+  const iContent = kids.findIndex((c) => c.includes('sp-content'));
+  const iFront = kids.findIndex((c) => c.includes('decor-layer-front'));
+  if (!(iBack < iContent && iContent < iFront)) {
+    errors.push(`preview layer order is ${iBack}/${iContent}/${iFront}`);
+  }
+
+  // sizes must be a fraction of the SLIDE, not of the local font-size:
+  // the same element in the big canvas and a rail thumbnail should differ
+  // in pixels by the same ratio as the two slides differ in height
+  const bigSlide = document.querySelector('#canvas .sp-slide').getBoundingClientRect();
+  const smallSlide = document.querySelector('#rail .sp-slide').getBoundingClientRect();
+  const big = document.querySelector('#canvas .decor-item').getBoundingClientRect();
+  const small = document.querySelector('#rail .decor-item').getBoundingClientRect();
+  const slideRatio = bigSlide.height / smallSlide.height;
+  const artRatio = big.height / small.height;
+  if (Math.abs(slideRatio - artRatio) > 0.05) {
+    errors.push(`art does not scale with the slide: slide ×${slideRatio.toFixed(2)}, art ×${artRatio.toFixed(2)}`);
+  }
+
+  // round-trip through the text format
+  const text = serialiseDeck(deck, [question, other]);
+  const back = parseDeck(text);
+  const a = JSON.stringify(decorOf(question.config));
+  const b = JSON.stringify(decorOf(back.questions[0].config));
+  if (a !== b) errors.push('text round-trip drifted');
+  if (back.errors.length) errors.push(`round-trip errors: ${back.errors.join('; ')}`);
+
+  const box = document.getElementById('status');
+  box.className = `status ${errors.length ? 'bad' : 'ok'}`;
+  box.textContent = errors.length
+    ? `${errors.length} problem(s): ${errors.join(' · ')}`
+    : `ok — ${want} elements on 3 surfaces at their own coordinates and layers, front/behind straddle the content, guides and zones present, sizes scale with the slide, text round-trip stable`;
+  return { ok: !errors.length, errors };
+}
+
+// setTimeout, not requestAnimationFrame: rAF is throttled to nothing in a
+// background tab, and this page is often opened and read from a hidden one.
+window.__audit = audit;
+setTimeout(audit, 60);
+</script>
+</body>
+</html>

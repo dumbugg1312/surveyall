@@ -81,11 +81,28 @@ height-aware `min()`) so the sentence can never fall off a 720p screen.
 No font files shipped before: theme stacks leaned on Mac-only faces and the
 never-loaded 'Inter var', so the same deck projected different type in every
 classroom and every in-between weight (550/650/750) silently snapped to
-400/700. Four OFL latin-subset variable fonts (~220KB total, self-hosted in
-`fonts/`, no runtime network requests) make the design real everywhere:
-**Inter** (body + plain themes), **Fraunces** (lecture-hall, letterpress),
-**Oswald** (neon-night, midnight), **Caveat** (chalkboard). The projector
-preloads the default theme's two faces so it never flashes fallback type.
+400/700. Eight OFL variable fonts, self-hosted in `fonts/` with no runtime
+network requests, make the design real everywhere: **Inter** (body + plain
+themes), **Fraunces** (lecture-hall, letterpress, riviera…), **Oswald**
+(neon-night, midnight, broadsheet…), **Caveat** (chalkboard, sorbet),
+**Source Serif 4** (letterpress + broadsheet body, replacing Mac-only
+'Charter'), **Playfair Display** (velvet, replacing 'Didot'), **Cinzel**
+(gallery) and **Faustina** (botanical), the last two replacing 'Optima',
+which rendered as Optima on a Mac, Gill Sans MT on Windows and something
+else again on Linux. The projector preloads the default theme's two faces
+so it never flashes fallback type.
+
+The rule the suite now enforces (`theme typography is self-hosted`): the
+**first** family in every `--display` and `--body` stack must be one we
+ship, so the system faces still listed after it are insurance against a
+failed download rather than what most of the room actually sees.
+
+Each family ships as two files split on `unicode-range`, the way Google
+Fonts serves them — a `latin` file and a `-ext` file covering Latin
+Extended. An ASCII-only deck downloads only the first, so the common case
+costs nothing; a roster with a Wojciech Łęski or a Gökçe Şahin pulls the
+companion instead of dropping to a system serif mid-word, which is what
+used to happen, because all four original files were latin-only.
 
 Per-theme physical signatures hang off the previously-unused
 `data-theme-id` hook, on CSS-owned surfaces only: neon-night's prompt glow
@@ -104,13 +121,23 @@ drives the projector *and* the phone; `tests/visual-check.html` is only a
 test harness). Four new themes widen the range on the colourful end while
 staying classroom-professional: **Citrus Studio** (tangerine/lime, Oswald),
 **Riviera** (sea teal/coral, Fraunces), **Sorbet** (raspberry/apricot,
-Caveat headline), **Arcade** (dark violet with lime/magenta, Oswald) —
-twelve total, all 13-token shaped, all audit-clean.
+Caveat headline), **Arcade** (dark violet with lime/magenta, Oswald).
+
+A second wave of eight goes after range rather than more colour, each with
+a background preset built for it alone rather than a recolour of an
+existing one: **Observatory** (planetarium black and brass, `starfield`),
+**Kiln** (terracotta and glaze-blue, `arches`), **Blueprint** (cyanotype
+with white line-work, a two-scale `drafting` grid), **Gallery** (museum
+white, one vermilion stroke, Cinzel on a `plinth`), **Broadsheet**
+(newsprint and press-red, `halftone`), **Velvet** (theatre burgundy and
+champagne gold, Playfair on a `vignette`), **Fjord** (glacier blues,
+`ridgeline`) and **Rice Paper** (sumi ink and seal-red, `seigaiha` wave
+crests) — twenty total, all 13-token shaped, all audit-clean.
 
 ### My themes — the custom theme builder
 
 Instructors can build their own theme from four colours (background, text,
-accent, second accent), a headline face (the four shipped fonts), a corner
+accent, second accent), a headline face (any of the eight shipped), a corner
 shape and a backdrop preset. Everything else — surfaces, edges, soft
 tints, status colours, dark-mode detection — is **derived**
 (`buildCustomTheme` in themes.js), so the result is always a coherent
@@ -157,10 +184,45 @@ and it gained waiting-state panels.
 
 Quantities animate only on critically damped springs (`precise`/`smooth`);
 `bouncy` stays position/entrance-only. Bars stay square at the baseline,
-rounded at the tip. Poll bars stay single-accent (the reveal's green and the
-confetti are the sanctioned exceptions). Charts reuse DOM between renders.
-`[hidden] { display: none !important }` stays. No new direct children of
-`.stage`; the overlay-lift list is untouched. Nothing collects or displays
+rounded at the tip. Poll bars carry a distinct per-option hue from the
+accent-anchored wheel (`palette(root, n, 'wheel')`), option 1 still reading
+as the accent; colour is decoration, so a quiz verdict still overrides the
+correct row to `--good` green in `paint()` — that green, and the confetti,
+remain the only colours that carry meaning. Scale distributions ramp low→high
+between `--accent-2` and `--accent` so the histogram's mass reads as low or
+high at a glance. Charts reuse DOM between renders.
+`[hidden] { display: none !important }` stays. Nothing collects or displays
 any student identity. `prefersReducedMotion()` is respected by every new
 animation (and the emulated-reduce pass verifies: no sweeps, no dots, no
 confetti, instant reveal, snapped springs).
+
+### The `.stage` children rule, restated
+
+This pass held "no new direct children of `.stage`; the overlay-lift list
+is untouched", and the slide-elements pass (see `docs/elements.md`) added
+one: `.decor-layer`. That is not a quiet exception, so here is the rule
+the original line was really protecting.
+
+The overlay-lift list names four in-flow blocks by hand because `:not()`
+carries the specificity of its argument, and the old
+`.stage > *:not(...)` selector beat every overlay's own
+`position: absolute`. What must not happen is a new **in-flow** child —
+it would join the flex column, push the layout, and need adding to that
+list.
+
+An absolutely-positioned overlay that sets its own `position` and
+`z-index` is a different thing, and there were already six of them:
+`.stage-backdrop`, `.stage-scrim`, `.join-corner`, `.stage-panel`,
+`.stage-flash`, `.stage-controls`. `.decor-layer` is the seventh, at
+z-index 3 — above the slide's content (2) so a mark can point at a bar,
+below the join card (6) and the controls (7) so nothing an instructor
+places can cover the QR the room is scanning.
+
+The overlay-lift list itself is still untouched, which is the part that
+actually matters.
+
+One consequence worth recording: `.pair-overlay` is a child of
+`.stage-body`, so it cannot stack above a layer on `.stage`. Rather than
+fight the z-index, the decoration fades out under `.stage.is-pairing` —
+the discussion phase is a full takeover, and stepping back is what
+decoration should do during one.

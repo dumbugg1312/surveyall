@@ -101,6 +101,9 @@ app/                ES modules, no build step
   charts.js           result rendering
   motion.js           spring-physics animation engine
   themes.js           8 themes + background presets
+  elements.js         slide elements: anchors, colour, the annotation marks
+  elements-data.js    generated Lucide path data (ISC) — do not hand-edit
+  elements-editor.js  the element picker and drag-to-place surface
   participant-state.js session-scoped pseudonym handling
   *-page.js           one controller per page
 
@@ -110,10 +113,12 @@ worker/             the Cloudflare Worker
   auth.js             accounts, password hashing, signed tokens
   schema.sql          D1 tables (run once)
 
-styles/             base, charts, present, join, app
+styles/             base, charts, present, join, app, elements
+tools/              build-elements.mjs — rebuilds the icon catalog
 tests/              run-tests.mjs + run-worker-tests.mjs (node),
-                    visual-check.html (browser)
-docs/               architecture.md, DEPLOYMENT.md, HANDOFF.md, phase1 research
+                    visual-check.html + elements-check.html (browser)
+docs/               architecture.md, DEPLOYMENT.md, HANDOFF.md, elements.md,
+                    phase1 research
 wrangler.jsonc      deploy config — only `database_id` needs editing
 ```
 
@@ -130,6 +135,8 @@ npm test
 `tests/run-tests.mjs` — 135 logic tests covering the participant flow end to end (what a tap becomes, whether it's accepted, how it's counted and scored, what reaches the CSV, and that no code path can emit a student identifier) plus the animation engine: that quantitative springs never overshoot, that a spring retargeted mid-flight keeps its velocity instead of restarting, and that a throwing render can't leave a chart frozen half-drawn.
 
 `tests/run-worker-tests.mjs` — 47 tests of the API itself, and they are not mocked: they build a real SQLite database from `worker/schema.sql`, wrap it in the slice of the D1 API the Worker uses, and drive the Worker's own `fetch` handler with real requests. They cover password hashing (including that a stolen database is useless without the Worker's secret), token rules, sign-up gating, throttling, and — the reason the suite exists — **cross-account isolation**: that a second instructor cannot read or write another's decks, questions, sessions, responses, Q&A, or backgrounds. Each isolation test checks both halves, that the owner still can and the stranger cannot, because a blanket 404 would otherwise pass.
+
+`tests/elements-check.html` covers slide elements: it mounts the real editor canvas, drag surface and picker against an invented deck, then self-audits that every placed element reaches all three surfaces (projector, canvas, rail), that the decor layer stays below the join card so a QR can never be covered, that art scales with the slide rather than with the local font-size, and that a decorated deck survives a round trip through the text format. It runs the audit against all twelve themes.
 
 For the rendering itself, open `tests/visual-check.html` in a browser. It draws every chart type with sample data and no database, simulates a live class so you can watch results animate in, and self-audits the word-cloud layout for overlaps. It also doubles as a way to check a theme is readable on your projector before class.
 

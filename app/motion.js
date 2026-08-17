@@ -481,9 +481,22 @@ export function oklabToSrgb([L, A, B]) {
  * Build a categorical palette by walking hue in OKLab between two anchor
  * colours, holding perceptual lightness steady. Every swatch reads with
  * the same visual weight on a projector.
+ *
+ * Holding lightness steady is what makes the set read as one family, and
+ * it is also how the walk used to produce illegal swatches: on a theme
+ * whose accents are both light (citrus-studio's tangerine → lime), every
+ * colour on the ramp inherited that lightness and landed under 3:1
+ * against the page. So each swatch is nudged in OKLab lightness — up on
+ * a dark ground, down on a light one — until it clears the floor. The
+ * nudge is per-swatch and as small as possible, so the family holds
+ * together and only the offending members move. Same contract as
+ * hueWheel(), which has always done this.
+ *
+ * @param {string} bg   the background these sit on (theme `--ground`)
+ * @param {number} minContrast  WCAG 1.4.11 floor for graphical objects
  */
-export function harmonicSeries(from, to, count) {
-  if (count <= 1) return [from];
+export function harmonicSeries(from, to, count, bg = null, minContrast = 3.05) {
+  if (count <= 1) return [legible(from, bg, minContrast)];
   const A = srgbToOklab(from);
   const B = srgbToOklab(to);
   const out = [];
@@ -491,11 +504,128 @@ export function harmonicSeries(from, to, count) {
     const t = i / (count - 1);
     // ease the hue walk so the first colours stay closest to the accent
     const e = easeInOutCubic(t) * 0.86;
-    out.push(oklabToSrgb([
+    out.push(legible([
       A[0] + (B[0] - A[0]) * e * 0.5,   // keep lightness nearly constant
       A[1] + (B[1] - A[1]) * e,
       A[2] + (B[2] - A[2]) * e,
-    ]));
+    ], bg, minContrast));
+  }
+  return out;
+}
+
+/**
+ * Push an OKLab colour along lightness until it clears `minContrast`
+ * against `bg`, keeping its hue and as much chroma as the new lightness
+ * can hold. Accepts an sRGB string too, so callers with a single colour
+ * can use it directly. Passing no background disables the clamp.
+ */
+function legible(lab, bg, minContrast) {
+  const L = Array.isArray(lab) ? lab : srgbToOklab(lab);
+  // hand a passing colour straight back: a caller that gave us '#1d4ed8'
+  // should not get 'rgb(29, 78, 216)' for its trouble
+  if (!bg) return Array.isArray(lab) ? oklabToSrgb(L) : lab;
+  const col = oklabToSrgb(L);
+  if (contrastRatio(col, bg) >= minContrast) return Array.isArray(lab) ? col : lab;
+
+  const h = Math.atan2(L[2], L[1]);
+  // Toward whichever pole actually buys contrast. Compared, not
+  // thresholded: the crossover is at ~0.18 relative luminance, so a
+  // hand-picked "is it dark?" cutoff walks mid-tone grounds the wrong
+  // way and the swatch gets less legible, not more.
+  const dir = contrastRatio('#000000', bg) >= contrastRatio('#ffffff', bg) ? -1 : 1;
+  let best = col;
+  let bestRatio = contrastRatio(col, bg);
+  for (let step = 0.02; step <= 0.6; step += 0.02) {
+    const nl = Math.min(0.98, Math.max(0.06, L[0] + dir * step));
+    const C = Math.min(Math.hypot(L[1], L[2]), maxChromaAt(nl, h) * 0.92);
+    const c = oklabToSrgb([nl, C * Math.cos(h), C * Math.sin(h)]);
+    const r = contrastRatio(c, bg);
+    if (r >= minContrast) return c;
+    if (r > bestRatio) { bestRatio = r; best = c; }
+  }
+  return best;
+}
+
+/**
+ * Is an OKLab colour representable in sRGB without a channel clamping?
+ * Mirrors the linear-RGB stage of oklabToSrgb and tests it *before* the
+ * gamma+clamp, so we can tell a colour that fits from one that would be
+ * flattened into a corner of the cube (which is what makes naive wide
+ * palettes read as muddy — several distinct hues collapse to the same
+ * clipped value).
+ */
+function oklabInGamut([L, A, B]) {
+  const l = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3;
+  const m = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3;
+  const s = (L - 0.0894841775 * A - 1.2914855480 * B) ** 3;
+  const r = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+  const g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+  const b = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+  const eps = 0.001;
+  return r >= -eps && r <= 1 + eps && g >= -eps && g <= 1 + eps
+    && b >= -eps && b <= 1 + eps;
+}
+
+/** WCAG contrast ratio between two colours. */
+function contrastRatio(a, b) {
+  const la = luminance(a);
+  const lb = luminance(b);
+  const hi = Math.max(la, lb);
+  const lo = Math.min(la, lb);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/** The most chroma a hue can hold at a given lightness without clipping. */
+function maxChromaAt(L, h) {
+  let C = 0.03;
+  let best = 0.03;
+  while (C < 0.4) {
+    if (oklabInGamut([L, C * Math.cos(h), C * Math.sin(h)])) best = C;
+    else break;
+    C += 0.004;
+  }
+  return best;
+}
+
+/**
+ * A wide categorical palette — many distinct hues that POP, the way a word
+ * cloud or a poll wants them, not a two-anchor gradient. It rotates hue
+ * around the full wheel starting at the anchor (so the first swatch still
+ * reads as the accent) and, for each hue, chooses the punchiest colour that
+ * still reads on the background:
+ *
+ *  • For every hue it walks lightness and, at each stop, pushes chroma to
+ *    the gamut edge — then keeps the lightness that yields the MOST chroma
+ *    while still clearing `minContrast` against `bg`. Letting lightness
+ *    float per hue is the whole point: pinning it (as a sequential ramp
+ *    must) is what turns yellows into mud and leaves everything flat.
+ *  • Because the target is contrast against the actual background, the same
+ *    call yields deep vivid jewel tones on a light theme and bright ones on
+ *    a dark theme, each as saturated as it can be and still be legible.
+ *
+ * @param {string} bg   the background these sit on (theme `--ground`)
+ * @param {number} minContrast  WCAG floor; large chart text/shapes want ~3+
+ */
+export function hueWheel(anchor, count, bg = '#ffffff', minContrast = 3.3) {
+  if (count <= 1) return [anchor];
+  const [, A0, B0] = srgbToOklab(anchor);
+  const H0 = Math.atan2(B0, A0);
+  const out = [];
+  for (let i = 0; i < count; i += 1) {
+    const h = H0 + (i / count) * Math.PI * 2;
+    let best = null;
+    let bestChroma = -1;
+    let fallback = null;
+    let fallbackContrast = -1;
+    for (let L = 0.30; L <= 0.86; L += 0.02) {
+      const C = maxChromaAt(L, h) * 0.92; // ease off the very edge
+      const col = oklabToSrgb([L, C * Math.cos(h), C * Math.sin(h)]);
+      const ct = contrastRatio(col, bg);
+      if (ct >= minContrast && C > bestChroma) { bestChroma = C; best = col; }
+      // if no lightness clears the bar, keep the most-contrasting we saw
+      if (ct > fallbackContrast) { fallbackContrast = ct; fallback = col; }
+    }
+    out.push(best || fallback);
   }
   return out;
 }

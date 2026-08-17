@@ -117,6 +117,57 @@ export const TYPE_ICONS = {
     + '<rect x="16.5" y="10.6" width="5" height="2.8" rx="1.4" opacity=".45"/>'
     + '<rect x="2.5" y="16.2" width="19" height="2.8" rx="1.4" opacity=".45"/>',
 
+  // the lantern itself, amber lit
+  traffic: '<rect x="6.5" y="1.5" width="11" height="21" rx="4"/>'
+    + '<circle cx="12" cy="6.6" r="2.5" fill="var(--surface,#fff)" opacity=".45"/>'
+    + '<circle cx="12" cy="12" r="2.5" fill="var(--surface,#fff)"/>'
+    + '<circle cx="12" cy="17.4" r="2.5" fill="var(--surface,#fff)" opacity=".45"/>',
+
+  // weather, not faces — the room reports on the day, not on itself
+  mood: '<circle cx="8.4" cy="8.4" r="4.4"/>'
+    + '<path d="M17.4 21.5H9.2a4.2 4.2 0 0 1-.5-8.4 5.4 5.4 0 0 1 10.2 1 3.7 3.7 0 0 1-1.5 7.4z" opacity=".5"/>',
+
+  // two either/ors, a side taken on each
+  this_or_that: '<rect x="2" y="4.4" width="9" height="6" rx="3"/>'
+    + '<rect x="13" y="4.4" width="9" height="6" rx="3" opacity=".35"/>'
+    + '<rect x="2" y="13.6" width="9" height="6" rx="3" opacity=".35"/>'
+    + '<rect x="13" y="13.6" width="9" height="6" rx="3"/>',
+
+  // one pot, divided unevenly — the trade-off made visible
+  budget: '<rect x="2" y="8.4" width="9.5" height="7.2" rx="2"/>'
+    + '<rect x="12.6" y="8.4" width="5.6" height="7.2" rx="2" opacity=".6"/>'
+    + '<rect x="19.3" y="8.4" width="2.7" height="7.2" rx="1.35" opacity=".35"/>',
+
+  // a distribution with its long tail
+  probability: '<path d="M2 19.5c4.2 0 4.6-13 10-13s5.8 13 10 13z" opacity=".45"/>'
+    + '<rect x="2" y="19.2" width="20" height="2.3" rx="1.15"/>'
+    + '<rect x="11" y="7" width="2" height="12" rx="1"/>',
+
+  // a line of prose with the word taken out
+  cloze: '<rect x="2.5" y="5" width="19" height="2.8" rx="1.4" opacity=".45"/>'
+    + '<rect x="2.5" y="10.6" width="6" height="2.8" rx="1.4" opacity=".45"/>'
+    + '<rect x="10" y="9.8" width="7" height="4.4" rx="1.4" stroke="currentColor" stroke-width="1.4" fill="none" stroke-dasharray="2.6 2"/>'
+    + '<rect x="18.5" y="10.6" width="3" height="2.8" rx="1.4" opacity=".45"/>'
+    + '<rect x="2.5" y="16.2" width="13" height="2.8" rx="1.4" opacity=".45"/>',
+
+  // two columns, joined across
+  matching: '<circle cx="4.6" cy="6" r="2.4"/><circle cx="19.4" cy="6" r="2.4" opacity=".5"/>'
+    + '<circle cx="4.6" cy="12" r="2.4"/><circle cx="19.4" cy="12" r="2.4" opacity=".5"/>'
+    + '<circle cx="4.6" cy="18" r="2.4"/><circle cx="19.4" cy="18" r="2.4" opacity=".5"/>'
+    + '<path d="M7 6h10M7 12l10 6M7 18l10-6" stroke="currentColor" stroke-width="1.5" fill="none" opacity=".7"/>',
+
+  // events pegged along a line, in order
+  timeline: '<rect x="2" y="11" width="20" height="2" rx="1" opacity=".45"/>'
+    + '<circle cx="5" cy="12" r="3"/><circle cx="12" cy="12" r="3" opacity=".7"/>'
+    + '<circle cx="19" cy="12" r="3" opacity=".45"/>'
+    + '<rect x="4.2" y="4" width="1.6" height="4" rx=".8" opacity=".5"/>'
+    + '<rect x="11.2" y="16" width="1.6" height="4" rx=".8" opacity=".5"/>',
+
+  // a ticket, torn off on the way out
+  exit_ticket: '<path d="M3 5.5h18a1.5 1.5 0 0 1 1.5 1.5v3a2.5 2.5 0 0 0 0 5v3a1.5 1.5 0 0 1-1.5 1.5H3A1.5 1.5 0 0 1 1.5 18v-3a2.5 2.5 0 0 0 0-5V7A1.5 1.5 0 0 1 3 5.5z"/>'
+    + '<rect x="5" y="9.4" width="8" height="1.8" rx=".9" fill="var(--surface,#fff)"/>'
+    + '<rect x="5" y="12.8" width="5.5" height="1.8" rx=".9" fill="var(--surface,#fff)" opacity=".7"/>',
+
   // a question coming from the room
   qa: '<path d="M4 3.5h16a2.5 2.5 0 0 1 2.5 2.5v9a2.5 2.5 0 0 1-2.5 2.5h-8.2L6.5 21.5V17.5H4A2.5 2.5 0 0 1 1.5 15V6A2.5 2.5 0 0 1 4 3.5z" opacity=".45"/>'
     + '<path d="M12 6.2c-2 0-3.4 1.1-3.7 2.9h2.2c.2-.7.7-1.1 1.5-1.1.8 0 1.3.4 1.3 1.1 0 .6-.3.9-1.1 1.4-.9.6-1.3 1.2-1.3 2.2v.4h2.2v-.3c0-.6.2-.9 1-1.4 1-.6 1.5-1.3 1.5-2.4 0-1.7-1.4-2.8-3.6-2.8z"/>'

@@ -19,34 +19,62 @@
 
 <main class="page">
 
-  <div class="section-head">
-    <h2>Your decks</h2>
-    <span class="spacer"></span>
-    <button class="btn" id="importDeck" type="button">Import from text</button>
-    <button class="btn btn-primary" id="newDeck" type="button">New deck</button>
-  </div>
+  <!-- A session that is live outranks everything else on this page: you
+       are standing in front of the room. Renders nothing otherwise. -->
+  <div id="liveArea" hidden></div>
 
-  <div id="deckArea">
-    <p class="muted">Loading…</p>
-  </div>
+  <section class="dash-section" aria-labelledby="decksHead">
+    <div class="section-head">
+      <h2 id="decksHead">Your decks</h2>
+      <span class="head-count" id="deckCount" hidden></span>
+      <span class="spacer"></span>
+      <button class="btn" id="importDeck" type="button">Import from text</button>
+      <button class="btn btn-primary" id="newDeck" type="button">New deck</button>
+    </div>
+    <div id="deckArea"></div>
+  </section>
 
-  <div class="section-head" style="margin-top:1rem">
-    <h2>Recent sessions</h2>
-  </div>
+  <section class="dash-section" aria-labelledby="archiveHead">
+    <div class="section-head">
+      <h2 id="archiveHead">Session archive</h2>
+      <span class="head-count" id="sessionCount" hidden></span>
+    </div>
 
-  <div class="stack-sm" id="sessionArea">
-    <p class="muted">Loading…</p>
-  </div>
+    <!-- The archive is the point of keeping sessions forever, so it gets
+         the tools a growing pile needs: find one, narrow to a deck, and
+         separate the class you actually taught from the session nobody
+         joined. Hidden until there is enough here to need it. -->
+    <div class="archive-bar" id="archiveBar" hidden>
+      <div class="archive-search">
+        <label class="sr-only" for="sessionSearch">Search sessions</label>
+        <input type="search" id="sessionSearch" placeholder="Search label, code, or deck"
+               autocomplete="off" spellcheck="false">
+      </div>
+      <label class="sr-only" for="deckFilter">Filter by deck</label>
+      <select id="deckFilter">
+        <option value="">All decks</option>
+      </select>
+      <div class="seg" id="yieldFilter" role="group" aria-label="Filter by responses">
+        <button type="button" class="seg-btn is-on" data-yield="all" aria-pressed="true">All</button>
+        <button type="button" class="seg-btn" data-yield="answered" aria-pressed="false">With answers</button>
+        <button type="button" class="seg-btn" data-yield="empty" aria-pressed="false">Empty</button>
+      </div>
+    </div>
 
-  <p class="privacy-note" style="margin-top:1rem">
+    <div id="sessionArea"></div>
+  </section>
+
+  <p class="privacy-note">
     Sessions store answers only. No student names, emails, IDs, or IP addresses
-    are recorded anywhere in this system. Your decks and sessions are visible
-    only to you. <a href="privacy.html">What's stored, and who can see it</a>.
+    are recorded anywhere in this system. Counts here are counts of anonymous
+    pseudonyms. Your decks and sessions are visible only to you.
+    <a href="privacy.html">What's stored, and who can see it</a>.
   </p>
 
 </main>
 
 <div class="toast" id="toast"></div>
+<p class="sr-only" id="srStatus" role="status" aria-live="polite"></p>
 
 <script type="module" src="app/dashboard-page.js"></script>
 </body>

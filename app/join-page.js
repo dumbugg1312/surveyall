@@ -23,6 +23,8 @@ import {
 import {
   validateResponse, aggregate, optionLabels, MULTI_SUBMIT_TYPES,
   isContentSlide, fillJoinPlaceholders, DEFAULT_JOIN_STEPS,
+  trafficLabels, moodIcons, pairList, budgetTotal, clozeParts,
+  exitPrompts, timelineItems,
 } from './logic.js';
 import { applyTheme } from './themes.js';
 import { renderAggregate } from './charts.js';
@@ -292,7 +294,8 @@ function renderQuestion(q, isNew) {
   // confidence rider (anonymous, optional, off unless the question asks)
   let conf = null;
   const cfg = q.config || {};
-  if (cfg.confidence && ['multiple_choice', 'quiz', 'sample_vote', 'spectrum'].includes(q.type)) {
+  if (cfg.confidence && ['multiple_choice', 'quiz', 'sample_vote', 'spectrum',
+    'probability', 'budget'].includes(q.type)) {
     const row = div('conf-row');
     row.append(div('conf-label', 'How sure are you?'));
     const group = div('conf-btns');
@@ -450,6 +453,24 @@ function hintFor(q) {
       return cfg.mode === 'classify'
         ? 'Label the parts you can identify'
         : '';
+    case 'traffic':
+      return 'However you\'re doing is fine — nobody sees who said what';
+    case 'mood':
+      return 'Pick the one that fits today';
+    case 'this_or_that':
+      return cfg.allow_skip ? 'Go with your gut — skip any you can\'t call' : 'Go with your gut';
+    case 'budget':
+      return `Spend all ${budgetTotal(cfg)} points`;
+    case 'probability':
+      return 'Commit to a number — you can change it after we talk';
+    case 'cloze':
+      return 'Fill in what\'s missing';
+    case 'matching':
+      return 'Pair each one up';
+    case 'timeline':
+      return 'Tap them in the order they happened';
+    case 'exit_ticket':
+      return 'A sentence each is plenty — any one of them is enough to send';
     default:
       return '';
   }
@@ -502,6 +523,21 @@ function buildControl(q, prior) {
     case 'spectrum': return spectrumControl(q, prior);
     case 'sample_vote': return showdownControl(q, prior);
     case 'heatmap': return heatmapControl(q, prior);
+    case 'traffic': return lampControl(q, prior);
+    case 'mood': return moodControl(q, prior);
+    case 'this_or_that': return pairPickControl(q, prior);
+    case 'budget': return budgetControl(q, prior);
+    case 'probability': return probabilityControl(q, prior);
+    case 'cloze': return clozeControl(q, prior);
+    case 'matching': return matchingControl(q, prior);
+    case 'timeline': return rankingControl(q, prior, {
+      items: timelineItems(q.config),
+      // The config lists the events in their true order, so showing them
+      // in that order would hand the answer over. Shuffled by question id:
+      // stable across re-renders, never the key.
+      pool: shuffledBy(q.id, timelineItems(q.config).length),
+    });
+    case 'exit_ticket': return exitTicketControl(q, prior);
     default: {
       const el = div('state-text', 'This question type isn\'t supported on your device.');
       return { el, value: () => ({}) };
@@ -814,9 +850,18 @@ function scalesControl(q, prior) {
   return { el: wrap, value: () => ({ values }) };
 }
 
-function rankingControl(q, prior) {
+/**
+ * Tap-to-rank, shared by ranking and timeline.
+ *
+ * `opts.items` overrides where the labels come from, and `opts.pool` the
+ * order the unranked ones are offered in — timeline needs both, because
+ * its config IS the answer key and offering it unshuffled would give the
+ * answer away.
+ */
+function rankingControl(q, prior, opts = {}) {
   const cfg = q.config || {};
-  const items = Array.isArray(cfg.items) ? cfg.items : [];
+  const items = opts.items || (Array.isArray(cfg.items) ? cfg.items : []);
+  const pool = opts.pool || items.map((_, i) => i);
   let order = Array.isArray(prior?.order) ? prior.order.filter((i) => i < items.length) : [];
 
   const wrap = div('stack-sm');
@@ -835,7 +880,7 @@ function rankingControl(q, prior) {
     wrap.textContent = '';
     // ranked items first, in order; then the unranked pool
     const ranked = order.map((i) => ({ i, rank: order.indexOf(i) + 1 }));
-    const unranked = items.map((_, i) => i).filter((i) => !order.includes(i));
+    const unranked = pool.filter((i) => !order.includes(i));
 
     ranked.forEach(({ i, rank }, pos) => {
       const row = div('rank-item is-ranked');
@@ -843,24 +888,22 @@ function rankingControl(q, prior) {
       row.append(div('rank-badge', String(rank)));
       row.append(div('rank-text', label(items[i])));
 
+      // name the row in every control: heard on its own, "Move up" says
+      // nothing about which of eight options is about to move
+      const what = label(items[i]);
       const moves = div('rank-moves');
-      const up = moveBtn('▲', pos === 0, () => {
+      const up = moveBtn('▲', `Move ${what} up`, pos === 0, () => {
         [order[pos - 1], order[pos]] = [order[pos], order[pos - 1]];
         draw();
       });
-      const down = moveBtn('▼', pos === ranked.length - 1, () => {
+      const down = moveBtn('▼', `Move ${what} down`, pos === ranked.length - 1, () => {
         [order[pos + 1], order[pos]] = [order[pos], order[pos + 1]];
         draw();
       });
       moves.append(up, down);
       row.append(moves);
 
-      const remove = document.createElement('button');
-      remove.type = 'button';
-      remove.className = 'rank-move';
-      remove.textContent = '×';
-      remove.title = 'Remove from ranking';
-      remove.addEventListener('click', () => {
+      const remove = moveBtn('×', `Remove ${what} from the ranking`, false, () => {
         order = order.filter((x) => x !== i);
         draw();
       });
@@ -898,11 +941,17 @@ function rankingControl(q, prior) {
     }
   };
 
-  const moveBtn = (glyph, disabled, fn) => {
+  const moveBtn = (glyph, label, disabled, fn) => {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'rank-move';
-    b.textContent = glyph;
+    // the glyph is decoration; a screen reader would otherwise announce
+    // this as "black down-pointing triangle, button"
+    const g = document.createElement('span');
+    g.setAttribute('aria-hidden', 'true');
+    g.textContent = glyph;
+    b.append(g);
+    b.setAttribute('aria-label', label);
     b.disabled = disabled;
     b.addEventListener('click', fn);
     return b;
@@ -914,6 +963,327 @@ function rankingControl(q, prior) {
 
 function label(v) {
   return typeof v === 'string' ? v : String(v?.label ?? '');
+}
+
+// =====================================================================
+// Second-wave controls
+//
+// Every one of these is built for a phone held at chest height in a room
+// where something else is happening: targets you can hit without looking,
+// no drag where a tap will do, and nothing that needs two hands.
+// =====================================================================
+
+/** A deterministic shuffle, seeded by a string. Same phone, same order. */
+function shuffledBy(seed, n) {
+  const out = Array.from({ length: n }, (_, i) => i);
+  let h = 0x811c9dc5;
+  for (const ch of String(seed || 'x')) {
+    h ^= ch.charCodeAt(0);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    h = (Math.imul(h, 0x01000193) ^ (i + 0x9e3779b9)) >>> 0;
+    const j = h % (i + 1);
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+// Traffic light: three targets, full width, coloured. The whole point is
+// answering it without looking down for more than a second.
+function lampControl(q, prior) {
+  const labels = trafficLabels(q.config);
+  const wrap = div('stack-sm lamp-control');
+  let choice = Number.isInteger(prior?.choice) ? prior.choice : null;
+
+  const btns = labels.map((text, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = `lamp-btn lamp-${i}` + (choice === i ? ' is-selected' : '');
+    b.setAttribute('aria-pressed', choice === i ? 'true' : 'false');
+    b.append(div('lamp-dot'), div('lamp-text', text));
+    b.addEventListener('click', () => {
+      choice = i;
+      btns.forEach((c, k) => {
+        c.classList.toggle('is-selected', k === i);
+        c.setAttribute('aria-pressed', k === i ? 'true' : 'false');
+      });
+    });
+    wrap.append(b);
+    return b;
+  });
+
+  return { el: wrap, value: () => ({ choice: choice ?? -1 }) };
+}
+
+// Mood: the icons at thumb size, the words underneath them.
+function moodControl(q, prior) {
+  const icons = moodIcons(q.config);
+  const wrap = div('mood-picker');
+  let choice = Number.isInteger(prior?.choice) ? prior.choice : null;
+
+  const btns = icons.map((m, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'mood-btn' + (choice === i ? ' is-selected' : '');
+    b.setAttribute('aria-pressed', choice === i ? 'true' : 'false');
+    b.setAttribute('aria-label', m.label || m.emoji);
+    b.append(div('mood-btn-glyph', m.emoji), div('mood-btn-label', m.label || ''));
+    b.addEventListener('click', () => {
+      choice = i;
+      btns.forEach((c, k) => {
+        c.classList.toggle('is-selected', k === i);
+        c.setAttribute('aria-pressed', k === i ? 'true' : 'false');
+      });
+    });
+    wrap.append(b);
+    return b;
+  });
+
+  return { el: wrap, value: () => ({ choice: choice ?? -1 }) };
+}
+
+// This or That: a stack of two-button rows, thumbed through in seconds.
+function pairPickControl(q, prior) {
+  const cfg = q.config || {};
+  const pairs = pairList(cfg);
+  const picks = pairs.map((_, i) => {
+    const v = prior?.picks?.[i];
+    return v === 0 || v === 1 ? v : null;
+  });
+  const wrap = div('stack-sm');
+
+  pairs.forEach((pair, i) => {
+    const row = div('tot-row');
+    const sides = div('tot-sides');
+    [pair.left, pair.right].forEach((text, side) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'tot-btn' + (picks[i] === side ? ' is-selected' : '');
+      b.textContent = text;
+      b.setAttribute('aria-pressed', picks[i] === side ? 'true' : 'false');
+      b.addEventListener('click', () => {
+        // tapping the chosen side again clears it, which is the only way
+        // back to "no opinion" on a question that allows skipping
+        picks[i] = picks[i] === side && cfg.allow_skip ? null : side;
+        [...sides.children].forEach((c, k) => {
+          c.classList.toggle('is-selected', picks[i] === k);
+          c.setAttribute('aria-pressed', picks[i] === k ? 'true' : 'false');
+        });
+      });
+      sides.append(b);
+    });
+    row.append(sides);
+    wrap.append(row);
+  });
+
+  return { el: wrap, value: () => ({ picks }) };
+}
+
+// Budget: steppers, not sliders. A slider cannot hit 25 exactly on a
+// phone, and every one of these questions is about hitting a number.
+function budgetControl(q, prior) {
+  const cfg = q.config || {};
+  const labels = optionLabels(cfg);
+  const total = budgetTotal(cfg);
+  const step = total % 10 === 0 ? Math.max(1, Math.round(total / 20)) : 1;
+  const alloc = labels.map((_, i) => {
+    const v = Number(prior?.alloc?.[i]);
+    return Number.isFinite(v) && v > 0 ? Math.round(v) : 0;
+  });
+
+  const wrap = div('stack-sm budget-control');
+  const bank = div('budget-bank');
+  wrap.append(bank);
+
+  const rows = [];
+  const spent = () => alloc.reduce((s, n) => s + n, 0);
+
+  const syncBank = () => {
+    const left = total - spent();
+    bank.textContent = left === 0
+      ? `All ${total} placed ✓`
+      : left > 0 ? `${left} left to place` : `${-left} over`;
+    bank.classList.toggle('is-done', left === 0);
+    bank.classList.toggle('is-over', left < 0);
+    rows.forEach((r, i) => {
+      r.value.textContent = String(alloc[i]);
+      r.row.classList.toggle('is-funded', alloc[i] > 0);
+      r.plus.disabled = left <= 0;
+      r.minus.disabled = alloc[i] <= 0;
+    });
+  };
+
+  labels.forEach((text, i) => {
+    const row = div('budget-line');
+    row.append(div('budget-line-label', text));
+    const stepper = div('budget-stepper');
+
+    const minus = document.createElement('button');
+    minus.type = 'button';
+    minus.className = 'budget-step';
+    minus.textContent = '−';
+    minus.setAttribute('aria-label', `Take points off ${text}`);
+
+    const value = div('budget-value', '0');
+    value.setAttribute('aria-live', 'polite');
+
+    const plus = document.createElement('button');
+    plus.type = 'button';
+    plus.className = 'budget-step';
+    plus.textContent = '+';
+    plus.setAttribute('aria-label', `Put points on ${text}`);
+
+    minus.addEventListener('click', () => {
+      alloc[i] = Math.max(0, alloc[i] - step);
+      syncBank();
+    });
+    plus.addEventListener('click', () => {
+      const left = total - spent();
+      if (left <= 0) return;
+      alloc[i] += Math.min(step, left);
+      syncBank();
+    });
+
+    stepper.append(minus, value, plus);
+    row.append(stepper);
+    wrap.append(row);
+    rows.push({ row, value, plus, minus });
+  });
+
+  syncBank();
+  return { el: wrap, value: () => ({ alloc }) };
+}
+
+// Probability: one slider, and a percentage big enough to read at arm's
+// length — the number is what they are committing to, so it gets the size.
+function probabilityControl(q, prior) {
+  const wrap = div('prob-control');
+  let moved = prior?.pct != null;
+
+  const readout = div('prob-readout', `${prior?.pct ?? 50}%`);
+  const slider = document.createElement('input');
+  slider.type = 'range';
+  slider.min = '0';
+  slider.max = '100';
+  slider.step = '1';
+  slider.value = String(prior?.pct ?? 50);
+  slider.className = 'spectrum-slider';
+  slider.setAttribute('aria-label', 'How likely, as a percentage');
+  slider.addEventListener('input', () => {
+    moved = true;
+    readout.textContent = `${slider.value}%`;
+  });
+
+  const ends = div('spectrum-control-ends');
+  ends.append(div('spectrum-control-end', 'No chance'), div('spectrum-control-end', 'Certain'));
+
+  wrap.append(readout, slider, ends);
+  return { el: wrap, value: () => ({ pct: moved ? Number(slider.value) : NaN }) };
+}
+
+// Fill in the blank: the sentence itself, with inputs sized to sit in it.
+function clozeControl(q, prior) {
+  const cfg = q.config || {};
+  const parts = clozeParts(cfg.text);
+  const wrap = div('cloze-control');
+  const inputs = [];
+
+  parts.forEach((p) => {
+    if (p.kind === 'text') {
+      wrap.append(div('cloze-run', p.text));
+      return;
+    }
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'cloze-input';
+    input.maxLength = 40;
+    input.autocomplete = 'off';
+    input.autocapitalize = 'none';
+    input.spellcheck = false;
+    input.setAttribute('aria-label', `Blank ${inputs.length + 1}`);
+    input.value = prior?.blanks?.[inputs.length] || '';
+    // grows with what's typed, so a long answer isn't hidden inside a box
+    const size = () => { input.style.width = `${Math.max(4, input.value.length + 2)}ch`; };
+    input.addEventListener('input', size);
+    size();
+    inputs.push(input);
+    wrap.append(input);
+  });
+
+  setTimeout(() => inputs[0]?.focus(), 120);
+  return { el: wrap, value: () => ({ blanks: inputs.map((i) => i.value) }) };
+}
+
+// Matching: a native select per term. Dragging lines between two columns
+// is a desktop gesture; a select is one tap, works with a screen reader,
+// and cannot be lost mid-drag on a scrolling page.
+function matchingControl(q, prior) {
+  const cfg = q.config || {};
+  const pairs = pairList(cfg);
+  const matches = pairs.map((_, i) => {
+    const v = prior?.matches?.[i];
+    return Number.isInteger(v) ? v : null;
+  });
+  const view = shuffledBy(q.id, pairs.length);
+  const wrap = div('stack-sm');
+
+  pairs.forEach((pair, i) => {
+    const row = div('match-line');
+    row.append(div('match-line-label', pair.left));
+
+    const sel = document.createElement('select');
+    sel.className = 'match-select';
+    sel.setAttribute('aria-label', `Match for ${pair.left}`);
+    const blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = 'Choose…';
+    sel.append(blank);
+    view.forEach((k) => {
+      const o = document.createElement('option');
+      o.value = String(k);
+      o.textContent = pairs[k].right;
+      sel.append(o);
+    });
+    sel.value = matches[i] == null ? '' : String(matches[i]);
+    sel.addEventListener('change', () => {
+      matches[i] = sel.value === '' ? null : Number(sel.value);
+      row.classList.toggle('is-set', matches[i] != null);
+    });
+    row.classList.toggle('is-set', matches[i] != null);
+    row.append(sel);
+    wrap.append(row);
+  });
+
+  return { el: wrap, value: () => ({ matches }) };
+}
+
+// Exit ticket: three boxes, labelled with the three questions.
+function exitTicketControl(q, prior) {
+  const cfg = q.config || {};
+  const prompts = exitPrompts(cfg);
+  const limit = Number(cfg.max_length) > 0 ? Number(cfg.max_length) : 200;
+  const wrap = div('stack-sm');
+  const areas = [];
+
+  prompts.forEach((text, i) => {
+    const field = div('exit-field');
+    field.append(div('exit-field-label', text));
+    const area = document.createElement('textarea');
+    area.className = 'text-input';
+    area.rows = 2;
+    area.maxLength = limit;
+    area.placeholder = i === 1 ? 'Anything still unclear?' : 'A sentence is plenty';
+    area.value = prior?.answers?.[i] || '';
+    areas.push(area);
+    field.append(area);
+    wrap.append(field);
+  });
+
+  return {
+    el: wrap,
+    value: () => ({ answers: areas.map((a) => a.value) }),
+  };
 }
 
 // =====================================================================

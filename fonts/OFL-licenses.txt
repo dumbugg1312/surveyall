@@ -1,18 +1,41 @@
 The font files in this directory are licensed under the SIL Open Font
 License, Version 1.1 (https://openfontlicense.org/).
 
-Inter-Variable.woff2
+Inter-Variable.woff2 / Inter-Variable-ext.woff2
   Inter, © The Inter Project Authors (https://github.com/rsms/inter)
 
-Fraunces-Variable.woff2
+Fraunces-Variable.woff2 / Fraunces-Variable-ext.woff2
   Fraunces, © The Fraunces Project Authors (https://github.com/undercasetype/Fraunces)
 
-Oswald-Variable.woff2
+Oswald-Variable.woff2 / Oswald-Variable-ext.woff2
   Oswald, © The Oswald Project Authors (https://github.com/googlefonts/OswaldFont)
 
-Caveat-Variable.woff2
+Caveat-Variable.woff2 / Caveat-Variable-ext.woff2
   Caveat, © The Caveat Project Authors (https://github.com/googlefonts/caveat)
 
-Each file is the latin-subset variable-weight WOFF2 build as served by
-Google Fonts, self-hosted here so the app makes no external network
-requests and renders identically on every machine.
+SourceSerif4-Variable.woff2 / SourceSerif4-Variable-ext.woff2
+  Source Serif 4, © The Source Serif 4 Project Authors
+  (https://github.com/adobe-fonts/source-serif)
+
+PlayfairDisplay-Variable.woff2 / PlayfairDisplay-Variable-ext.woff2
+  Playfair Display, © The Playfair Display Project Authors
+  (https://github.com/clauseggers/Playfair-Display)
+
+Cinzel-Variable.woff2 / Cinzel-Variable-ext.woff2
+  Cinzel, © The Cinzel Project Authors (https://github.com/NDISCOVER/Cinzel)
+
+Faustina-Variable.woff2 / Faustina-Variable-ext.woff2
+  Faustina, © The Faustina Project Authors (https://github.com/huertatipografica/Faustina)
+
+Each family is a variable-weight WOFF2 built from the upstream sources
+in github.com/google/fonts and self-hosted here, so the app makes no
+external network requests and renders identically on every machine.
+
+Each is split in two on unicode-range, the way Google Fonts serves them:
+`<Family>-Variable.woff2` covers the `latin` subset, and
+`<Family>-Variable-ext.woff2` covers Latin Extended, so an ASCII-only
+deck never downloads the second file. Two families carry a second
+variation axis that is pinned rather than shipped live, because nothing
+in the app varies it: Source Serif 4 at opsz=20 (its text setting) and
+Fraunces at SOFT=0, WONK=1 (the upstream defaults). Inter is pinned at
+opsz=14 to match the build that shipped before the split.

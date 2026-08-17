@@ -20,7 +20,7 @@
 
 import {
   SpringGroup, PRESETS, stagger, delay, countTo, prefersReducedMotion,
-  rgba, mixColor, harmonicSeries, readableOn, luminance,
+  rgba, mixColor, harmonicSeries, hueWheel, readableOn, luminance,
 } from './motion.js';
 
 const NUM = new Intl.NumberFormat();
@@ -134,15 +134,25 @@ function clearEmptyCard(state) {
  */
 const paletteCache = new Map();
 
-function palette(root, count, mode = 'categorical') {
+/** 1.4.11 — a shape carrying meaning. Bars, segments, dots. */
+const MARK_CONTRAST = 3.05;
+/** 1.4.3 — the same palette when the mark IS a word. Cloud words, headings. */
+const TYPE_CONTRAST = 4.55;
+
+function palette(root, count, mode = 'categorical', minContrast = MARK_CONTRAST) {
   const a = token(root, '--accent', '#1d4ed8');
   const b = token(root, '--accent-2', '#b45309');
-  const key = `${mode}|${a}|${b}|${count}`;
+  // the wheel picks each hue for pop against the actual page background, so
+  // the ground colour is part of what identifies a cached palette
+  const bg = token(root, '--ground', '#ffffff');
+  const key = `${mode}|${a}|${b}|${bg}|${count}|${minContrast}`;
   let p = paletteCache.get(key);
   if (!p) {
     p = mode === 'uniform'
       ? new Array(Math.max(1, count)).fill(a)
-      : harmonicSeries(a, b, Math.max(1, count));
+      : mode === 'wheel'
+        ? hueWheel(a, Math.max(1, count), bg, minContrast)
+        : harmonicSeries(a, b, Math.max(1, count), bg, minContrast);
     paletteCache.set(key, p);
   }
   return p;
@@ -162,7 +172,12 @@ export function renderChoice(container, agg, opts = {}) {
   const state = useChart(container, style);
   const root = container;
   const n = agg.options.length;
-  const colors = palette(root, n, 'uniform');
+  // Poll bars carry a distinct hue per option — livelier than a wall of
+  // one accent, and each option keeps its colour across the reveal. The
+  // wheel is anchored on the accent, so option 1 still reads as the theme
+  // accent. A quiz verdict still overrides the correct row to green in
+  // paint(); colour here is decoration, never the answer signal.
+  const colors = palette(root, n, 'wheel');
   const correct = new Set(opts.revealCorrect ? (agg.correct || []) : []);
   const max = Math.max(1, ...agg.options.map((o) => o.count));
   const isNew = !state.group;
@@ -652,7 +667,14 @@ export function renderWordCloud(container, agg, opts = {}) {
   const maxCount = words[0].count;
   const minCount = words[words.length - 1].count;
   const family = token(root, '--display', 'serif');
-  const colors = palette(root, 6);
+  // A word cloud wants MANY colours (like Mentimeter), not the two-anchor
+  // gradient the bars use — a full spread of distinct hues, each word
+  // keeping its own for the session. The wheel is anchored on the accent,
+  // so the top word (which always wears colours[0]) still reads as the
+  // accent while everything else fans across the spectrum.
+  // words, not shapes: this palette has to clear the TEXT floor, because a
+  // cloud on a phone draws its smallest entries at ~14px
+  const colors = palette(root, 12, 'wheel', TYPE_CONTRAST);
 
   // Ratio-clamped sqrt scale: the biggest word is at most 3.4x the
   // smallest, which keeps a runaway first answer from eating the canvas.
@@ -1086,23 +1108,35 @@ export function renderScales(container, agg, opts = {}) {
   function paint() {
     const g = state.group;
     const accent = token(root, '--accent', '#1d4ed8');
+    const accent2 = token(root, '--accent-2', '#b45309');
+    // Colour encodes WHERE on the scale a bar sits: the low end wears one
+    // accent, the high end the other, and the neutral middle desaturates
+    // (RGB interpolation dips through a muted midtone — here that is a
+    // feature). Now the histogram reads as "mass is low" or "mass is high"
+    // at a glance, instead of a row of identical blue the eye can't parse.
+    const rampAt = (t) => mixColor(accent2, accent, Math.min(1, Math.max(0, t)));
     state.rows.forEach((r, i) => {
       const enter = g.get(`in:${i}`, 1);
       r.row.style.opacity = String(enter);
 
       r.ticks.forEach((tick, k) => {
+        const t = steps > 1 ? k / (steps - 1) : 0.5;
         const hgt = Math.max(0, g.get(`t:${i}:${k}`)) * 100;
-        tick.style.left = `${(k / Math.max(1, steps - 1)) * 100}%`;
+        const c = rampAt(t);
+        tick.style.left = `${t * 100}%`;
         tick.style.height = `${hgt * enter}%`;
-        tick.style.background = `linear-gradient(180deg, ${rgba(accent, 0.62)}, ${rgba(accent, 0.30)})`;
+        tick.style.background = `linear-gradient(180deg, ${rgba(c, 0.9)}, ${rgba(c, 0.5)})`;
       });
 
-      const pos = g.get(`m:${i}`) * 100;
+      const m = g.get(`m:${i}`);
       const op = g.get(`o:${i}`);
-      r.marker.style.left = `${pos}%`;
+      // the mean dot takes the colour of the point it rests on, so its
+      // hue reinforces the number beside it
+      const mc = rampAt(m);
+      r.marker.style.left = `${m * 100}%`;
       r.marker.style.opacity = String(op);
-      r.marker.style.background = accent;
-      r.marker.style.boxShadow = `0 0 0 .28em ${rgba(accent, 0.20)}, 0 2px 8px ${rgba(accent, 0.45)}`;
+      r.marker.style.background = mc;
+      r.marker.style.boxShadow = `0 0 0 .28em ${rgba(mc, 0.20)}, 0 2px 8px ${rgba(mc, 0.45)}`;
 
       const v = g.get(`v:${i}`);
       const txt = op > 0.5 ? v.toFixed(1) : '—';
@@ -1170,7 +1204,7 @@ export function renderRanking(container, agg, opts = {}) {
 
   function paint() {
     const g = state.group;
-    const ink = token(root, '--ink', '#111');
+    const inkSoft = token(root, '--ink-soft', '#667');
     state.rows.forEach((r, i) => {
       const y = g.get(`y:${i}`, i);
       r.row.style.transform = `translateY(${(y * ROW_H).toFixed(3)}em)`;
@@ -1186,7 +1220,9 @@ export function renderRanking(container, agg, opts = {}) {
       // While awaiting, a printed rank would imply an order nobody chose.
       const rankTxt = opts.hidden || state.meta.awaiting ? '–' : String(rank);
       if (r.place.textContent !== rankTxt) r.place.textContent = rankTxt;
-      r.place.style.color = rank === 1 && !state.meta.awaiting ? c : rgba(ink, 0.55);
+      // --ink-soft, not a 55% wash of --ink: the token carries a guaranteed
+      // 4.5:1 floor in every theme, an alpha wash carries whatever it lands on
+      r.place.style.color = rank === 1 && !state.meta.awaiting ? c : inkSoft;
 
       const pts = Math.round(g.get(`p:${i}`));
       const ptsTxt = opts.hidden ? '—' : NUM.format(pts);
@@ -1325,7 +1361,12 @@ export function renderDelta(container, delta) {
     }
     const pct = Math.round(delta.moved);
     if (pct > 0) {
-      state.meta.summaryRest.textContent = 'of the room changed their answer.';
+      // Overridable for the same reason beforeLabel/afterLabel are. Asked
+      // twice in one session it is one room changing its mind; compared
+      // across two sessions it is two different rooms, and saying "the
+      // room changed their answer" there would be a plain falsehood.
+      state.meta.summaryRest.textContent =
+        delta.movedLabel || 'of the room changed their answer.';
       if (state.meta.shownMoved !== pct) {
         const from = state.meta.shownMoved ?? 0;
         state.meta.movedTween?.();
@@ -1339,7 +1380,8 @@ export function renderDelta(container, delta) {
       state.meta.movedTween = null;
       state.meta.shownMoved = 0;
       state.meta.summaryNum.textContent = '';
-      state.meta.summaryRest.textContent = 'Nobody changed their answer.';
+      state.meta.summaryRest.textContent =
+        delta.unchangedLabel || 'Nobody changed their answer.';
     }
   }
 
@@ -1897,6 +1939,715 @@ export function renderInstructions(container, opts = {}) {
 }
 
 // =====================================================================
+// Traffic light
+//
+// The one chart in here that is allowed a fixed three-colour scale,
+// because the colours ARE the question: a room answering "green / amber
+// / red" has already agreed what the colours mean, and recolouring them
+// to the deck accent would throw that away.
+// =====================================================================
+
+export function renderTrafficLight(container, agg, opts = {}) {
+  const state = useChart(container, 'traffic');
+  const root = container;
+  const rows = agg.options || [];
+  const awaiting = !opts.hidden && (agg.total || 0) === 0 && opts.awaiting !== false;
+  container.toggleAttribute('data-awaiting', awaiting);
+
+  if (!state.group) state.group = new SpringGroup(() => state.paint?.(), PRESETS.smooth);
+
+  while (state.rows.length < rows.length) {
+    const lamp = el('div', 'traffic-lamp');
+    const dot = el('span', 'traffic-dot');
+    const body = el('div', 'traffic-body');
+    const label = el('div', 'traffic-label');
+    const track = el('div', 'traffic-track');
+    const fill = el('div', 'traffic-fill');
+    track.append(fill);
+    body.append(label, track);
+    const num = el('div', 'traffic-num');
+    lamp.append(dot, body, num);
+    container.append(lamp);
+    state.rows.push({ lamp, dot, label, fill, num });
+  }
+  while (state.rows.length > rows.length) state.rows.pop().lamp.remove();
+
+  rows.forEach((o, i) => {
+    const r = state.rows[i];
+    if (r.label.textContent !== o.label) r.label.textContent = o.label;
+    state.group.set(`w:${i}`, opts.hidden ? 0 : o.pct / 100);
+    state.group.set(`c:${i}`, opts.hidden ? 0 : o.count, { preset: 'precise' });
+  });
+
+  awaitNote(container, state, awaiting, 'Waiting for the first hand…');
+
+  function paint() {
+    const g = state.group;
+    const good = token(root, '--good', '#15803d');
+    const warn = token(root, '--accent-2', '#b45309');
+    const bad = token(root, '--bad', '#b91c1c');
+    const lamps = [good, warn, bad];
+    state.rows.forEach((r, i) => {
+      const c = lamps[i] || lamps[2];
+      const w = Math.max(0, g.get(`w:${i}`)) * 100;
+      r.fill.style.width = `${w.toFixed(2)}%`;
+      r.fill.style.background = `linear-gradient(180deg, ${mixColor(c, '#ffffff', 0.12)}, ${c})`;
+      r.fill.style.boxShadow = w > 0.5 ? `0 4px 16px ${rgba(c, 0.3)}` : 'none';
+      r.dot.style.background = c;
+      // the lamp brightens with its share, the way a real one would
+      r.dot.style.opacity = String(0.25 + 0.75 * Math.min(1, w / 55));
+      r.dot.style.boxShadow = `0 0 ${(4 + w * 0.22).toFixed(1)}px ${rgba(c, 0.55)}`;
+      const n = Math.round(g.get(`c:${i}`));
+      const txt = opts.hidden ? '—' : NUM.format(n);
+      if (r.num.textContent !== txt) r.num.textContent = txt;
+    });
+  }
+
+  state.paint = paint;
+  state.group.kick();
+  paint();
+}
+
+// =====================================================================
+// Mood check — the icons themselves, sized by how many chose them
+// =====================================================================
+
+export function renderMood(container, agg, opts = {}) {
+  const state = useChart(container, 'mood');
+  const root = container;
+  const rows = agg.options || [];
+  const awaiting = !opts.hidden && (agg.total || 0) === 0 && opts.awaiting !== false;
+  container.toggleAttribute('data-awaiting', awaiting);
+
+  if (!state.group) {
+    state.group = new SpringGroup(() => state.paint?.(), PRESETS.bouncy);
+    state.meta.row = el('div', 'mood-row');
+    container.append(state.meta.row);
+  }
+
+  while (state.rows.length < rows.length) {
+    const i = state.rows.length;
+    const cell = el('div', 'mood-cell');
+    const glyph = el('div', 'mood-glyph');
+    const label = el('div', 'mood-label');
+    const num = el('div', 'mood-num');
+    cell.append(glyph, label, num);
+    state.meta.row.append(cell);
+    state.rows.push({ cell, glyph, label, num });
+    state.group.set(`s:${i}`, 1, { from: 0.4 });
+  }
+  while (state.rows.length > rows.length) state.rows.pop().cell.remove();
+
+  const max = Math.max(1, ...rows.map((o) => o.count));
+  rows.forEach((o, i) => {
+    const r = state.rows[i];
+    if (r.glyph.textContent !== o.emoji) r.glyph.textContent = o.emoji || '•';
+    if (r.label.textContent !== (o.label || '')) r.label.textContent = o.label || '';
+    // Size is share of the WINNER, not of the room: with five icons and a
+    // flat split nothing would grow at all, and a flat split is itself a
+    // result worth being able to see.
+    state.group.set(`s:${i}`, opts.hidden ? 0.55 : 0.55 + 0.45 * (o.count / max));
+    state.group.set(`c:${i}`, opts.hidden ? 0 : o.count, { preset: 'precise' });
+  });
+
+  awaitNote(container, state, awaiting, 'Waiting for the first answer…');
+
+  function paint() {
+    const g = state.group;
+    const inkSoft = token(root, '--ink-soft', '#667');
+    state.rows.forEach((r, i) => {
+      const s = Math.max(0.2, g.get(`s:${i}`, 1));
+      r.glyph.style.transform = `scale(${s.toFixed(3)})`;
+      r.cell.style.opacity = String(0.45 + 0.55 * Math.min(1, s));
+      const n = Math.round(g.get(`c:${i}`));
+      const txt = opts.hidden ? '—' : NUM.format(n);
+      if (r.num.textContent !== txt) r.num.textContent = txt;
+      r.num.style.color = inkSoft;
+    });
+  }
+
+  state.paint = paint;
+  state.group.kick();
+  paint();
+}
+
+// =====================================================================
+// This or That — a rope per pair, with a knot where the room is pulling
+// =====================================================================
+
+export function renderTugOfWar(container, agg, opts = {}) {
+  const state = useChart(container, 'tug');
+  const root = container;
+  const pairs = agg.pairs || [];
+  const awaiting = !opts.hidden && (agg.total || 0) === 0 && opts.awaiting !== false;
+  container.toggleAttribute('data-awaiting', awaiting);
+
+  if (!state.group) state.group = new SpringGroup(() => state.paint?.(), PRESETS.smooth);
+
+  while (state.rows.length < pairs.length) {
+    const i = state.rows.length;
+    const row = el('div', 'tug-row');
+    const left = el('div', 'tug-side tug-left');
+    const leftName = el('span', 'tug-name');
+    const leftNum = el('span', 'tug-num');
+    left.append(leftName, leftNum);
+    const rope = el('div', 'tug-rope');
+    const fill = el('div', 'tug-fill');
+    const knot = el('span', 'tug-knot');
+    rope.append(fill, knot);
+    const right = el('div', 'tug-side tug-right');
+    const rightNum = el('span', 'tug-num');
+    const rightName = el('span', 'tug-name');
+    right.append(rightNum, rightName);
+    row.append(left, rope, right);
+    container.append(row);
+    state.rows.push({ row, leftName, leftNum, rightName, rightNum, fill, knot });
+    state.group.set(`x:${i}`, 50, { from: 50 });
+  }
+  while (state.rows.length > pairs.length) state.rows.pop().row.remove();
+
+  pairs.forEach((p, i) => {
+    const r = state.rows[i];
+    if (r.leftName.textContent !== p.left) r.leftName.textContent = p.left;
+    if (r.rightName.textContent !== p.right) r.rightName.textContent = p.right;
+    state.group.set(`x:${i}`, opts.hidden ? 50 : p.leftPct);
+    state.group.set(`l:${i}`, opts.hidden ? 0 : p.leftCount, { preset: 'precise' });
+    state.group.set(`r:${i}`, opts.hidden ? 0 : p.rightCount, { preset: 'precise' });
+  });
+
+  awaitNote(container, state, awaiting);
+
+  function paint() {
+    const g = state.group;
+    const a = token(root, '--accent', '#1d4ed8');
+    const b = token(root, '--accent-2', '#b45309');
+    state.rows.forEach((r, i) => {
+      const x = g.get(`x:${i}`, 50);
+      r.fill.style.width = `${x.toFixed(2)}%`;
+      r.fill.style.background = a;
+      r.knot.style.left = `${x.toFixed(2)}%`;
+      // the knot takes the colour of whichever side is winning, and sits
+      // neutral while the room is genuinely split
+      const lead = Math.abs(x - 50);
+      r.knot.style.background = lead < 2 ? token(root, '--ink', '#111') : (x > 50 ? a : b);
+      r.knot.style.transform = `translate(-50%, -50%) scale(${(1 + lead / 140).toFixed(3)})`;
+      r.row.style.setProperty('--tug-right', b);
+      const ln = Math.round(g.get(`l:${i}`));
+      const rn = Math.round(g.get(`r:${i}`));
+      const lt = opts.hidden ? '—' : NUM.format(ln);
+      const rt = opts.hidden ? '—' : NUM.format(rn);
+      if (r.leftNum.textContent !== lt) r.leftNum.textContent = lt;
+      if (r.rightNum.textContent !== rt) r.rightNum.textContent = rt;
+    });
+  }
+
+  state.paint = paint;
+  state.group.kick();
+  paint();
+}
+
+// =====================================================================
+// Budget split
+//
+// The bar is the room's money; the ticks under it are the individual
+// wallets. Both, always — an average of 25 points is six people funding
+// nothing and two funding everything just as easily as it is eight
+// people agreeing, and those are opposite classroom situations.
+// =====================================================================
+
+export function renderBudget(container, agg, opts = {}) {
+  const state = useChart(container, 'budget');
+  const root = container;
+  const rows = agg.options || [];
+  const awaiting = !opts.hidden && (agg.total || 0) === 0 && opts.awaiting !== false;
+  container.toggleAttribute('data-awaiting', awaiting);
+
+  if (!state.group) state.group = new SpringGroup(() => state.paint?.(), PRESETS.smooth);
+
+  while (state.rows.length < rows.length) {
+    const row = el('div', 'budget-row');
+    const label = el('div', 'budget-label');
+    const track = el('div', 'budget-track');
+    const fill = el('div', 'budget-fill');
+    const spread = el('div', 'budget-spread');
+    track.append(fill, spread);
+    const share = el('div', 'budget-share');
+    row.append(label, track, share);
+    container.append(row);
+    state.rows.push({ row, label, fill, spread, share, ticks: [] });
+  }
+  while (state.rows.length > rows.length) state.rows.pop().row.remove();
+
+  const pot = agg.pot || 100;
+  rows.forEach((o, i) => {
+    const r = state.rows[i];
+    if (r.label.textContent !== o.label) r.label.textContent = o.label;
+    state.group.set(`w:${i}`, opts.hidden ? 0 : o.share / 100);
+    state.group.set(`s:${i}`, opts.hidden ? 0 : o.share, { preset: 'precise' });
+
+    // individual allocations, as ticks along the same axis the bar uses.
+    // Capped: past a hundred the strip is a solid block and says less.
+    const values = opts.hidden ? [] : (o.values || []).slice(-120);
+    while (r.ticks.length < values.length) {
+      const tick = el('span', 'budget-tick');
+      r.spread.append(tick);
+      r.ticks.push(tick);
+    }
+    while (r.ticks.length > values.length) r.ticks.pop().remove();
+    values.forEach((v, k) => {
+      const pctOfPot = Math.max(0, Math.min(1, v / pot));
+      r.ticks[k].style.left = `${(pctOfPot * 100).toFixed(2)}%`;
+      r.ticks[k].style.opacity = v === 0 ? '0.22' : '0.62';
+    });
+  });
+
+  awaitNote(container, state, awaiting, 'Waiting for the first budget…');
+
+  function paint() {
+    const g = state.group;
+    const c = token(root, '--accent', '#1d4ed8');
+    state.rows.forEach((r, i) => {
+      const w = Math.max(0, g.get(`w:${i}`)) * 100;
+      r.fill.style.width = `${w.toFixed(2)}%`;
+      r.fill.style.background =
+        `linear-gradient(180deg, ${mixColor(c, '#ffffff', 0.12)}, ${c} 60%, ${mixColor(c, '#000000', 0.05)})`;
+      r.fill.style.boxShadow = w > 0.5 ? `0 4px 14px ${rgba(c, 0.26)}` : 'none';
+      const s = g.get(`s:${i}`, 0);
+      const txt = opts.hidden ? '—' : `${Math.round(s)}%`;
+      if (r.share.textContent !== txt) r.share.textContent = txt;
+      r.ticks.forEach((t) => { t.style.background = token(root, '--ink', '#111'); });
+    });
+  }
+
+  state.paint = paint;
+  state.group.kick();
+  paint();
+}
+
+// =====================================================================
+// Probability slider — the room's belief as a distribution
+//
+// The median is printed, never the mean: one student typing 0 because
+// they misread the question drags a mean across the whole scale, and the
+// number the room is about to argue about should be robust to that.
+// =====================================================================
+
+export function renderProbability(container, agg, opts = {}) {
+  const state = useChart(container, 'probability');
+  const root = container;
+  const bins = agg.bins || new Array(10).fill(0);
+  const awaiting = !opts.hidden && (agg.total || 0) === 0 && opts.awaiting !== false;
+  container.toggleAttribute('data-awaiting', awaiting);
+
+  if (!state.group) {
+    state.group = new SpringGroup(() => state.paint?.(), PRESETS.smooth);
+    const wrap = el('div', 'prob-wrap');
+    const plot = el('div', 'prob-plot');
+    const median = el('div', 'prob-marker prob-median');
+    median.append(el('span', 'prob-marker-label', 'median'));
+    const truth = el('div', 'prob-marker prob-truth');
+    truth.append(el('span', 'prob-marker-label', 'actual'));
+    plot.append(median, truth);
+    const axis = el('div', 'prob-axis');
+    ['0%', '50%', '100%'].forEach((t) => axis.append(el('span', 'prob-tick', t)));
+    wrap.append(plot, axis);
+    container.append(wrap);
+    Object.assign(state.meta, { plot, median, truth });
+  }
+
+  while (state.rows.length < bins.length) {
+    const i = state.rows.length;
+    const col = el('div', 'prob-col');
+    const bar = el('div', 'prob-bar');
+    col.append(bar);
+    state.meta.plot.append(col);
+    state.rows.push({ col, bar });
+    state.group.set(`h:${i}`, 0, { from: 0 });
+  }
+  while (state.rows.length > bins.length) state.rows.pop().col.remove();
+
+  const max = Math.max(1, ...bins);
+  bins.forEach((n, i) => {
+    state.group.set(`h:${i}`, opts.hidden ? 0 : n / max);
+  });
+  state.group.set('median', agg.median == null ? 50 : agg.median);
+
+  const showMedian = !opts.hidden && agg.median != null;
+  state.meta.median.hidden = !showMedian;
+  // The answer, if there is one, appears only once the room's guesses are
+  // showing — revealing the truth beside hidden votes gives it away.
+  const showTruth = !opts.hidden && agg.truth != null;
+  state.meta.truth.hidden = !showTruth;
+  if (showTruth) state.meta.truth.style.left = `${agg.truth}%`;
+
+  awaitNote(container, state, awaiting, 'Waiting for the first estimate…');
+
+  function paint() {
+    const g = state.group;
+    const c = token(root, '--accent', '#1d4ed8');
+    state.rows.forEach((r, i) => {
+      const h = Math.max(0, g.get(`h:${i}`)) * 100;
+      r.bar.style.height = `${h.toFixed(2)}%`;
+      r.bar.style.background =
+        `linear-gradient(180deg, ${mixColor(c, '#ffffff', 0.14)}, ${c})`;
+      r.bar.style.boxShadow = h > 1 ? `0 -2px 12px ${rgba(c, 0.22)}` : 'none';
+    });
+    if (showMedian) state.meta.median.style.left = `${g.get('median', 50).toFixed(2)}%`;
+  }
+
+  state.paint = paint;
+  state.group.kick();
+  paint();
+}
+
+// =====================================================================
+// Fill in the blank
+//
+// The sentence stays a sentence. Each blank grows into a small stack of
+// what the room actually wrote, commonest on top — so the slide reads as
+// "the class filled this in" rather than as a bar chart that happens to
+// have words on it.
+// =====================================================================
+
+export function renderCloze(container, agg, opts = {}) {
+  const state = useChart(container, 'cloze');
+  const root = container;
+  const parts = agg.parts || [];
+  const blanks = agg.blanks || [];
+  const awaiting = !opts.hidden && (agg.total || 0) === 0 && opts.awaiting !== false;
+  container.toggleAttribute('data-awaiting', awaiting);
+
+  // The sentence itself is structure, not data: rebuild only when the
+  // instructor's text actually changes.
+  const shape = parts.map((p) => (p.kind === 'text' ? `t:${p.text}` : 'b')).join('|');
+  if (!state.group || state.meta.shape !== shape) {
+    state.group?.destroy();
+    container.textContent = '';
+    state.group = new SpringGroup(() => state.paint?.(), PRESETS.smooth);
+    state.rows = [];
+    state.meta = { shape, awaitNote: null };
+    const line = el('p', 'cloze-line');
+    let blankIndex = 0;
+    parts.forEach((p) => {
+      if (p.kind === 'text') {
+        line.append(el('span', 'cloze-text', p.text));
+        return;
+      }
+      const slot = el('span', 'cloze-slot');
+      slot.dataset.blank = String(blankIndex);
+      line.append(slot);
+      state.rows.push({ slot, chips: [] });
+      blankIndex += 1;
+    });
+    container.append(line);
+  }
+
+  // The key rings only once the presenter has closed and revealed — see
+  // paintChart in present-page.js. A ringed chip beside a still-open
+  // question is the answer, printed on the wall.
+  const reveal = !opts.hidden && opts.revealCorrect !== false;
+
+  state.rows.forEach((r, i) => {
+    const b = blanks[i];
+    const answers = (opts.hidden || !b) ? [] : (b.answers || []).slice(0, 3);
+    while (r.chips.length < answers.length) {
+      const chip = el('span', 'cloze-chip');
+      const word = el('span', 'cloze-word');
+      const count = el('span', 'cloze-count');
+      chip.append(word, count);
+      r.slot.append(chip);
+      r.chips.push({ chip, word, count });
+      if (!prefersReducedMotion()) {
+        chip.animate(
+          [{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }],
+          { duration: 320, easing: 'cubic-bezier(.22,.9,.28,1)' },
+        );
+      }
+    }
+    while (r.chips.length > answers.length) r.chips.pop().chip.remove();
+
+    const top = Math.max(1, answers[0]?.count || 1);
+    answers.forEach((a, k) => {
+      const c = r.chips[k];
+      if (c.word.textContent !== a.text) c.word.textContent = a.text;
+      const cnt = NUM.format(a.count);
+      if (c.count.textContent !== cnt) c.count.textContent = cnt;
+      // commonest answer sets the size; the runners-up shrink behind it
+      c.chip.style.setProperty('--chip-scale', (0.72 + 0.28 * (a.count / top)).toFixed(3));
+      c.chip.classList.toggle('is-key', reveal && a.correct === true);
+      c.chip.classList.toggle('is-off', reveal && a.correct === false);
+    });
+    r.slot.classList.toggle('is-empty', answers.length === 0);
+  });
+
+  awaitNote(container, state, awaiting, 'Waiting for the first answer…');
+
+  state.paint = () => {};
+  state.group.kick();
+}
+
+// =====================================================================
+// Matching pairs
+//
+// One row per term, split into where the room sent it. The correct
+// segment is ringed rather than coloured green: the interesting part of
+// this chart is the size of the WRONG segments, and a green bar pulls
+// the eye away from exactly that.
+// =====================================================================
+
+export function renderMatching(container, agg, opts = {}) {
+  const state = useChart(container, 'matching');
+  const root = container;
+  const rows = agg.rows || [];
+  const rights = agg.rights || [];
+  const awaiting = !opts.hidden && (agg.total || 0) === 0 && opts.awaiting !== false;
+  container.toggleAttribute('data-awaiting', awaiting);
+
+  if (!state.group) state.group = new SpringGroup(() => state.paint?.(), PRESETS.smooth);
+
+  while (state.rows.length < rows.length) {
+    const row = el('div', 'match-row');
+    const label = el('div', 'match-label');
+    const track = el('div', 'match-track');
+    const note = el('div', 'match-note');
+    row.append(label, track, note);
+    container.append(row);
+    state.rows.push({ row, label, track, note, segs: [] });
+  }
+  while (state.rows.length > rows.length) state.rows.pop().row.remove();
+
+  const colors = palette(root, Math.max(1, rights.length), 'wheel');
+  const showKey = !opts.hidden && opts.revealCorrect !== false;
+
+  rows.forEach((r, i) => {
+    const st = state.rows[i];
+    if (st.label.textContent !== r.left) st.label.textContent = r.left;
+
+    while (st.segs.length < rights.length) {
+      const k = st.segs.length;
+      const seg = el('span', 'match-seg');
+      st.track.append(seg);
+      st.segs.push(seg);
+      state.group.set(`w:${i}:${k}`, 0, { from: 0 });
+    }
+    while (st.segs.length > rights.length) st.segs.pop().remove();
+
+    const answered = Math.max(1, r.count);
+    (r.counts || []).forEach((c, k) => {
+      state.group.set(`w:${i}:${k}`, opts.hidden ? 0 : c / answered);
+    });
+
+    st.segs.forEach((seg, k) => {
+      seg.classList.toggle('is-key', showKey && k === i);
+      seg.title = rights[k] || '';
+      // On reveal the right answer slides to the front of every bar, so
+      // the rows can be compared down the column at a glance instead of
+      // hunting for where the green bit is in each one.
+      seg.style.order = showKey ? (k === i ? '-1' : '0') : String(k);
+    });
+
+    const note = opts.hidden ? '—'
+      : r.count === 0 ? ''
+        : !showKey ? ''
+          : r.confusedWith
+            ? `${Math.round(r.pct)}% · mixed up with “${r.confusedWith.label}”`
+            : `${Math.round(r.pct)}%`;
+    if (st.note.textContent !== note) st.note.textContent = note;
+    st.row.classList.toggle('is-clean', !opts.hidden && r.count > 0 && r.pct >= 90);
+  });
+
+  awaitNote(container, state, awaiting);
+
+  function paint() {
+    const g = state.group;
+    const ink = token(root, '--ink', '#111');
+    const good = token(root, '--good', '#15803d');
+    state.rows.forEach((st, i) => {
+      st.segs.forEach((seg, k) => {
+        const w = Math.max(0, g.get(`w:${i}:${k}`)) * 100;
+        seg.style.width = `${w.toFixed(2)}%`;
+        // Before the key: a plain distribution, one hue per partner, so
+        // the same colour means the same answer down the whole chart.
+        // After it: right is green and every wrong answer is a neutral
+        // wash, because past the reveal the question is no longer "who
+        // went where" but "how much of this row was wrong" — and the
+        // note beside it already names what they went for instead.
+        seg.style.background = showKey
+          ? (k === i ? good : rgba(ink, 0.13 + 0.07 * (k % 3)))
+          : colors[k % colors.length];
+        seg.style.opacity = w < 0.4 ? '0' : '1';
+      });
+    });
+  }
+
+  state.paint = paint;
+  state.group.kick();
+  paint();
+}
+
+// =====================================================================
+// Timeline order
+//
+// A grid of where the room put each event: rows are the events in their
+// true order, columns are the positions 1..n, so a class that has it
+// right lights up the diagonal and a class that has two events swapped
+// shows you exactly which two.
+// =====================================================================
+
+/** 1st, 2nd, 3rd… — the column heads of the timeline grid. */
+function ordinal(n) {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`;
+}
+
+export function renderTimeline(container, agg, opts = {}) {
+  const state = useChart(container, 'timeline');
+  const root = container;
+  const items = agg.items || [];
+  const n = items.length;
+  const awaiting = !opts.hidden && (agg.total || 0) === 0 && opts.awaiting !== false;
+  container.toggleAttribute('data-awaiting', awaiting);
+
+  if (!state.group) {
+    state.group = new SpringGroup(() => state.paint?.(), PRESETS.smooth);
+    state.meta.head = el('div', 'timeline-head');
+    state.meta.head.append(el('span', 'timeline-corner', 'The room put it…'));
+    state.meta.heads = el('div', 'timeline-colheads');
+    state.meta.head.append(state.meta.heads);
+    container.append(state.meta.head);
+  }
+
+  // Column headings are the positions themselves — without them the grid
+  // is four anonymous boxes per row and the reader has to guess the axis.
+  while (state.meta.heads.children.length < n) {
+    state.meta.heads.append(el('span', 'timeline-colhead',
+      ordinal(state.meta.heads.children.length + 1)));
+  }
+  while (state.meta.heads.children.length > n) state.meta.heads.lastChild.remove();
+
+  while (state.rows.length < n) {
+    const row = el('div', 'timeline-row');
+    const label = el('div', 'timeline-label');
+    const cells = el('div', 'timeline-cells');
+    row.append(label, cells);
+    container.append(row);
+    state.rows.push({ row, label, cells, boxes: [] });
+  }
+  while (state.rows.length > n) state.rows.pop().row.remove();
+
+  const showKey = !opts.hidden && opts.revealCorrect !== false;
+
+  items.forEach((item, i) => {
+    const st = state.rows[i];
+    // the row number IS the correct position, so it only goes up with
+    // the key — until then these are just the events, unnumbered
+    const label = showKey ? `${i + 1}. ${item.label}` : item.label;
+    if (st.label.textContent !== label) st.label.textContent = label;
+
+    while (st.boxes.length < n) {
+      const k = st.boxes.length;
+      const box = el('span', 'timeline-cell');
+      st.cells.append(box);
+      st.boxes.push(box);
+      state.group.set(`h:${i}:${k}`, 0, { from: 0 });
+    }
+    while (st.boxes.length > n) st.boxes.pop().remove();
+
+    const answered = Math.max(1, item.count);
+    (item.places || []).forEach((c, k) => {
+      state.group.set(`h:${i}:${k}`, opts.hidden ? 0 : c / answered);
+    });
+    st.boxes.forEach((box, k) => box.classList.toggle('is-key', showKey && k === i));
+  });
+
+  awaitNote(container, state, awaiting);
+
+  function paint() {
+    const g = state.group;
+    const c = token(root, '--accent', '#1d4ed8');
+    const good = token(root, '--good', '#15803d');
+    state.rows.forEach((st, i) => {
+      st.boxes.forEach((box, k) => {
+        const v = Math.max(0, Math.min(1, g.get(`h:${i}:${k}`)));
+        // on the diagonal the heat is the good colour, off it the accent:
+        // right answers and interesting wrong answers read differently
+        box.style.background = v < 0.005
+          ? 'transparent'
+          : rgba(showKey && k === i ? good : c, 0.14 + 0.72 * v);
+      });
+    });
+  }
+
+  state.paint = paint;
+  state.group.kick();
+  paint();
+}
+
+// =====================================================================
+// Exit ticket — three columns, because it was three questions
+// =====================================================================
+
+export function renderExitTicket(container, agg, opts = {}) {
+  const state = useChart(container, 'exit');
+  const root = container;
+  const columns = agg.columns || [];
+  const awaiting = !opts.hidden && (agg.total || 0) === 0 && opts.awaiting !== false;
+  container.toggleAttribute('data-awaiting', awaiting);
+
+  if (!state.group) {
+    state.group = new SpringGroup(() => {}, PRESETS.smooth);
+    state.meta.board = el('div', 'exit-board');
+    container.append(state.meta.board);
+  }
+
+  while (state.rows.length < columns.length) {
+    const col = el('div', 'exit-col');
+    const head = el('h4', 'exit-colhead');
+    const stack = el('div', 'exit-stack');
+    col.append(head, stack);
+    state.meta.board.append(col);
+    state.rows.push({ col, head, stack, cards: [] });
+  }
+  while (state.rows.length > columns.length) state.rows.pop().col.remove();
+
+  // these colour a heading, not a swatch — text floor
+  const colors = palette(root, Math.max(1, columns.length), 'categorical', TYPE_CONTRAST);
+
+  columns.forEach((c, i) => {
+    const st = state.rows[i];
+    if (st.head.textContent !== c.label) st.head.textContent = c.label;
+    st.head.style.color = colors[i % colors.length];
+    const entries = opts.hidden ? [] : (c.entries || []);
+
+    while (st.cards.length < entries.length) {
+      const k = st.cards.length;
+      const card = el('p', 'exit-card');
+      card.style.setProperty('--rail', colors[i % colors.length]);
+      st.stack.append(card);
+      st.cards.push(card);
+      if (!prefersReducedMotion()) {
+        card.animate(
+          [{ opacity: 0, transform: 'translateY(10px) scale(.98)' }, { opacity: 1, transform: 'none' }],
+          { duration: 420, easing: 'cubic-bezier(.22,.9,.28,1)', delay: stagger(k, 0.03, 0.25) * 1000, fill: 'backwards' },
+        );
+      }
+    }
+    while (st.cards.length > entries.length) st.cards.pop().remove();
+
+    entries.forEach((e, k) => {
+      if (st.cards[k].textContent !== e.text) st.cards[k].textContent = e.text;
+      const len = e.text.length;
+      st.cards[k].style.setProperty('--card-scale',
+        len > 180 ? '0.8' : len > 100 ? '0.9' : '1');
+    });
+    st.col.classList.toggle('is-empty', entries.length === 0);
+  });
+
+  awaitNote(container, state, awaiting);
+}
+
+// =====================================================================
 
 export function renderAggregate(container, type, agg, opts = {}) {
   if (!agg) return undefined;
@@ -1918,6 +2669,24 @@ export function renderAggregate(container, type, agg, opts = {}) {
       return renderShowdown(container, agg, opts);
     case 'heatmap':
       return renderHeatmap(container, agg, opts);
+    case 'traffic':
+      return renderTrafficLight(container, agg, opts);
+    case 'mood':
+      return renderMood(container, agg, opts);
+    case 'this_or_that':
+      return renderTugOfWar(container, agg, opts);
+    case 'budget':
+      return renderBudget(container, agg, opts);
+    case 'probability':
+      return renderProbability(container, agg, opts);
+    case 'cloze':
+      return renderCloze(container, agg, opts);
+    case 'matching':
+      return renderMatching(container, agg, opts);
+    case 'timeline':
+      return renderTimeline(container, agg, opts);
+    case 'exit_ticket':
+      return renderExitTicket(container, agg, opts);
     default:
       container.textContent = '';
       return undefined;

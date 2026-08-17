@@ -11,49 +11,224 @@
 }
 .section-head h2 { font-size: 1.3rem; }
 
-/* ---------------------------------------------------------- deck list */
+.dash-section { display: flex; flex-direction: column; gap: var(--sp-4); }
+
+/* A count belongs beside its heading, not inside it — "Your decks 7" reads
+   as one glance, and the heading text stays the thing a screen reader
+   announces for the landmark. */
+.head-count {
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+  padding: .1rem .45rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+
+/* =====================================================================
+   Live now.
+
+   If a session is live you are standing in front of a room with this
+   deck on the wall behind you, and every other thing on this page is
+   somebody else's problem. So it goes above the fold, carries the code
+   at read-aloud size, and its primary action is the one that puts you
+   back on the projector. Renders nothing at all when nothing is live —
+   an empty "no live sessions" box would be furniture.
+   ===================================================================== */
+
+.live-area { display: flex; flex-direction: column; gap: var(--sp-3); }
+
+.live-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3) var(--sp-5);
+  flex-wrap: wrap;
+  padding: var(--sp-4) var(--sp-5);
+  border: 1px solid color-mix(in srgb, var(--good) 38%, var(--edge));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--good) 7%, var(--surface));
+}
+
+.live-flag {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--good-text);
+}
+
+.live-code {
+  font-family: var(--display);
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: .12em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.live-info { min-width: 0; flex: 1 1 12rem; }
+.live-title {
+  font-size: .95rem;
+  font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.live-meta { font-size: .78rem; color: var(--ink-soft); }
+.live-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+
+/* =====================================================================
+   The deck grid.
+
+   A deck card shows the deck's OWN FIRST SLIDE, drawn by the same
+   renderer the editor rail and the projector preview use, in the deck's
+   own theme and background. Three abstract colour bars told you a deck
+   had colours in it; a miniature tells you which deck this is from across
+   the room, which is the only question being asked here. Same argument
+   the editor's theme grid already settled (see docs/visual-craft.md).
+   ===================================================================== */
 
 .deck-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(18.5rem, 1fr));
   gap: var(--sp-4);
 }
 
 .deck-card {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-3);
-  padding: var(--sp-4);
-  border: 1px solid var(--edge);
+  border: 1px solid var(--edge-strong);
   border-radius: var(--radius);
   background: var(--surface);
+  overflow: hidden;
   text-align: left;
-  transition: border-color .15s ease, transform .1s ease;
+  transition: border-color var(--duration-fast) var(--ease-out),
+              box-shadow var(--duration-fast) var(--ease-out);
 }
-.deck-card:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--edge)); }
+.deck-card:hover,
+.deck-card:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--edge));
+  box-shadow: var(--shadow);
+}
 
-.deck-swatch {
-  height: 4.5rem;
-  border-radius: 8px;
-  border: 1px solid var(--edge);
+.deck-shot { position: relative; }
+
+/* The link wrapper must not style what it wraps: the miniature inside is
+   a slide, and a slide's prompt is not a hyperlink. */
+.deck-preview {
+  display: block;
+  aspect-ratio: 16 / 9;   /* holds the box before the miniature paints */
+  background: var(--ground);
+  border-bottom: 1px solid var(--edge);
+  overflow: hidden;
+  color: inherit;
+  text-decoration: none;
+}
+
+/* The deck's permanent join code, over its own slide. Decks own a code
+   from creation, so this is the real one — the answer to "what's the
+   code?" without opening anything. Solid scrim, not glass: it sits over
+   twelve different theme backgrounds and has to stay legible on all of
+   them. */
+.deck-code {
+  position: absolute;
+  left: .6rem; bottom: .6rem;
+  z-index: 3;
+  padding: .25rem .5rem;
+  border-radius: 7px;
+  background: rgba(11, 15, 24, .84);
+  color: #fff;
+  font-size: .72rem;
+  font-weight: 650;
+  letter-spacing: .14em;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.deck-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-4) var(--sp-4) var(--sp-3);
+}
+
+.deck-title {
+  font-family: var(--display);
+  font-size: 1.05rem;
+  font-weight: 650;
+  line-height: 1.2;
+  margin: 0;
+}
+.deck-title a { color: inherit; text-decoration: none; }
+.deck-title a:hover { text-decoration: underline; }
+
+.deck-meta {
+  font-size: .78rem;
+  color: var(--ink-soft);
+  min-height: 1.2em;   /* filled in when the slides land; don't jump */
+}
+
+/* What this deck has actually produced. The line that turns a deck from
+   a thing you made into a thing you have been using. */
+.deck-yield {
+  font-size: .78rem;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+.deck-compare {
+  color: var(--accent-text);
+  font-weight: 550;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.deck-compare:hover { text-decoration: underline; }
+
+.deck-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin-top: auto;
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid color-mix(in srgb, var(--edge) 70%, transparent);
+}
+.deck-actions .spacer { flex: 1; }
+.deck-del { color: var(--ink-soft); }
+.deck-del:hover:not(:disabled) {
+  color: var(--bad-text);
+  background: color-mix(in srgb, var(--bad) 8%, transparent);
+}
+.deck-del svg { width: 1rem; height: 1rem; display: block; }
+
+/* ----------------------------------------------------------- skeletons */
+
+/* A shape where the thing will be, not a spinner in the middle of
+   nothing: the grid does not reflow when the decks land. */
+.skel {
   position: relative;
   overflow: hidden;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  border-radius: 8px;
 }
-.deck-swatch::after {
-  content: attr(data-theme-name);
+.skel::after {
+  content: '';
   position: absolute;
-  left: .5rem; bottom: .4rem;
-  font-size: .68rem;
-  font-weight: 600;
-  padding: .12rem .4rem;
-  border-radius: 999px;
-  background: rgba(255,255,255,.82);
-  color: #222;
+  inset: 0;
+  background: linear-gradient(90deg,
+    transparent,
+    color-mix(in srgb, var(--ink) 7%, transparent),
+    transparent);
+  transform: translateX(-100%);
+  animation: skel-sweep 1.5s var(--ease-in-out) infinite;
 }
+@keyframes skel-sweep { to { transform: translateX(100%); } }
 
-.deck-title { font-family: var(--display); font-size: 1.05rem; font-weight: 650; line-height: 1.2; }
-.deck-meta { font-size: .78rem; color: var(--ink-soft); }
-.deck-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; margin-top: auto; }
+.skel-preview { aspect-ratio: 16 / 9; border-radius: 0; }
+.skel-line { height: .72rem; }
+.skel-line.is-title { height: 1rem; width: 62%; }
+.skel-line.is-meta { width: 44%; }
 
 /* =====================================================================
    The deck editor — three panes.
@@ -199,7 +374,7 @@
 }
 .rail-act:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 10%, transparent); color: var(--ink); }
 .rail-act:disabled { opacity: .3; cursor: default; }
-.rail-act.is-danger:hover { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
+.rail-act.is-danger:hover { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad-text); }
 
 .rail-foot {
   display: flex;
@@ -272,13 +447,52 @@
   width: min(38rem, calc(100vw - 2rem));
   max-height: min(30rem, 70vh);
   overflow-y: auto;
-  padding: var(--sp-4);
+  /* no padding-top: the sticky head carries its own, so it can pin flush */
+  padding: 0 var(--sp-4) var(--sp-4);
   border: 1px solid var(--edge);
   border-radius: var(--radius);
   background: var(--surface);
   box-shadow: var(--shadow);
 }
-.gallery-head h3 { font-size: 1rem; margin-bottom: var(--sp-3); }
+.gallery-head h3 { font-size: 1rem; margin-bottom: var(--sp-2); }
+
+/* Sticky so the tabs stay reachable once the grid scrolls under them. */
+.gallery-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0 calc(var(--sp-4) * -1);
+  padding: var(--sp-4) var(--sp-4) var(--sp-3);
+  background: var(--surface);
+}
+
+.gallery-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--edge);
+}
+
+.gallery-tab {
+  padding: .28rem .6rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: none;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: .78rem;
+  font-weight: 600;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: color .15s ease, background .15s ease, border-color .15s ease;
+}
+.gallery-tab:hover { color: var(--ink); background: var(--accent-soft); }
+.gallery-tab.is-active {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
 
 .gallery-grid {
   display: grid;
@@ -347,7 +561,7 @@
   color: var(--ink-soft); font-size: 1.1rem; line-height: 1;
   padding: .2rem .35rem; border-radius: 5px;
 }
-.opt-remove:hover { color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, transparent); }
+.opt-remove:hover { color: var(--bad-text); background: color-mix(in srgb, var(--bad) 10%, transparent); }
 
 .settings-grid {
   display: grid;
@@ -370,7 +584,7 @@
   padding: 0 .85rem;
   border-radius: 12px;
   background: var(--ground);
-  border: 1px solid var(--edge);
+  border: 1px solid var(--edge-strong);
   transition: background .15s ease, border-color .15s ease;
 }
 .type-picker:hover { background: var(--surface); }
@@ -384,7 +598,7 @@
   width: 1.25rem;
   height: 1.25rem;
   flex-shrink: 0;
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .type-picker-select {
@@ -441,7 +655,7 @@
   align-items: center;
   gap: .3rem;
   padding: .6rem .35rem .5rem;
-  border: 1px solid var(--edge);
+  border: 1px solid var(--edge-strong);
   border-radius: 10px;
   background: var(--ground);
   color: var(--ink-soft);
@@ -461,7 +675,7 @@
 .icon-choice-btn.is-active {
   background: var(--accent-soft);
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .icon-choice-glyph {
@@ -513,7 +727,7 @@
 }
 
 .theme-tile {
-  border: 2px solid var(--edge);
+  border: 2px solid var(--edge-strong);
   border-radius: 12px;
   padding: 0;
   overflow: hidden;
@@ -581,7 +795,7 @@
 .passage-input {
   width: 100%;
   padding: .6rem .7rem;
-  border: 1px solid var(--edge);
+  border: 1px solid var(--edge-strong);
   border-radius: 10px;
   background: var(--surface);
   font: inherit;
@@ -605,7 +819,7 @@
 .seg-preview-warn {
   font-size: .7rem;
   font-weight: 700;
-  color: var(--bad);
+  color: var(--bad-text);
 }
 
 .template-modal { max-width: 34rem; }
@@ -682,7 +896,7 @@
   width: 100%;
   height: 2.2rem;
   padding: .15rem;
-  border: 1px solid var(--edge);
+  border: 1px solid var(--edge-strong);
   border-radius: 8px;
   background: var(--surface);
   cursor: pointer;
@@ -695,7 +909,7 @@
 .ct-warn {
   font-size: .74rem;
   font-weight: 600;
-  color: var(--bad);
+  color: var(--bad-text);
   margin: 0;
 }
 .ct-actions {
@@ -714,7 +928,7 @@
 
 .bg-tile {
   aspect-ratio: 4 / 3;
-  border: 2px solid var(--edge);
+  border: 2px solid var(--edge-strong);
   border-radius: 8px;
   cursor: pointer;
   overflow: hidden;
@@ -767,27 +981,145 @@
 
 .parse-errors { display: flex; flex-direction: column; gap: var(--sp-1); }
 
-/* ------------------------------------------------------------ session */
+/* =====================================================================
+   The session archive.
+
+   Sessions are kept forever and export for free, which is the promise —
+   but a promise that turns into forty undifferentiated rows by November
+   is not worth much. So: search, one deck at a time, and a split between
+   the classes that produced something and the sessions nobody joined.
+   ===================================================================== */
+
+.archive-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.archive-search { flex: 1 1 14rem; min-width: 0; }
+.archive-search input { width: 100%; }
+/* Safari draws its own clear button; let it, but keep the metrics ours. */
+.archive-search input[type="search"] { -webkit-appearance: none; appearance: none; }
+
+.archive-bar select { width: auto; flex: 0 1 12rem; }
+
+/* A segmented control, not three checkboxes: the buckets are exclusive
+   and the whole set has to read as one control at a glance. */
+/* --edge-strong, not --edge: this border is the only thing marking the
+   control out from the page (see docs/accessibility.md). */
+.seg {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--edge-strong);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--ink) 4%, var(--surface));
+}
+.seg-btn {
+  padding: .38rem .7rem;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--ink-soft);
+  font-size: .82rem;
+  font-weight: 550;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out);
+}
+.seg-btn:hover { color: var(--ink); }
+.seg-btn.is-on {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(0,0,0,.07);
+}
+
+/* A date heading inside the list, not above it: the run is what you are
+   scanning for, and "Earlier this week" is part of the run's identity. */
+.archive-group {
+  font-family: var(--body);
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin: var(--sp-3) 0 0;
+}
+.archive-group:first-child { margin-top: 0; }
+
+/* Flex, not grid: a session row carries five things of wildly different
+   widths and has to fold onto two lines on a phone. `flex-wrap` does that
+   with no breakpoint to keep in step with the content. */
+.session-list { display: flex; flex-direction: column; gap: var(--sp-2); }
 
 .session-row {
-  display: grid;
-  grid-template-columns: auto 1fr auto auto;
+  display: flex;
   align-items: center;
   gap: var(--sp-3);
+  flex-wrap: wrap;
   padding: var(--sp-3) var(--sp-4);
   border: 1px solid var(--edge);
   border-radius: 10px;
   background: var(--surface);
+  transition: border-color var(--duration-fast) var(--ease-out);
+}
+.session-row:hover { border-color: color-mix(in srgb, var(--accent) 30%, var(--edge)); }
+.session-row.is-live {
+  border-color: color-mix(in srgb, var(--good) 40%, var(--edge));
+  background: color-mix(in srgb, var(--good) 5%, var(--surface));
 }
 
 .session-code {
   font-family: var(--display);
-  font-size: 1.05rem;
+  font-size: 1rem;
   font-weight: 700;
   letter-spacing: .1em;
+  font-variant-numeric: tabular-nums;
+  padding: .28rem .5rem;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
 }
 
+.session-info { flex: 1 1 11rem; min-width: 0; }
+.session-name {
+  font-weight: 550;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .session-meta { font-size: .78rem; color: var(--ink-soft); }
+
+/* A session that nobody joined is kept, but it is not news. Dimming the
+   whole row lets the eye skip the false starts without hiding them —
+   they are still a record of a class that did not go to plan. */
+.session-row.is-empty { background: color-mix(in srgb, var(--ink) 2%, var(--surface)); }
+.session-row.is-empty .session-code,
+.session-row.is-empty .session-name { color: var(--ink-soft); }
+
+/* The numbers, which are the reason the row is worth reading. Tabular so
+   a column of them lines up down the list. */
+.session-stats {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  font-size: .8rem;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.sstat b {
+  font-weight: 700;
+  font-size: .95rem;
+  color: var(--ink);
+}
+.session-none { font-size: .78rem; color: var(--ink-soft); font-style: italic; }
+
+.session-actions { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; }
+.session-del { color: var(--ink-soft); }
+.session-del:hover:not(:disabled) {
+  color: var(--bad-text);
+  background: color-mix(in srgb, var(--bad) 8%, transparent);
+}
+.session-del svg { width: .95rem; height: .95rem; display: block; }
 
 /* ------------------------------------------------------------ results */
 
@@ -800,6 +1132,105 @@
 }
 .result-block .chart { font-size: .95rem; }
 .result-block [data-chart="cloud"] { min-height: 16rem; }
+
+/* =====================================================================
+   Compare runs.
+
+   The same question, drawn once per session that asked it, in time order.
+   Small multiples rather than one combined chart: the question types here
+   are not all stackable (a word cloud and a histogram do not overlay), and
+   putting the identical chart side by side lets the eye do the comparing
+   without anyone having to invent a summary statistic per type.
+   ===================================================================== */
+
+.cmp-head { display: flex; flex-direction: column; gap: var(--sp-2); }
+.cmp-title { font-size: 1.6rem; }
+.cmp-sub { font-size: .85rem; color: var(--ink-soft); }
+
+.cmp-block {
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.cmp-block-head { display: flex; flex-direction: column; gap: .2rem; }
+.cmp-prompt { font-size: 1.15rem; }
+.cmp-block-meta { font-size: .78rem; color: var(--ink-soft); }
+
+/* auto-fit, so three runs use the full width and nine wrap onto a second
+   row instead of shrinking past legibility. */
+.cmp-runs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: var(--sp-4);
+}
+.cmp-run { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
+
+/* Small multiples only work if they share a baseline — a chart that
+   starts lower than the one beside it reads as a different quantity.
+   Runs borrowed from another deck carry a third header line, so when any
+   run in a block has one, every header in that block reserves the space.
+   Each line is nowrap + ellipsis, so these heights are exact, not guesses. */
+.cmp-run-head { display: flex; flex-direction: column; min-width: 0; min-height: 2.4rem; }
+.cmp-runs.has-foreign .cmp-run-head { min-height: 3.5rem; }
+.cmp-run-name {
+  font-size: .8rem;
+  font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cmp-run-count {
+  font-size: .72rem;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+/* A run borrowed from another deck — a copy of this one made for a new
+   term. Saying so is the difference between a comparison and a mystery. */
+.cmp-run-deck {
+  font-size: .68rem;
+  color: var(--ink-soft);
+  font-style: italic;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Every chart in charts.js is sized in em against its own font-size, so
+   this one declaration shrinks a whole miniature, labels and all. */
+.cmp-chart { font-size: .68rem; }
+
+.cmp-trend { display: flex; flex-direction: column; gap: var(--sp-2); }
+.cmp-trend-row {
+  display: grid;
+  grid-template-columns: minmax(5rem, 11rem) 1fr auto;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.cmp-trend-label {
+  font-size: .78rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cmp-trend-track {
+  height: .7rem;
+  border-radius: var(--bar-radius);
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  overflow: hidden;
+}
+.cmp-trend-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+.cmp-trend-value {
+  font-size: .82rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  min-width: 2.6rem;
+  text-align: right;
+}
+
+.cmp-delta { display: flex; flex-direction: column; gap: var(--sp-2); }
 
 .stat-row {
   display: flex;
@@ -826,6 +1257,7 @@
 }
 .empty-state h3 { font-size: 1.1rem; }
 .empty-state p { color: var(--ink-soft); font-size: .9rem; max-width: 26rem; }
+
 
 .modal-backdrop {
   position: fixed; inset: 0;
@@ -959,8 +1391,8 @@
   font-weight: 650;
   line-height: 1;
 }
-.sp-cloud-word { color: var(--accent); }
-.sp-cloud-word.is-alt { color: var(--accent-2); }
+.sp-cloud-word { color: var(--accent-text); }
+.sp-cloud-word.is-alt { color: var(--accent-2-text); }
 
 /* --------------------------------------------------------- text cards */
 
@@ -1015,7 +1447,7 @@
   display: grid; place-items: center;
   border-radius: 50%;
   background: color-mix(in srgb, var(--accent) 20%, transparent);
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: .38em;
   font-weight: 700;
 }
@@ -1119,7 +1551,7 @@
   display: grid; place-items: center;
   border-radius: 50%;
   background: var(--accent);
-  color: var(--ground);
+  color: var(--on-accent);
   font-size: .4em;
   font-weight: 700;
   line-height: 1;
@@ -1182,7 +1614,7 @@
   align-items: baseline;
   gap: .4rem;
   padding: .25rem .6rem;
-  border: 1px dashed var(--edge);
+  border: 1px dashed var(--edge-strong);
   border-radius: 999px;
   background: none;
   cursor: pointer;
@@ -1214,4 +1646,432 @@
   display: block;
   -webkit-line-clamp: none;
   overflow: visible;
+}
+
+/* =====================================================================
+   Elements — the picker, and the controls for a placed one.
+   See app/elements-editor.js. The layer that actually draws them lives
+   in styles/elements.css, shared with the projector.
+   ===================================================================== */
+
+.decor-editor { display: flex; flex-direction: column; gap: var(--sp-2); }
+
+.decor-head { display: flex; align-items: center; gap: var(--sp-2); }
+
+.decor-empty {
+  font-size: .76rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  margin: 0;
+}
+
+/* What is on the slide, as a row you can click through. */
+.decor-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.decor-chip {
+  width: 2.4rem;
+  height: 2.4rem;
+  display: grid;
+  place-items: center;
+  padding: .3rem;
+  border: 1px solid var(--edge-strong);
+  border-radius: 10px;
+  background: var(--ground);
+  cursor: pointer;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.decor-chip:hover { border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.decor-chip.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.decor-chip-art { width: 100%; height: 100%; overflow: visible; }
+
+.decor-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  background: var(--ground);
+}
+.decor-controls-head { display: flex; align-items: center; gap: var(--sp-2); }
+
+.decor-field { display: flex; flex-direction: column; gap: .3rem; }
+.decor-row { display: flex; flex-wrap: wrap; gap: var(--sp-4); }
+.decor-row > .decor-field { flex: 1; min-width: 8rem; }
+
+.decor-rot, .decor-fade { display: flex; align-items: center; gap: var(--sp-2); }
+.decor-fade input[type="range"] { flex: 1; min-width: 6rem; }
+.decor-num {
+  font-size: .76rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+  min-width: 2.6rem;
+}
+
+.decor-warn {
+  margin: 0;
+  font-size: .72rem;
+  line-height: 1.5;
+  color: var(--bad-text);
+}
+
+/* ---- segmented control ---------------------------------------------- */
+
+.seg {
+  display: inline-flex;
+  /* .decor-field is a column flex box, so a stretched child would run the
+     full width and leave an empty segment past the last button */
+  align-self: flex-start;
+  border: 1px solid var(--edge-strong);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.seg-btn {
+  padding: .26rem .5rem;
+  border: none;
+  border-right: 1px solid var(--edge-strong);
+  background: none;
+  font: inherit;
+  font-size: .74rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background .13s ease, color .13s ease;
+}
+.seg-btn:last-child { border-right: none; }
+.seg-btn:hover { background: var(--accent-soft); color: var(--ink); }
+.seg-btn.is-on { background: var(--accent); color: var(--on-accent); }
+
+/* ---- colour swatches ------------------------------------------------ */
+
+.swatches { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; }
+
+.swatch {
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 1px solid var(--edge-strong);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+.swatch:hover { transform: scale(1.12); }
+.swatch.is-on {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+}
+/* focus has to be distinguishable from selection, which wears the ring
+   above — so focus takes the standard two-ring indicator instead */
+.swatch:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+/* "no fill" reads as the absence of a colour, so it is drawn as one */
+.swatch-none {
+  background:
+    linear-gradient(to top right,
+      transparent calc(50% - 1px), var(--bad) calc(50% - 1px),
+      var(--bad) calc(50% + 1px), transparent calc(50% + 1px)),
+    var(--surface);
+}
+
+.swatch-custom { padding: 1px; background: var(--surface); }
+
+/* ---- the picker ----------------------------------------------------- */
+
+.element-picker {
+  position: fixed;
+  z-index: 200;
+  width: min(30rem, calc(100vw - 2rem));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.picker-head { padding: var(--sp-3) var(--sp-3) var(--sp-2); }
+.picker-search { width: 100%; }
+
+.picker-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  padding: 0 var(--sp-3) var(--sp-2);
+  border-bottom: 1px solid var(--edge);
+}
+.picker-tab {
+  padding: .22rem .5rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: none;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: .72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color .15s ease, background .15s ease, border-color .15s ease;
+}
+.picker-tab:hover { color: var(--ink); background: var(--accent-soft); }
+.picker-tab.is-active {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.picker-grid {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(4.6rem, 1fr));
+  gap: var(--sp-1);
+  padding: var(--sp-3);
+}
+
+.picker-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .2rem;
+  padding: .45rem .2rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+  transition: background .13s ease, border-color .13s ease;
+}
+.picker-tile:hover {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.picker-tile:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+.picker-art { width: 1.7rem; height: 1.7rem; overflow: visible; }
+.picker-name {
+  font-size: .6rem;
+  line-height: 1.25;
+  color: var(--ink-soft);
+  text-align: center;
+  /* two lines then ellipsis: "Test tube, tilted" must not shove the grid */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.picker-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: var(--sp-4) 0;
+  text-align: center;
+  font-size: .8rem;
+  color: var(--ink-soft);
+}
+
+/* The canvas needs a positioning context for the drag surface, and the
+   surface measures itself in cqh like the decor layer it sits over. */
+.stage-canvas .sp-slide { position: relative; }
+.decor-edit { container-type: size; }
+
+/* =====================================================================
+   Miniatures for the second-wave slide types.
+
+   Same rules as the sketches above: em-sized against the slide's own
+   font-size, deterministic, and showing the instructor's real words
+   wherever they've typed any.
+   ===================================================================== */
+
+/* -------------------------------------------------------- traffic light */
+
+.sp-traffic { display: flex; flex-direction: column; gap: .34em; width: 100%; }
+.sp-traffic-row { display: flex; align-items: center; gap: .3em; }
+.sp-traffic-dot {
+  width: .42em; height: .42em;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--lamp, var(--accent));
+}
+.sp-traffic-bar {
+  height: .34em;
+  border-radius: var(--bar-radius);
+  background: var(--lamp, var(--accent));
+}
+.sp-traffic-row:nth-child(1) { --lamp: var(--good, #15803d); }
+.sp-traffic-row:nth-child(2) { --lamp: var(--accent-2); }
+.sp-traffic-row:nth-child(3) { --lamp: var(--bad, #b91c1c); }
+.sp-traffic-label {
+  font-size: .34em;
+  color: var(--ink-soft);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ------------------------------------------------------------ mood check */
+
+.sp-mood {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: .35em;
+  width: 100%;
+}
+.sp-mood-glyph {
+  font-size: calc(.9em * var(--mood-scale, 1));
+  line-height: 1;
+}
+
+/* ---------------------------------------------------------- this or that */
+
+.sp-tug { display: flex; flex-direction: column; gap: .4em; width: 100%; }
+.sp-tug-row { display: grid; grid-template-columns: 1fr 2fr 1fr; align-items: center; gap: .3em; }
+.sp-tug-name {
+  font-size: .34em;
+  color: var(--ink-soft);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sp-tug-row .sp-tug-name:last-child { text-align: right; }
+.sp-tug-rope {
+  position: relative;
+  height: .2em;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.sp-tug-knot {
+  position: absolute;
+  top: 50%;
+  width: .38em; height: .38em;
+  margin: -.19em 0 0 -.19em;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ----------------------------------------------------------- budget split */
+
+.sp-budget { display: flex; flex-direction: column; gap: .3em; width: 100%; }
+.sp-budget-row { display: flex; align-items: center; gap: .3em; }
+.sp-budget-track {
+  flex: 1;
+  height: .42em;
+  border-radius: var(--bar-radius);
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  overflow: hidden;
+}
+.sp-budget-fill { height: 100%; background: var(--accent); border-radius: var(--bar-radius); }
+
+/* ------------------------------------------------------ probability slider */
+
+.sp-prob {
+  display: flex;
+  align-items: flex-end;
+  gap: .12em;
+  width: 100%;
+  height: 2.4em;
+}
+.sp-prob-bar {
+  flex: 1;
+  border-radius: .12em .12em 0 0;
+  background: var(--accent);
+}
+
+/* ------------------------------------------------------ fill in the blank */
+
+.sp-cloze {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .18em;
+  font-size: .38em;
+  line-height: 1.6;
+}
+.sp-cloze-text { color: var(--ink-soft); }
+.sp-cloze-run {
+  height: .8em;
+  border-radius: .15em;
+  background: color-mix(in srgb, var(--ink) 16%, transparent);
+}
+.sp-cloze-blank {
+  width: 2.4em;
+  height: 1em;
+  border-radius: .2em;
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  border-bottom: .12em solid var(--accent);
+}
+
+/* --------------------------------------------------------- matching pairs */
+
+.sp-match { display: flex; flex-direction: column; gap: .28em; width: 100%; }
+.sp-match-row { display: grid; grid-template-columns: 1fr 1.6fr 1fr; align-items: center; gap: .28em; }
+.sp-match-side {
+  font-size: .32em;
+  color: var(--ink-soft);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sp-match-row .sp-match-side:last-child { text-align: right; }
+.sp-match-track {
+  display: flex;
+  height: .34em;
+  border-radius: var(--bar-radius);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+}
+.sp-match-seg { height: 100%; background: color-mix(in srgb, var(--accent) 40%, transparent); }
+.sp-match-seg.is-key { background: var(--accent); }
+
+/* ---------------------------------------------------------- timeline order */
+
+.sp-timeline { display: flex; flex-direction: column; gap: .22em; width: 100%; }
+.sp-timeline-row { display: grid; grid-template-columns: 1.4fr 2fr; align-items: center; gap: .3em; }
+.sp-timeline-label {
+  font-size: .32em;
+  color: var(--ink-soft);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sp-timeline-cells { display: flex; gap: .12em; }
+.sp-timeline-cell {
+  flex: 1;
+  height: .42em;
+  border-radius: .1em;
+  background: color-mix(in srgb, var(--accent) calc(var(--heat, .1) * 100%), transparent);
+}
+.sp-timeline-cell.is-key {
+  background: color-mix(in srgb, var(--good, #15803d) calc(var(--heat, .1) * 100%), transparent);
+}
+
+/* ------------------------------------------------------------- exit ticket */
+
+.sp-exit { display: flex; gap: .3em; width: 100%; }
+.sp-exit-col { flex: 1; display: flex; flex-direction: column; gap: .2em; }
+.sp-exit-head {
+  font-size: .3em;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--accent-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sp-exit-card {
+  border-radius: .18em;
+  border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+}
+
+/* Pair rows carry two fields, so the line has to give them equal room. */
+.opt-line.pair-line { display: grid; grid-template-columns: 1fr 1fr auto; gap: var(--sp-2); }
+.emoji-input {
+  width: 3.4rem;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 1.1rem;
 }

@@ -79,7 +79,7 @@
   gap: .8rem;
   min-height: 3.4rem;
   padding: .85rem 1rem;
-  border: 2px solid var(--edge);
+  border: 2px solid var(--edge-strong);
   border-radius: 14px;
   background: var(--surface);
   text-align: left;
@@ -100,12 +100,12 @@
 .opt-marker {
   width: 1.5rem; height: 1.5rem;
   border-radius: 50%;
-  border: 2px solid var(--edge);
+  border: 2px solid var(--edge-strong);
   flex-shrink: 0;
   display: grid; place-items: center;
   font-size: .8rem;
   font-weight: 700;
-  color: #fff;
+  color: var(--on-accent);
   transition: background .15s ease, border-color .15s ease;
 }
 .opt.is-selected .opt-marker {
@@ -140,7 +140,7 @@
   color: var(--ink-soft);
   font-variant-numeric: tabular-nums;
 }
-.char-count.is-near { color: var(--accent-2); }
+.char-count.is-near { color: var(--accent-2-text); }
 
 /* -------------------------------------------------------------- scales */
 
@@ -163,7 +163,7 @@
 
 .scale-btn {
   min-height: 2.9rem;
-  border: 2px solid var(--edge);
+  border: 2px solid var(--edge-strong);
   border-radius: 10px;
   background: var(--surface);
   font-size: .95rem;
@@ -175,7 +175,7 @@
 .scale-btn.is-selected {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .scale-ends {
@@ -206,7 +206,7 @@
 .conf-btns { display: flex; gap: .35rem; }
 .conf-btn {
   padding: .4rem .6rem;
-  border: 2px solid var(--edge);
+  border: 2px solid var(--edge-strong);
   border-radius: 999px;
   background: var(--surface);
   font-size: .74rem;
@@ -224,7 +224,7 @@
   margin-top: .5rem;
   width: 100%;
   padding: .6rem;
-  border: 2px dashed var(--edge);
+  border: 2px dashed var(--edge-strong);
   border-radius: 12px;
   background: transparent;
   color: var(--ink-soft);
@@ -235,7 +235,7 @@
 .hand-btn.is-raised {
   border-style: solid;
   border-color: var(--good);
-  color: var(--good);
+  color: var(--good-text);
 }
 
 .spectrum-control { padding: 1rem 0; }
@@ -261,7 +261,7 @@
   width: 100%;
   text-align: left;
   padding: .8rem .9rem;
-  border: 2px solid var(--edge);
+  border: 2px solid var(--edge-strong);
   border-radius: 14px;
   background: var(--surface);
   cursor: pointer;
@@ -280,7 +280,7 @@
   font-weight: 700;
   font-size: .8rem;
 }
-.sample-pick.is-selected .sample-pick-tag { background: var(--accent); color: #fff; }
+.sample-pick.is-selected .sample-pick-tag { background: var(--accent); color: var(--on-accent); }
 .sample-pick-text {
   font-family: var(--display);
   font-size: .92rem;
@@ -290,7 +290,7 @@
 .rationale-input {
   width: 100%;
   padding: .7rem .8rem;
-  border: 1px solid var(--edge);
+  border: 1px solid var(--edge-strong);
   border-radius: 10px;
   background: var(--surface);
   font-size: .9rem;
@@ -305,7 +305,7 @@
   width: 100%;
   text-align: left;
   padding: .7rem .85rem;
-  border: 2px solid var(--edge);
+  border: 2px solid var(--edge-strong);
   border-radius: 12px;
   background: var(--surface);
   font-family: var(--display);
@@ -326,7 +326,7 @@ button.seg-body { cursor: pointer; transition: border-color .15s ease, backgroun
 }
 .seg-chip {
   padding: .32rem .6rem;
-  border: 1.5px solid var(--edge);
+  border: 1.5px solid var(--edge-strong);
   border-radius: 999px;
   background: var(--surface);
   font-size: .74rem;
@@ -365,14 +365,14 @@ button.seg-body { cursor: pointer; transition: border-color .15s ease, backgroun
   font-size: .88rem;
   font-variant-numeric: tabular-nums;
 }
-.rank-item.is-ranked .rank-badge { background: var(--accent); color: #fff; }
+.rank-item.is-ranked .rank-badge { background: var(--accent); color: var(--on-accent); }
 
 .rank-text { flex: 1; font-size: .96rem; overflow-wrap: anywhere; }
 
 .rank-moves { display: flex; flex-direction: column; gap: .15rem; }
 .rank-move {
   width: 2.2rem; height: 1.6rem;
-  border: 1px solid var(--edge);
+  border: 1px solid var(--edge-strong);
   border-radius: 6px;
   background: var(--surface);
   cursor: pointer;
@@ -398,7 +398,7 @@ button.seg-body { cursor: pointer; transition: border-color .15s ease, backgroun
   border: none;
   border-radius: 14px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 1.05rem;
   font-weight: 650;
   cursor: pointer;
@@ -406,11 +406,11 @@ button.seg-body { cursor: pointer; transition: border-color .15s ease, backgroun
 }
 .submit-btn:disabled { opacity: .4; cursor: not-allowed; }
 .submit-btn:active:not(:disabled) { transform: translateY(1px); }
-.submit-btn.is-sent { background: var(--good); }
+.submit-btn.is-sent { background: var(--good); color: var(--on-good); }
 
 .field-error {
   font-size: .84rem;
-  color: var(--bad);
+  color: var(--bad-text);
   text-align: center;
   min-height: 1.2rem;
 }
@@ -457,7 +457,9 @@ button.seg-body { cursor: pointer; transition: border-color .15s ease, backgroun
   letter-spacing: .28em;
   text-transform: uppercase;
   padding: .8rem .5rem;
-  border-width: 2px;
+  /* stated in full: `border-width` alone loses to the shorthand in
+     base.css, which is more specific */
+  border: 2px solid var(--edge-strong);
   border-radius: 14px;
 }
 .code-input::placeholder { letter-spacing: .18em; opacity: .35; }
@@ -483,7 +485,7 @@ button.seg-body { cursor: pointer; transition: border-color .15s ease, backgroun
   display: flex; flex-direction: column; align-items: center; gap: .1rem;
   min-width: 2.6rem;
   padding: .35rem .4rem;
-  border: 1px solid var(--edge);
+  border: 1px solid var(--edge-strong);
   border-radius: 10px;
   background: var(--surface);
   cursor: pointer;
@@ -491,7 +493,7 @@ button.seg-body { cursor: pointer; transition: border-color .15s ease, backgroun
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
-.qa-vote.is-voted { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.qa-vote.is-voted { border-color: var(--accent); color: var(--accent-text); background: var(--accent-soft); }
 .qa-vote:disabled { cursor: default; }
 
 /* ------------------------------------------------------- shared result */
@@ -532,7 +534,7 @@ button.seg-body { cursor: pointer; transition: border-color .15s ease, backgroun
   padding: .2rem .6rem;
   border-radius: 999px;
   background: color-mix(in srgb, var(--good) 16%, transparent);
-  color: var(--good);
+  color: var(--good-text);
   font-size: .78rem;
   font-weight: 650;
 }
@@ -548,3 +550,224 @@ button.seg-body { cursor: pointer; transition: border-color .15s ease, backgroun
 }
 
 .instr-smallprint { font-size: .8rem; color: var(--ink-soft); }
+
+/* =====================================================================
+   Second-wave controls.
+
+   Phone-first, same as everything above: 3.4rem minimum targets, rem
+   units so the OS text-size setting still works, and no gesture more
+   complicated than a tap.
+   ===================================================================== */
+
+/* ------------------------------------------------------ traffic light */
+
+.lamp-btn {
+  display: flex;
+  align-items: center;
+  gap: .9rem;
+  width: 100%;
+  min-height: 4rem;
+  padding: .9rem 1.1rem;
+  border: 2px solid var(--edge-strong);
+  border-radius: 14px;
+  background: var(--surface);
+  text-align: left;
+  font-size: 1.02rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease, transform .08s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.lamp-btn:active { transform: scale(.985); }
+.lamp-dot {
+  width: 1.5rem; height: 1.5rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--lamp, var(--ink-soft));
+  opacity: .5;
+  transition: opacity .15s ease, box-shadow .15s ease;
+}
+.lamp-0 { --lamp: var(--good); }
+.lamp-1 { --lamp: var(--accent-2); }
+.lamp-2 { --lamp: var(--bad); }
+.lamp-btn.is-selected {
+  border-color: var(--lamp);
+  background: color-mix(in srgb, var(--lamp) 12%, var(--surface));
+}
+.lamp-btn.is-selected .lamp-dot {
+  opacity: 1;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--lamp) 22%, transparent);
+}
+
+/* -------------------------------------------------------- mood check */
+
+.mood-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(5rem, 1fr));
+  gap: .6rem;
+}
+.mood-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .3rem;
+  min-height: 5.4rem;
+  padding: .8rem .4rem;
+  border: 2px solid var(--edge-strong);
+  border-radius: 14px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease, transform .08s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.mood-btn:active { transform: scale(.97); }
+.mood-btn.is-selected { border-color: var(--accent); background: var(--accent-soft); }
+.mood-btn-glyph { font-size: 2rem; line-height: 1; }
+.mood-btn-label { font-size: .74rem; font-weight: 600; color: var(--ink-soft); text-align: center; }
+
+/* ------------------------------------------------------- this or that */
+
+.tot-row { margin-bottom: .1rem; }
+.tot-sides { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.tot-btn {
+  min-height: 3.6rem;
+  padding: .7rem .8rem;
+  border: 2px solid var(--edge-strong);
+  border-radius: 14px;
+  background: var(--surface);
+  font-size: .98rem;
+  font-weight: 600;
+  line-height: 1.25;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+  transition: border-color .15s ease, background .15s ease, transform .08s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.tot-btn:active { transform: scale(.98); }
+.tot-btn.is-selected { border-color: var(--accent); background: var(--accent-soft); }
+
+/* ------------------------------------------------------ budget split */
+
+.budget-bank {
+  position: sticky;
+  top: .25rem;
+  z-index: 2;
+  padding: .55rem .9rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 8%, var(--surface));
+  font-size: .88rem;
+  font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.budget-bank.is-done { background: color-mix(in srgb, var(--good) 16%, var(--surface)); color: var(--good-text); }
+.budget-bank.is-over { background: color-mix(in srgb, var(--bad) 14%, var(--surface)); color: var(--bad-text); }
+
+.budget-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .7rem;
+  min-height: 3.6rem;
+  padding: .5rem .6rem .5rem .9rem;
+  border: 2px solid var(--edge);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.budget-line.is-funded { border-color: color-mix(in srgb, var(--accent) 45%, var(--edge)); }
+.budget-line-label { font-size: .96rem; font-weight: 600; overflow-wrap: anywhere; }
+
+.budget-stepper { display: flex; align-items: center; gap: .2rem; flex-shrink: 0; }
+.budget-step {
+  width: 2.9rem; height: 2.9rem;
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: var(--surface);
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.budget-step:disabled { opacity: .35; cursor: default; }
+.budget-step:active:not(:disabled) { background: var(--accent-soft); }
+.budget-value {
+  min-width: 2.6rem;
+  text-align: center;
+  font-size: 1.1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------ probability slider */
+
+.prob-control { display: flex; flex-direction: column; gap: .3rem; }
+.prob-readout {
+  font-family: var(--display, inherit);
+  font-size: 2.6rem;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-text);
+}
+
+/* ---------------------------------------------------- fill in the blank */
+
+.cloze-control {
+  font-size: 1.05rem;
+  line-height: 2.4;
+  overflow-wrap: anywhere;
+}
+.cloze-run { display: inline; white-space: pre-wrap; }
+.cloze-input {
+  display: inline-block;
+  width: 6ch;
+  min-width: 4ch;
+  max-width: 100%;
+  margin: 0 .2rem;
+  padding: .15rem .4rem;
+  border: none;
+  border-bottom: 2px solid var(--accent);
+  border-radius: 4px 4px 0 0;
+  background: var(--accent-soft);
+  font: inherit;
+  font-size: 1rem;
+  text-align: center;
+}
+.cloze-input:focus { outline: none; background: color-mix(in srgb, var(--accent) 18%, var(--surface)); }
+
+/* ----------------------------------------------------- matching pairs */
+
+.match-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem;
+  min-height: 3.6rem;
+  padding: .5rem .6rem .5rem .9rem;
+  border: 2px solid var(--edge);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.match-line.is-set { border-color: color-mix(in srgb, var(--accent) 45%, var(--edge)); }
+.match-line-label { font-size: .96rem; font-weight: 600; overflow-wrap: anywhere; }
+.match-select {
+  flex-shrink: 0;
+  max-width: 52%;
+  min-height: 2.8rem;
+  padding: .4rem .6rem;
+  border: 1px solid var(--edge-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  font: inherit;
+  font-size: .92rem;
+}
+
+/* -------------------------------------------------------- exit ticket */
+
+.exit-field { display: flex; flex-direction: column; gap: .3rem; }
+.exit-field-label {
+  font-size: .82rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
