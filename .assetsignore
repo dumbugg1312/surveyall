@@ -27,3 +27,9 @@ README.md
 
 # tests/ IS intentionally published: tests/visual-check.html is a useful
 # pre-class tool for checking a theme reads on the projector.
+
+# The master copy of the home page video. The site serves the compressed
+# 720p version (media/home-loop.mp4, ~5 MB); publishing the 19 MB master
+# alongside it would put a file nobody links to on the public site, and
+# it is close to Cloudflare's 25 MiB per-asset ceiling.
+media/source/

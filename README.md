@@ -96,6 +96,10 @@ results.html        session archive and CSV export
 feedback.html       inbox for the quill button, admin only
 privacy.html        what is stored, and how to verify it
 
+media/              the home page loop (home-loop.mp4) and its poster
+                    frame; media/source/ holds the master export and is
+                    kept off the public site by .assetsignore
+
 app/                ES modules, no build step
   logic.js            pure logic: validation, aggregation, scoring, CSV
   deck-format.js      plain-text deck parser/serialiser

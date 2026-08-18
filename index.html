@@ -40,56 +40,22 @@
         or scan the code on the screen.
       </p>
     </div>
+  </section>
 
+  <section class="showcase wrap">
+    <!-- The loop shows the real thing: the deck editor, a theme being
+         picked, and the same question on a phone. `autoplay` is set by
+         app/home-page.js rather than here, so that anyone who has asked
+         their system for less motion gets the poster frame and a play
+         button instead of a screen that moves at them. -->
     <figure class="scene">
-      <figcaption class="sr-only">
-        What the room sees: a projected question with live results, the join
-        code and a QR code — and, in a student's hand, the same question as
-        two tap targets.
-      </figcaption>
-
-      <div class="screen">
-        <div class="screen-head">
-          <p class="screen-q">Which explanation is closest to yours?</p>
-          <span class="counter">184 answers</span>
-        </div>
-
-        <div class="bar-row is-top">
-          <span class="bar-label">The data was misread</span>
-          <span class="bar-track"><span class="bar-fill" style="width:58%"></span></span>
-          <span class="bar-pct">58%</span>
-        </div>
-        <div class="bar-row">
-          <span class="bar-label">The sample was too small</span>
-          <span class="bar-track"><span class="bar-fill" style="width:24%"></span></span>
-          <span class="bar-pct">24%</span>
-        </div>
-        <div class="bar-row">
-          <span class="bar-label">The question was leading</span>
-          <span class="bar-track"><span class="bar-fill" style="width:12%"></span></span>
-          <span class="bar-pct">12%</span>
-        </div>
-        <div class="bar-row">
-          <span class="bar-label">Something else</span>
-          <span class="bar-track"><span class="bar-fill" style="width:6%"></span></span>
-          <span class="bar-pct">6%</span>
-        </div>
-
-        <div class="screen-foot">
-          <div>
-            <p class="join-note">Join at surveyall.org/join</p>
-            <p class="join-code">MJ4K7P</p>
-          </div>
-          <div class="qr-plate" id="heroQR" aria-hidden="true"></div>
-        </div>
-      </div>
-
-      <div class="phone" aria-hidden="true">
-        <p class="phone-q">Which explanation is closest to yours?</p>
-        <span class="tap is-picked">The data was misread</span>
-        <span class="tap">The sample was too small</span>
-        <span class="tap">The question was leading</span>
-      </div>
+      <video class="hero-video" id="heroVideo"
+             muted loop playsinline preload="metadata"
+             poster="media/home-loop.jpg"
+             aria-label="A tour of SurveyAll: building a deck, picking a theme, and the same question on a student's phone">
+        <source src="media/home-loop.mp4" type="video/mp4">
+      </video>
+      <button class="video-toggle" id="videoToggle" type="button" hidden></button>
     </figure>
   </section>
 
