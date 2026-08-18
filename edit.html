@@ -83,134 +83,152 @@
   </main>
 
   <!-- ----------------------------------------------- design panel ---- -->
+  <!-- Four sections now, so each one collapses. <details> rather than a
+       button and a hidden div: the platform supplies the keyboard
+       handling, the expanded state for a screen reader, and find-in-page
+       reveal. Which ones you leave open is remembered per browser — see
+       wirePanels() in app/edit-page.js. -->
   <aside class="side" id="designPanel">
 
+    <!-- The only per-slide section in this rail: what is placed on the
+         slide you have open. It sits at the top because it changes as you
+         move through the deck, and the three below it do not. Filled in
+         by renderElementsPanel(). -->
+    <details class="panel" id="panelElements" data-panel="elements" open>
+      <summary class="panel-head"><h3>Elements</h3></summary>
+      <div class="panel-body" id="elementsHost"></div>
+    </details>
+
     <!-- Deck-wide slide settings. These change what the room sees, so they
-         sit with Theme and Background rather than on any one slide. -->
-    <div class="panel">
-      <h3>Slides</h3>
-      <div class="field">
-        <label for="promptSize">Question size</label>
-        <select id="promptSize"></select>
+         sit with Theme and Background rather than on any one slide.
+         Question size used to live here too, and now sits under the
+         question box where you can judge it against the words. -->
+    <details class="panel" data-panel="slides" open>
+      <summary class="panel-head"><h3>Slides</h3></summary>
+      <div class="panel-body">
+        <label class="checkline">
+          <input type="checkbox" id="showSlideLabel" checked>
+          Show “Word cloud · Question 1 of 8” above each question
+        </label>
       </div>
-      <label class="checkline">
-        <input type="checkbox" id="showSlideLabel" checked>
-        Show “Word cloud · Question 1 of 8” above each question
-      </label>
-    </div>
+    </details>
 
-    <div class="panel">
-      <h3>Theme</h3>
-      <div class="theme-grid" id="themeGrid"></div>
+    <details class="panel" data-panel="theme" open>
+      <summary class="panel-head"><h3>Theme</h3></summary>
+      <div class="panel-body">
+        <div class="theme-grid" id="themeGrid"></div>
 
-      <div class="mythemes-head">
-        <h4>My themes</h4>
-        <button class="btn btn-sm" id="btnNewTheme" type="button">+ New theme</button>
+        <div class="mythemes-head">
+          <h4>My themes</h4>
+          <button class="btn btn-sm" id="btnNewTheme" type="button">+ New theme</button>
+        </div>
+        <p class="mythemes-empty" id="myThemesEmpty">
+          Build your own look: pick four colours and a headline face, and the
+          rest is derived so it always stays readable.
+        </p>
+        <div class="theme-grid" id="myThemeGrid"></div>
+
+        <div class="theme-builder" id="themeBuilder" hidden>
+          <div class="field">
+            <label for="ctName">Name</label>
+            <input id="ctName" type="text" maxlength="40" placeholder="My theme">
+          </div>
+          <div class="ct-colors">
+            <div class="field"><label for="ctGround">Background</label>
+              <input id="ctGround" type="color" value="#f7f4ee"></div>
+            <div class="field"><label for="ctInk">Text</label>
+              <input id="ctInk" type="color" value="#1c2434"></div>
+            <div class="field"><label for="ctAccent">Accent</label>
+              <input id="ctAccent" type="color" value="#4a5d23"></div>
+            <div class="field"><label for="ctAccent2">Second accent</label>
+              <input id="ctAccent2" type="color" value="#b45309"></div>
+          </div>
+          <div class="ct-row">
+            <div class="field"><label for="ctFont">Headline</label>
+              <select id="ctFont"></select></div>
+            <div class="field"><label for="ctRadius">Corners</label>
+              <select id="ctRadius"></select></div>
+          </div>
+          <div class="field">
+            <label for="ctBackdrop">Backdrop</label>
+            <select id="ctBackdrop"></select>
+          </div>
+          <div id="ctPreviewHost"></div>
+          <!-- role=status so the reason a save is blocked is announced as the
+               picks change, and described-by so it is read again when focus
+               lands on the disabled button (3.3.1) -->
+          <p class="ct-warn" id="ctWarn" role="status" aria-live="polite" hidden></p>
+          <div class="ct-actions">
+            <button class="btn btn-primary" id="ctSave" type="button"
+                    aria-describedby="ctWarn">Save &amp; apply</button>
+            <button class="btn" id="ctCancel" type="button">Cancel</button>
+            <span class="spacer"></span>
+            <button class="btn btn-danger" id="ctDelete" type="button" hidden>Delete</button>
+          </div>
+        </div>
       </div>
-      <p class="mythemes-empty" id="myThemesEmpty">
-        Build your own look: pick four colours and a headline face, and the
-        rest is derived so it always stays readable.
-      </p>
-      <div class="theme-grid" id="myThemeGrid"></div>
+    </details>
 
-      <div class="theme-builder" id="themeBuilder" hidden>
+    <details class="panel" data-panel="background" open>
+      <summary class="panel-head"><h3>Background</h3></summary>
+      <div class="panel-body">
+        <div class="bg-grid" id="bgGrid"></div>
+
         <div class="field">
-          <label for="ctName">Name</label>
-          <input id="ctName" type="text" maxlength="40" placeholder="My theme">
+          <label for="bgSolid">Solid colour</label>
+          <input type="color" id="bgSolid" style="height:2.4rem;padding:.2rem">
         </div>
-        <div class="ct-colors">
-          <div class="field"><label for="ctGround">Background</label>
-            <input id="ctGround" type="color" value="#f7f4ee"></div>
-          <div class="field"><label for="ctInk">Text</label>
-            <input id="ctInk" type="color" value="#1c2434"></div>
-          <div class="field"><label for="ctAccent">Accent</label>
-            <input id="ctAccent" type="color" value="#4a5d23"></div>
-          <div class="field"><label for="ctAccent2">Second accent</label>
-            <input id="ctAccent2" type="color" value="#b45309"></div>
-        </div>
-        <div class="ct-row">
-          <div class="field"><label for="ctFont">Headline</label>
-            <select id="ctFont"></select></div>
-          <div class="field"><label for="ctRadius">Corners</label>
-            <select id="ctRadius"></select></div>
-        </div>
+
         <div class="field">
-          <label for="ctBackdrop">Backdrop</label>
-          <select id="ctBackdrop"></select>
+          <label for="bgMotion">Ambience</label>
+          <select id="bgMotion">
+            <option value="off">Off</option>
+            <option value="subtle">Subtle</option>
+            <option value="lively">Lively</option>
+          </select>
         </div>
-        <div id="ctPreviewHost"></div>
-        <!-- role=status so the reason a save is blocked is announced as the
-             picks change, and described-by so it is read again when focus
-             lands on the disabled button (3.3.1) -->
-        <p class="ct-warn" id="ctWarn" role="status" aria-live="polite" hidden></p>
-        <div class="ct-actions">
-          <button class="btn btn-primary" id="ctSave" type="button"
-                  aria-describedby="ctWarn">Save &amp; apply</button>
-          <button class="btn" id="ctCancel" type="button">Cancel</button>
-          <span class="spacer"></span>
-          <button class="btn btn-danger" id="ctDelete" type="button" hidden>Delete</button>
+        <!-- muted, not .privacy-note: that class hangs a padlock in the
+             margin, and this note is about decoration, not about data. -->
+        <p class="muted note" id="bgMotionNote"></p>
+
+        <label class="upload-drop" id="uploadDrop">
+          Drop an image here, or click to choose
+          <input type="file" id="bgFile" accept="image/*" hidden>
+        </label>
+
+        <!-- Uploads expire 30 days after upload unless pinned — the number
+             on each tile is the countdown, and the pin is the exemption. -->
+        <p class="muted note">
+          Uploaded images are deleted 30 days after upload. The number on a
+          tile is the days it has left; press it to keep the image for good.
+        </p>
+
+        <div class="bg-grid" id="uploadGrid"></div>
+
+        <!-- Filled in by app/edit-page.js when THIS deck's background is the
+             one about to go. Empty and hidden the rest of the time. -->
+        <div class="alert alert-warn row row-wrap text-sm bg-expiry"
+             id="bgExpiryWarn" hidden></div>
+
+        <!-- Per-account upload quota. Filled in by app/edit-page.js only
+             once 80% of it is used — there is no reason to tell somebody
+             with four images that a limit exists. -->
+        <p class="muted note" id="bgQuotaNote" hidden></p>
+
+        <div class="bg-controls" id="imageControls" hidden>
+          <label class="label" for="bgDim">Dim <span id="dimVal">45%</span></label>
+          <input type="range" id="bgDim" min="0" max="90" value="45">
+          <label class="label" for="bgBlur">Blur <span id="blurVal">0px</span></label>
+          <input type="range" id="bgBlur" min="0" max="20" value="0">
         </div>
+
+        <p class="privacy-note note">
+          Backgrounds render on the projector only. Student phones use the theme
+          colours, which keeps text readable and avoids 60 devices downloading
+          the same image.
+        </p>
       </div>
-    </div>
-
-    <div class="panel">
-      <h3>Background</h3>
-      <div class="bg-grid" id="bgGrid"></div>
-
-      <div class="field">
-        <label for="bgSolid">Solid colour</label>
-        <input type="color" id="bgSolid" style="height:2.4rem;padding:.2rem">
-      </div>
-
-      <div class="field">
-        <label for="bgMotion">Ambience</label>
-        <select id="bgMotion">
-          <option value="off">Off</option>
-          <option value="subtle">Subtle</option>
-          <option value="lively">Lively</option>
-        </select>
-      </div>
-      <!-- muted, not .privacy-note: that class hangs a padlock in the
-           margin, and this note is about decoration, not about data. -->
-      <p class="muted note" id="bgMotionNote"></p>
-
-      <label class="upload-drop" id="uploadDrop">
-        Drop an image here, or click to choose
-        <input type="file" id="bgFile" accept="image/*" hidden>
-      </label>
-
-      <!-- Uploads expire 30 days after upload unless pinned — the number
-           on each tile is the countdown, and the pin is the exemption. -->
-      <p class="muted note">
-        Uploaded images are deleted 30 days after upload. The number on a
-        tile is the days it has left; press it to keep the image for good.
-      </p>
-
-      <div class="bg-grid" id="uploadGrid"></div>
-
-      <!-- Filled in by app/edit-page.js when THIS deck's background is the
-           one about to go. Empty and hidden the rest of the time. -->
-      <div class="alert alert-warn row row-wrap text-sm bg-expiry"
-           id="bgExpiryWarn" hidden></div>
-
-      <!-- Per-account upload quota. Filled in by app/edit-page.js only
-           once 80% of it is used — there is no reason to tell somebody
-           with four images that a limit exists. -->
-      <p class="muted note" id="bgQuotaNote" hidden></p>
-
-      <div class="bg-controls" id="imageControls" hidden>
-        <label class="label" for="bgDim">Dim <span id="dimVal">45%</span></label>
-        <input type="range" id="bgDim" min="0" max="90" value="45">
-        <label class="label" for="bgBlur">Blur <span id="blurVal">0px</span></label>
-        <input type="range" id="bgBlur" min="0" max="20" value="0">
-      </div>
-
-      <p class="privacy-note note">
-        Backgrounds render on the projector only. Student phones use the theme
-        colours, which keeps text readable and avoids 60 devices downloading
-        the same image.
-      </p>
-    </div>
+    </details>
 
   </aside>
 </div>

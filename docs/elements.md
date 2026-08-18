@@ -1,9 +1,9 @@
 # Slide elements
 
 Instructors can place icons and annotation marks on a slide — the thing
-people mean when they ask for "Canva, but for this". 778 elements: 754
-curated Lucide icons across fourteen teaching categories, and 24
-annotation marks drawn for this app.
+people mean when they ask for "Canva, but for this". 907 elements across
+fifteen teaching categories: 752 curated from Lucide (ISC), 131 from
+Tabler (MIT), and 24 annotation marks drawn for this app.
 
 This note is about the two decisions that shaped it, because both of them
 say no to the obvious version of the feature.
@@ -179,10 +179,38 @@ the worst available outcome.
 requires no attribution line, which is why nothing has to appear on a
 projected slide.
 
-Lucide ships 2,025 icons and the catalog draws on 754 of them, so the
-answer to "can we add more?" is almost always "widen the catalog", not
-"add a source". A second source costs a second licence to honour and,
-worse, a second drawing style.
+**Tabler**, MIT licensed, vendored the same way:
+`app/vendor/tabler-LICENSE.txt`. MIT wants the copyright notice kept with
+the source, not shown to an audience, so it costs the projector nothing
+either.
+
+Lucide ships 2,025 icons and the catalog draws on 754, so the answer to
+"can we add more?" is usually "widen the catalog", not "add a source". A
+second source costs a second licence to honour and, worse, a second
+drawing style.
+
+Tabler is the exception because it passes the only test that matters: it
+is drawn to the same spec — 24x24, stroke 2, round caps and joins — so a
+Tabler abacus and a Lucide microscope on the same slide look drawn by the
+same hand. It is not a second general-purpose pile. Every one of its 142
+entries is something a lesson wanted and Lucide could not supply:
+
+| what Lucide lacks | Tabler gives |
+|---|---|
+| logic gates | AND, OR, NOT, XOR, NAND, NOR, XNOR, buffer |
+| inequalities | `<` `>` `≤` `≥`, plus-or-minus |
+| trigonometry | sine, cosine, tangent, integral |
+| labelling | ringed A–Z and 0–9, for options and diagram points |
+| sport | eight balls, swimming, running, yoga, skating, scoreboard |
+| biology | butterfly, virus, lungs, spider, tooth |
+| physics | prism, pendulum, planet, galaxy, comet |
+
+Two things to know when adding more. Tabler prefixes every icon with a
+full-bleed transparent square, which the build strips. And 640 names
+exist in both sets — `cross`, `atom`, `medal`, `flame` — so a Tabler
+entry can name the file it came from separately from the id we give it,
+because a deck stores the id and one token must mean one drawing
+forever.
 
 Deliberately not used: **Font Awesome Free** and **The Noun Project**
 free tier are CC BY — they need visible credit, and a credit line on a
@@ -195,10 +223,30 @@ are all permissively licensed and all drawn on a different grid or at a
 different weight; mixing one in means a slide where the icon you dragged
 in visibly came from somewhere else.
 
-The one genuinely compatible second source is **Tabler** (MIT, ~5,900
-icons, also 24×24 at stroke 2 with round caps and joins). Worth reaching
-for only when Lucide actually lacks something — an abacus, a Bunsen
-burner, a specific instrument — and even then per icon, not wholesale.
+## No religious symbols
+
+There are none, on purpose, and it is asserted by a test rather than left
+to whoever next widens the catalog.
+
+Tabler draws symbols for most major religions — a cross, a Star of David,
+om, yin-yang, an ankh, a torii, a menorah — and no star and crescent.
+Neither set has one. So any selection would have represented some faiths
+and left others with nothing, in a room where the instructor does not
+know what every student believes. Hand-drawing the missing one, the way
+the annotation marks are drawn, would have meant this app taking a
+position on which symbols are canonical. Neither is a good look on a
+projector.
+
+The buildings went with the symbols. A church and a mosque are ordinary
+geography and architecture content and it is a real loss, but keeping
+exactly those two would have left two faiths standing and the rest
+absent, which is the same problem wearing a different hat.
+
+`scripture` came off the scrolls and `temple` off the landmark for the
+same reason. Seasonal words upstream attached to secular objects were
+left alone — `christmas` still finds the deer, the snowman and the
+pudding, and `easter` still finds the egg — because those are the ones a
+teacher plausibly types in December.
 
 To change the catalog, edit `CATALOG` in `tools/build-elements.mjs`:
 
@@ -266,7 +314,8 @@ still reads from the back of a lecture hall.
 | `app/elements-data.js` | generated Lucide path data. Do not hand-edit. |
 | `app/elements-editor.js` | the picker, the per-element controls, the drag surface |
 | `styles/elements.css` | the decor layer, shared by the projector and every preview |
-| `tools/build-elements.mjs` | catalog build + curation list |
+| `tools/build-elements.mjs` | catalog build + curation list, both sources |
+| `app/vendor/lucide-LICENSE.txt`, `tabler-LICENSE.txt` | the licences, travelling with the art |
 | `tests/elements-check.html` | visual check and self-audit across all themes |
 
 ## Not included

@@ -564,8 +564,8 @@ const CATALOG = {
     ['book-heart', 'Beloved book', 'favourite reading -crush'],
     ['library', 'Library', 'books research reference'],
     ['newspaper', 'Newspaper', 'journalism source media current affairs'],
-    ['scroll', 'Scroll', 'history ancient document'],
-    ['scroll-text', 'Written scroll', 'history ancient document'],
+    ['scroll', 'Scroll', 'history ancient document -scripture'],
+    ['scroll-text', 'Written scroll', 'history ancient document -scripture'],
     ['feather', 'Quill', 'writing author literature'],
     ['pen-line', 'Pen stroke', 'writing note'],
     'pencil',
@@ -591,7 +591,7 @@ const CATALOG = {
     ['spell-check', 'Spell check', 'spelling accuracy proofread'],
     ['whole-word', 'Whole word', 'vocabulary search literacy'],
     ['languages', 'Languages', 'translation linguistics'],
-    ['landmark', 'Landmark', 'government history civics institution'],
+    ['landmark', 'Landmark', 'government history civics institution -temple'],
     ['gavel', 'Gavel', 'law justice court civics'],
     ['scale', 'Scales of justice', 'law ethics balance fairness'],
     ['stamp', 'Stamp', 'official seal authority document'],
@@ -602,7 +602,6 @@ const CATALOG = {
     ['skull', 'Skull', 'death mortality history archaeology'],
     ['amphora', 'Amphora', 'ancient classics archaeology pottery -wine'],
     ['castle', 'Castle', 'history medieval'],
-    ['church', 'Church', 'religion history building'],
     ['map', 'Map', 'geography navigation'],
     ['map-pin', 'Map pin', 'geography location place'],
     ['map-pinned', 'Marked map', 'geography location fieldwork'],
@@ -781,7 +780,6 @@ const CATALOG = {
     ['house', 'House', 'home building dwelling'],
     ['building', 'Building', 'city architecture urban'],
     ['hotel', 'Hotel', 'travel stay accommodation'],
-    'mosque',
     ['tower-control', 'Control tower', 'airport aviation travel'],
     ['dam', 'Dam', 'engineering water energy geography'],
     ['brick-wall', 'Brick wall', 'construction barrier building'],
@@ -931,13 +929,19 @@ const TABLER = {
     ['integral', 'Integral', 'calculus area under curve', 'math-integral'],
     ['sine', 'Sine', 'trigonometry trig wave ratio', 'math-sin'],
     ['cosine', 'Cosine', 'trigonometry trig ratio', 'math-cos'],
-    ['tangent-ratio', 'Tangent ratio', 'trigonometry trig opposite adjacent', 'math-tg'],
-    ['average', 'Average', 'mean statistics central', 'math-avg'],
+    ['tangent-ratio', 'Tangent (tg)', 'tan trigonometry trig opposite adjacent', 'math-tg'],
+    // Tabler draws the continental "tg". The label says so rather than
+    // promising a "tan" glyph the art does not have; the tag still finds it.
+    //
+    // Its `math-avg` did not survive that test: it draws a circle with a
+    // slash, which is Scandinavian for an average and reads as diameter
+    // or the empty set to everyone this app is for. A maths icon has to
+    // be right, not close, so there is no average here at all.
     ['maximum', 'Maximum', 'largest greatest statistics', 'math-max'],
     ['minimum', 'Minimum', 'smallest least statistics', 'math-min'],
     ['one-half', 'One half', 'fraction part share', 'math-1-divide-2'],
     ['one-third', 'One third', 'fraction part share', 'math-1-divide-3'],
-    ['power', 'To the power of', 'index exponent squared cubed', 'x-power-y'],
+    ['exponent', 'To the power of', 'index power squared cubed', 'x-power-y'],
     ['matrix', 'Matrix', 'array grid linear algebra'],
     ['decimal', 'Decimal', 'place value point number'],
     ['square-brackets', 'Square brackets', 'notation grouping interval', 'brackets'],
@@ -976,7 +980,7 @@ const TABLER = {
     ['horse', 'Horse', 'animal zoology mammal'],
     ['deer', 'Deer', 'animal zoology woodland'],
     ['pig', 'Pig', 'animal zoology farm'],
-    ['bat', 'Bat', 'animal zoology nocturnal mammal'],
+    ['bat', 'Bat', 'animal zoology nocturnal mammal -blood -vampire -scary'],
     ['windmill', 'Wind turbine', 'renewable energy sustainability'],
     ['celsius', 'Celsius', 'temperature scale measure', 'temperature-celsius'],
     ['fahrenheit', 'Fahrenheit', 'temperature scale measure', 'temperature-fahrenheit'],
@@ -1012,18 +1016,7 @@ const TABLER = {
   ]],
 
   humanities: [null, [
-    ['christian-cross', 'Christian cross', 'religion christianity faith re', 'cross'],
-    ['christian-fish', 'Ichthys', 'religion christianity faith re', 'fish-christianity'],
-    ['jewish-star', 'Star of David', 'religion judaism faith re'],
-    ['menorah', 'Menorah', 'religion judaism faith re'],
-    ['om', 'Om', 'religion hinduism faith re'],
-    ['yin-yang', 'Yin and yang', 'religion taoism balance philosophy re'],
-    ['torii', 'Torii gate', 'religion shinto japan faith re'],
-    ['ankh', 'Ankh', 'religion ancient egypt life re'],
-    ['confucius', 'Confucius', 'philosophy religion china tradition re'],
-    ['pray', 'Prayer', 'religion faith worship re'],
     ['peace', 'Peace', 'symbol protest civics'],
-    ['bible', 'Scripture', 'religion holy book faith re'],
     ['abc', 'ABC', 'literacy alphabet phonics reading'],
     ['vocabulary', 'Vocabulary', 'words language literacy glossary'],
     ['books', 'Books', 'reading library literature'],
@@ -1042,7 +1035,7 @@ const TABLER = {
 
   classroom: [null, [
     ['chalkboard', 'Chalkboard', 'blackboard teaching front of class'],
-    ['certificate', 'Certificate', 'award achievement qualification'],
+    ['certificate', 'Certificate', 'award achievement qualification -death -birth'],
   ]],
 
   everyday: [null, [
@@ -1113,61 +1106,83 @@ const out = [];
 const meta = [];
 const seen = new Map();
 const missing = [];
-let count = 0;
+const counts = { lucide: 0, tabler: 0 };
 
-for (const [cat, [label, items]] of Object.entries(CATALOG)) {
-  for (const item of items) {
-    const [id, name, tags] = Array.isArray(item) ? item : [item];
-    // ICON_PATHS is an object and ICON_INDEX is a list, so a duplicate id
-    // shrinks one and not the other — it silently drops the icon from the
-    // first category that claimed it. Refuse instead.
-    if (seen.has(id)) {
-      throw new Error(`duplicate id "${id}" in ${cat}, already in ${seen.get(id)}`);
+/**
+ * Walk one source's half of the catalog.
+ *
+ * Both halves key on the same category names, so `letters` can be pure
+ * Tabler while `maths` is mostly Lucide with the inequality signs bolted
+ * on. The category label is declared once, by whichever half declares it.
+ */
+const labels = {};
+function collect(catalog, srcName) {
+  const src = SOURCES[srcName];
+  for (const [cat, [label, items]] of Object.entries(catalog)) {
+    if (label) labels[cat] = label;
+    for (const item of items) {
+      const [id, name, tags, file] = Array.isArray(item) ? item : [item];
+      // ICON_PATHS is an object and ICON_INDEX is a list, so a duplicate id
+      // shrinks one and not the other — it silently drops the icon from the
+      // first category that claimed it. Refuse instead.
+      if (seen.has(id)) {
+        throw new Error(`duplicate id "${id}" in ${cat}, already in ${seen.get(id)}`);
+      }
+      seen.set(id, cat);
+
+      // Collect every bad id before failing. An upgrade renames icons in
+      // batches, and finding them one build at a time is a bad afternoon.
+      const from = file || id;
+      let markup;
+      try {
+        markup = inner(from, src);
+      } catch {
+        missing.push(`${id} -> ${srcName}/${from} (${cat})`);
+        continue;
+      }
+      if (!markup) throw new Error(`empty markup for ${id}`);
+
+      const shown = name || autoLabel(id);
+      out.push(`  '${id}': '${markup.replace(/'/g, "\\'")}',`);
+      meta.push(`  ['${id}', '${shown.replace(/'/g, "\\'")}', '${cat}', `
+        + `'${tagsFor(from, tags, shown, src).replace(/'/g, "\\'")}'],`);
+      counts[srcName] += 1;
     }
-    seen.set(id, cat);
-
-    // Collect every bad id before failing. A Lucide upgrade renames icons
-    // in batches, and finding them one build at a time is a bad afternoon.
-    let markup;
-    try {
-      markup = inner(id);
-    } catch {
-      missing.push(`${id} (${cat})`);
-      continue;
-    }
-    if (!markup) throw new Error(`empty markup for ${id}`);
-
-    const shown = name || autoLabel(id);
-    out.push(`  '${id}': '${markup.replace(/'/g, "\\'")}',`);
-    meta.push(`  ['${id}', '${shown.replace(/'/g, "\\'")}', '${cat}', '${tagsFor(id, tags, shown).replace(/'/g, "\\'")}'],`);
-    count += 1;
   }
-  void label;
 }
 
+collect(CATALOG, 'lucide');
+collect(TABLER, 'tabler');
+
 if (missing.length) {
-  console.error(`${missing.length} id(s) are not in lucide-static ${PKG.version}:`);
+  console.error(`${missing.length} id(s) are not in their source set:`);
   for (const m of missing) console.error(`  ${m}`);
   process.exit(1);
 }
 
-const untagged = [...seen.keys()].filter((id) => !TAGS[id]).length;
+for (const cat of Object.keys(labels)) {
+  if (!labels[cat]) throw new Error(`category "${cat}" has no label in either half`);
+}
+
+const count = counts.lucide + counts.tabler;
 
 const header = `/**
  * SurveyAll — element path data. GENERATED FILE, DO NOT HAND-EDIT.
  *
- * A curated teaching subset of Lucide (${PKG.version}), regenerated by the
- * script at tools/build-elements.mjs. Lucide is ISC-licensed and the licence
- * travels with the art in app/vendor/lucide-LICENSE.txt — the same
- * arrangement as the vendored QR encoder, and the reason this app can ship
- * ${count} icons without owing anyone an attribution line on the projector.
+ * A curated teaching subset of two icon sets, regenerated by the script at
+ * tools/build-elements.mjs: ${counts.lucide} from Lucide ${SOURCES.lucide.version} (ISC) and
+ * ${counts.tabler} from Tabler ${SOURCES.tabler.version} (MIT). Both licences travel with the
+ * art in app/vendor/ — the same arrangement as the vendored QR encoder,
+ * and the reason this app can ship ${count} icons without owing anyone an
+ * attribution line on the projector.
  *
- * Every icon is drawn on the same 24x24 grid at one stroke weight, which
- * is why a microscope dropped onto a chalkboard slide looks drawn by the
- * same hand as the chart next to it. See app/elements.js for the API; the
+ * Both sets are drawn on the same 24x24 grid at the same stroke weight
+ * with the same round caps, which is the whole reason there are two of
+ * them and not five: a Tabler abacus dropped next to a Lucide microscope
+ * looks drawn by the same hand. See app/elements.js for the API; the
  * hand-drawn annotation marks live there too, because they are ours.
  *
- * Search tags come from Lucide's own tags.json where the catalog doesn't
+ * Search tags come from each set's own metadata where the catalog doesn't
  * override them, which is why an icon nobody thought to describe is still
  * findable by the word a teacher would actually type.
  */
@@ -1184,5 +1199,5 @@ ${meta.join('\n')}
 `;
 
 writeFileSync(OUT, header);
-console.log(`wrote ${count} icons across ${Object.keys(CATALOG).length} categories`
-  + (untagged ? ` (${untagged} with no upstream tags)` : ''));
+console.log(`wrote ${count} icons across ${Object.keys(labels).length} categories`
+  + ` (${counts.lucide} Lucide, ${counts.tabler} Tabler)`);

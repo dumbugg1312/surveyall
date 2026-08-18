@@ -514,6 +514,7 @@ export const CATEGORY_LABELS = {
   people: 'People & feelings',
   science: 'Science & nature',
   maths: 'Maths & shapes',
+  letters: 'Letters & numbers',
   charts: 'Charts & data',
   humanities: 'Humanities',
   arts: 'Music, art & media',
@@ -539,6 +540,7 @@ export const CATEGORY_TABS = {
   people: 'People',
   science: 'Science',
   maths: 'Maths',
+  letters: 'Letters',
   charts: 'Charts',
   humanities: 'Humanities',
   arts: 'Arts',
@@ -559,8 +561,8 @@ export const CATEGORY_TABS = {
  */
 export const CATEGORY_ORDER = [
   'marks', 'arrows', 'signals', 'classroom', 'people', 'science',
-  'maths', 'charts', 'humanities', 'arts', 'computing', 'health',
-  'money', 'world', 'everyday',
+  'maths', 'letters', 'charts', 'humanities', 'arts', 'computing',
+  'health', 'money', 'world', 'everyday',
 ];
 
 const ELEMENTS = new Map();

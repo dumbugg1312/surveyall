@@ -2311,6 +2311,43 @@ describe('slide elements — the catalog', () => {
     eq(bad.map((e) => e.id), [], 'element carries a word a school picker should not surface');
   });
 
+  it('carries no religious symbols at all', () => {
+    // Deliberate: not one faith, not all of them. Tabler draws symbols for
+    // most major religions but no star and crescent, so any subset would
+    // have represented some faiths and not others in a room where the
+    // teacher does not know what every student believes. Buildings went
+    // with the symbols — keeping just the church and the mosque would have
+    // left exactly two faiths standing, which is the same problem.
+    const faith = /\b(relig|faith|worship|pray|prayer|holy|sacred|church|chapel|cathedral|mosque|islam|muslim|synagog|jewish|judaism|hindu|buddh|sikh|christ|christian|catholic|jesus|jezus|bible|scripture|torah|quran|koran|temple|shrine|divine|spiritual|ankh|menorah|torii|confucius|shinto|taoism)\b/;
+    const found = ELEMENT_LIST.filter((e) => faith.test(`${e.id} ${e.label} ${e.tags}`.toLowerCase()));
+    eq(found.map((e) => e.id), []);
+    // "Cross" survives as an X and as the medical cross, which is the
+    // point of matching whole words rather than banning the substring.
+    ok(hasElement('cross') && getElement('cross').label === 'Medical cross');
+    ok(hasElement('mark-cross'));
+  });
+
+  it('strips the spacer square Tabler opens every icon with', () => {
+    // Tabler prefixes each icon with a full-bleed transparent path. It is
+    // invisible, but it is a 24x24 box inside art that elementSvg draws
+    // with overflow visible, and it is dead weight in every one of them.
+    const spacer = ELEMENT_LIST.filter((e) => e.markup.includes('M0 0h24v24H0z'));
+    eq(spacer.map((e) => e.id), []);
+  });
+
+  it('draws both sets on the one grid', () => {
+    // Tabler is here for what Lucide lacks. If a rebuild ever dropped its
+    // half, the catalog would still look fine — just quietly missing the
+    // logic gates, the inequalities and the ringed letters.
+    for (const id of ['abacus', 'logic-and', 'greater-than', 'letter-a', 'number-7', 'butterfly']) {
+      ok(hasElement(id), `${id} is missing — the Tabler half did not build`);
+    }
+    // Both sets draw at stroke 2 on 24x24, which is the only reason two
+    // sources are allowed. Nothing may carry its own stroke-width.
+    const rogue = ELEMENT_LIST.filter((e) => /stroke-width="(?!9")/.test(e.markup));
+    eq(rogue.map((e) => e.id), [], 'element overrides the shared stroke weight');
+  });
+
   it('no two elements share a label', () => {
     // A tile shows its label and nothing else. Two "Spade"s — the garden
     // one and the card suit — are indistinguishable in the grid.

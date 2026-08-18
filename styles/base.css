@@ -299,6 +299,12 @@ a.btn { text-decoration: none; }
 
 .field { display: flex; flex-direction: column; gap: var(--sp-2); }
 
+/* A control whose value is a word, in a form that is 44rem wide. A size
+   dropdown stretched across the whole slide form reads as more important
+   than the question above it. */
+.field-narrow > select,
+.field-narrow > input { max-width: 12rem; }
+
 .field > label, .label {
   font-size: var(--text-sm);
   font-weight: 600;

@@ -784,6 +784,66 @@
 }
 .panel h3 { font-size: var(--text-base); }
 
+/* ---- collapsible panels ---------------------------------------------
+   Four sections share this rail — Elements, Slides, Theme, Background —
+   and on a laptop that is more than fits. Each is a <details>, so the
+   platform supplies the keyboard handling, the expanded state a screen
+   reader reads, and find-in-page reveal; app/edit-page.js only has to
+   remember which ones were left open.
+
+   `display` stays block on the <details> itself. Safari has a long
+   history of losing the disclosure when that element is made a flex or
+   grid container, so the flex column lives on .panel-body instead. */
+
+details.panel {
+  display: block;
+  padding: 0;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--radius);
+  cursor: pointer;
+  /* Two spellings of the same thing: the standard property, and the
+     -webkit pseudo-element Safari still uses. Both are needed to be rid
+     of the default triangle, which points the wrong way for a panel and
+     cannot be coloured. */
+  list-style: none;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+.panel-head::-webkit-details-marker { display: none; }
+.panel-head:hover { background: var(--accent-soft); }
+details.panel[open] > .panel-head { border-radius: var(--radius) var(--radius) 0 0; }
+
+/* The chevron, drawn rather than typed: a glyph would inherit the
+   headline face and sit off the baseline differently in every theme. */
+.panel-head::after {
+  content: '';
+  margin-left: auto;
+  flex: none;
+  width: .45rem; height: .45rem;
+  border-right: 2px solid var(--ink-soft);
+  border-bottom: 2px solid var(--ink-soft);
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+details.panel[open] > .panel-head::after {
+  transform: translateY(2px) rotate(-135deg);
+}
+
+.panel-body {
+  display: flex; flex-direction: column; gap: var(--sp-3);
+  padding: 0 var(--sp-4) var(--sp-4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-head,
+  .panel-head::after { transition: none; }
+}
+
 /* --------------------------------------------------------- theme grid */
 
 .theme-grid {
@@ -1724,6 +1784,7 @@
 .decor-editor { display: flex; flex-direction: column; gap: var(--sp-2); }
 
 .decor-head { display: flex; align-items: center; gap: var(--sp-2); }
+.decor-add-block { width: 100%; }
 
 .decor-empty {
   font-size: var(--text-sm);

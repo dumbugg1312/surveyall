@@ -85,8 +85,9 @@
 
 .stage-prompt {
   font-family: var(--display);
-  /* --prompt-scale is a per-deck setting (Design → Question size). A long
-     question needs to come down; a three-word one can afford to shout. */
+  /* --prompt-scale is a per-deck setting — the Question size dropdown
+     under the question box in the editor. A long question needs to come
+     down; a three-word one can afford to shout. */
   font-size: calc(1.55em * var(--prompt-scale, 1));
   font-weight: 600;
   line-height: 1.12;

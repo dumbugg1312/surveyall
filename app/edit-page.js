@@ -4,7 +4,9 @@
  * Three panes, the shape every instructor already has muscle memory for:
  * the deck as a strip of slides on the left, the slide you're working on
  * in the middle (what the room sees on top, what you type underneath),
- * and the look of the whole deck on the right.
+ * and how it all looks on the right — the elements on this slide, the
+ * theme, the background. Each of those sections collapses, because four
+ * of them do not fit on a laptop at once.
  *
  * The rail is not a list of prompts. Each item is a real miniature of the
  * projected slide, in the deck's own theme, with the instructor's own
@@ -119,6 +121,7 @@ async function boot() {
   await refreshJoinArt();
   paintCodeChip();
 
+  wirePanels();
   wireSlideSettings();
   buildThemeGrid();
   buildMyThemesGrid();
@@ -820,6 +823,7 @@ async function deleteSlide(q) {
 function renderStage() {
   renderCanvas();
   renderSlideEditor();
+  renderElementsPanel();
 }
 
 function renderCanvas() {
@@ -913,6 +917,7 @@ function slideForm(q) {
       save(q, { prompt: v });
     }),
   ));
+  body.append(promptSizeField(q));
 
   // ---- type-specific -------------------------------------------------
   if (q.type === 'instructions') body.append(stepsEditor(q));
@@ -937,9 +942,50 @@ function slideForm(q) {
   if (q.type === 'exit_ticket') body.append(listEditor(q, 'prompts', 'The three prompts'));
   if (q.type === 'cloze') body.append(clozeEditor(q));
 
-  body.append(elementsEditor(q, decorCtx(q)));
+  // Elements are not here. They live in the design panel on the right,
+  // beside the theme and the background — the other three things that
+  // decide what the slide LOOKS like, as opposed to what it asks.
   body.append(settingsFor(q));
   return body;
+}
+
+/**
+ * Question size, directly under the box you type the question into.
+ *
+ * It is a DECK setting, not a slide one — a room reading a different
+ * size on every slide is worse than a room reading one size that is
+ * slightly wrong — and it used to sit in the design panel with the
+ * theme. But the judgement it asks for is "is THIS question too big",
+ * which you can only make against the words, so it belongs next to them.
+ * The hint carries the part the position no longer says.
+ */
+function promptSizeField(q) {
+  const s = document.createElement('select');
+  // The id the design panel used to own. One slide form exists at a
+  // time, so it is still unique — and it lets the label and the hint be
+  // attached rather than merely adjacent.
+  s.id = 'promptSize';
+  s.setAttribute('aria-describedby', 'promptSizeHint');
+  Object.entries(PROMPT_SCALES).forEach(([id, scale]) => {
+    const o = document.createElement('option');
+    o.value = id;
+    o.textContent = scale.name;
+    s.append(o);
+  });
+  s.value = deck.settings?.promptScale || DEFAULT_PROMPT_SCALE;
+  // setDeckSetting repaints the rail and the canvas but NOT this form, so
+  // the select the pointer is still on survives its own change event.
+  s.addEventListener('change', guard(() => setDeckSetting('promptScale', s.value)));
+
+  const wrap = field(q.type === 'instructions' ? 'Heading size' : 'Question size', s);
+  wrap.classList.add('field-narrow');
+  wrap.querySelector('label').htmlFor = s.id;
+  const hint = document.createElement('p');
+  hint.id = 'promptSizeHint';
+  hint.className = 'field-hint';
+  hint.textContent = 'One size for the whole deck — every heading and question in it.';
+  wrap.append(hint);
+  return wrap;
 }
 
 /**
@@ -1106,8 +1152,75 @@ function clozeEditor(q) {
 }
 
 /**
- * What the elements editor needs from the page: save the slide, and
- * redraw.
+ * The Elements section of the design panel.
+ *
+ * The one per-slide thing in that rail, so unlike Theme and Background it
+ * is repainted on every stage render rather than wired once.
+ */
+function renderElementsPanel() {
+  const host = $('elementsHost');
+  if (!host) return;
+  host.textContent = '';
+
+  const q = selected();
+  if (!q) {
+    host.append(Object.assign(document.createElement('p'), {
+      className: 'decor-empty',
+      textContent: 'Open a slide to place something on it.',
+    }));
+    return;
+  }
+  host.append(elementsEditor(q, decorCtx(q)));
+}
+
+/**
+ * Bring the Elements section into view.
+ *
+ * Called when an element is picked up ON THE CANVAS: its controls are in
+ * the right-hand rail now, and clicking a thing whose controls are inside
+ * a collapsed section reads as a click that did nothing.
+ */
+function revealElements() {
+  const panel = $('panelElements');
+  if (panel) panel.open = true;
+  // Below 1080px the rail is a drawer over the stage, and a tap outside
+  // it closes it again — including the very tap that selected the
+  // element. Opening it there would flicker shut, so only the wide
+  // layout pulls the whole panel back.
+  if (window.matchMedia('(max-width: 1080px)').matches) return;
+  if ($('editorShell').classList.contains('design-hidden')) toggleDesign(false);
+}
+
+/**
+ * Which sections of the design panel are open, remembered.
+ *
+ * Per browser rather than per deck: it is a statement about how much of
+ * the rail fits on THIS screen, not about the deck being edited.
+ */
+const PANELS_KEY = 'surveyall:panels';
+
+function wirePanels() {
+  let state = null;
+  try { state = JSON.parse(localStorage.getItem(PANELS_KEY)); } catch { /* blocked */ }
+  // A hand-edited or half-written value is a number or a string as often
+  // as it is nothing, and `5[key] = true` fails silently rather than
+  // loudly — so anything that is not a plain object starts over.
+  if (!state || typeof state !== 'object' || Array.isArray(state)) state = {};
+
+  document.querySelectorAll('#designPanel details.panel').forEach((panel) => {
+    const key = panel.dataset.panel;
+    if (!key) return;
+    if (typeof state[key] === 'boolean') panel.open = state[key];
+    panel.addEventListener('toggle', () => {
+      state[key] = panel.open;
+      try { localStorage.setItem(PANELS_KEY, JSON.stringify(state)); } catch { /* full */ }
+    });
+  });
+}
+
+/**
+ * What the elements editor needs from the page: save the slide, redraw,
+ * and — when the canvas is what did the selecting — show the controls.
  *
  * `quiet` is for changes that only move the selection — nothing about
  * the deck changed, so there is nothing to write and nothing to tell the
@@ -1120,6 +1233,7 @@ function decorCtx(q) {
       renderStage();
       refreshSelectedThumb();
     },
+    onReveal: revealElements,
   };
 }
 
@@ -1918,16 +2032,8 @@ function themeSlide(themeRef) {
  * they built.
  */
 function wireSlideSettings() {
-  const size = $('promptSize');
-  Object.entries(PROMPT_SCALES).forEach(([id, s2]) => {
-    const o = document.createElement('option');
-    o.value = id;
-    o.textContent = s2.name;
-    size.append(o);
-  });
-  size.value = deck.settings?.promptScale || DEFAULT_PROMPT_SCALE;
-  size.addEventListener('change', guard(() => setDeckSetting('promptScale', size.value)));
-
+  // Question size used to be wired here. It is built per slide now, in
+  // promptSizeField(), because it sits under the question it sizes.
   const label = $('showSlideLabel');
   label.checked = showSlideLabel(deck);
   label.addEventListener('change',

@@ -59,6 +59,22 @@ export function clearDecorSelection() {
   selected = { slideId: null, index: -1 };
 }
 
+/**
+ * Click an element ON THE CANVAS, which has to bring its controls out.
+ *
+ * They live in the design panel on the right, which the instructor may
+ * have collapsed or hidden entirely — so a click whose only effect is a
+ * selection ring reads as a click that did nothing. This is the one path
+ * that reveals: a drag shows its own result and must not resize the
+ * stage mid-gesture, and a nudge is already on something selected. A
+ * deselect (-1) asks for nothing — no reason to open a panel to show an
+ * empty one.
+ */
+function selectFromCanvas(q, index, ctx) {
+  selectDecor(q, index);
+  if (index >= 0) ctx.onReveal?.();
+}
+
 /** The slide's decor, cleaned — the single read path for both halves. */
 function listOf(q) {
   return decorOf(q.config);
@@ -120,19 +136,30 @@ function patchLive(q, index, patch) {
 }
 
 // =====================================================================
-// The slide form's "Elements" section
+// The design panel's "Elements" section
 // =====================================================================
 
 export function elementsEditor(q, ctx) {
   const wrap = el('div', 'decor-editor');
 
+  const items = listOf(q);
+
+  // No "Elements" label here: this is rendered into the design panel's
+  // Elements section, whose summary already says so. The count earns the
+  // line instead, because the strip below it stops being countable at a
+  // glance somewhere around six.
   const head = el('div', 'decor-head');
-  head.append(el('span', 'label', 'Elements'));
+  if (items.length) {
+    head.append(el('span', 'label',
+      `${items.length} of ${MAX_DECOR} placed`));
+  }
   head.append(el('span', 'spacer'));
 
-  const items = listOf(q);
   const add = el('button', 'btn btn-sm', '+ Add element');
   add.type = 'button';
+  // With nothing placed there is no count to sit opposite, and adding one
+  // is the only thing this section can do — so it takes the whole line.
+  if (!items.length) add.classList.add('decor-add-block');
   add.disabled = items.length >= MAX_DECOR;
   add.title = items.length >= MAX_DECOR
     ? `A slide holds ${MAX_DECOR} elements`
@@ -464,7 +491,7 @@ function openPicker(anchorEl, q, ctx) {
   const search = document.createElement('input');
   search.type = 'search';
   search.className = 'picker-search';
-  search.placeholder = 'Search 750+ elements: try "arrow", "cell", "law"';
+  search.placeholder = 'Search 900+ elements: try "arrow", "cell", "law"';
   search.setAttribute('aria-label', 'Search elements');
   head.append(search);
   pop.append(head);
@@ -644,7 +671,7 @@ export function mountDecorEditor(slide, q, ctx) {
     handle.addEventListener('click', (e) => {
       e.preventDefault();
       if (handle.dataset.dragged === '1') { handle.dataset.dragged = '0'; return; }
-      selectDecor(q, i === selectedIndex(q) ? -1 : i);
+      selectFromCanvas(q, i === selectedIndex(q) ? -1 : i, ctx);
       ctx.onChange({ quiet: true });
     });
 
@@ -745,6 +772,9 @@ function wireDrag(handle, slide, surface, q, index, ctx, guideEls) {
     handle.setPointerCapture(e.pointerId);
     handle.classList.add('is-dragging');
     surface.classList.add('is-dragging');
+    // Plain selectDecor, not selectFromCanvas: revealing the design panel
+    // here would resize the stage under a pointer that is mid-drag. A
+    // drag also needs no reveal — you can see where the thing went.
     selectDecor(q, index);
   });
 

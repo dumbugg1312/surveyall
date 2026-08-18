@@ -113,7 +113,7 @@ app/                ES modules, no build step
   zip.js              a ZIP writer, because a .pptx is a ZIP
   themes.js           20 themes + background presets
   elements.js         slide elements: anchors, colour, the annotation marks
-  elements-data.js    generated Lucide path data (ISC) — do not hand-edit
+  elements-data.js    generated Lucide (ISC) + Tabler (MIT) path data — do not hand-edit
   elements-editor.js  the element picker and drag-to-place surface
   participant-state.js session-scoped pseudonym handling
   *-page.js           one controller per page
