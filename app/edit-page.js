@@ -19,7 +19,7 @@ import {
   configured, currentUser, getDeck, updateDeck, listQuestions,
   createQuestion, updateQuestion, deleteQuestion, reorderQuestions,
   replaceQuestions, createSession,
-  uploadBackground, listBackgrounds, deleteBackground, regenerateDeckCode,
+  uploadBackground, listBackgrounds, deleteBackground, pinBackground, regenerateDeckCode,
 } from './db.js';
 import {
   TYPE_LABELS, TYPE_BLURBS, splitPassage, DEFAULT_JOIN_STEPS, isContentSlide,
@@ -2125,7 +2125,12 @@ async function refreshUploads() {
   const grid = $('uploadGrid');
   grid.textContent = '';
   let files = [];
-  try { files = await listBackgrounds(); } catch { return; }
+  let quota = null;
+  try {
+    const res = await listBackgrounds();
+    files = res.images;
+    quota = res.quota;
+  } catch { return; }
 
   files.forEach((f, i) => {
     // Two controls, not one button with a hidden second meaning. This used
@@ -2175,9 +2180,103 @@ async function refreshUploads() {
       await refreshUploads();
     }));
 
-    tile.append(use, del);
+    // The pin, and the reason it exists: an unpinned upload is deleted
+    // 30 days after it was uploaded, even if this deck is using it.
+    const days = f.pinned ? null : daysLeft(f.expires_at);
+    const keep = document.createElement('button');
+    keep.type = 'button';
+    keep.textContent = f.pinned ? '📌' : String(days);
+    keep.setAttribute('aria-label', f.pinned
+      ? `Kept forever — click to let this image expire again`
+      : `Expires in ${days} day${days === 1 ? '' : 's'} — click to keep it forever`);
+    keep.title = f.pinned
+      ? 'Kept. Click to put it back on the 30-day clock.'
+      : `Deleted in ${days} day${days === 1 ? '' : 's'}. Click to keep it.`;
+    keep.style.cssText = 'position:absolute;top:.2rem;left:.2rem;'
+      + 'min-width:1.6rem;height:1.6rem;display:grid;place-items:center;padding:0 .3rem;'
+      + 'border:1px solid rgba(0,0,0,.28);border-radius:999px;'
+      + `background:${f.pinned ? 'rgba(255,255,255,.94)' : 'rgba(255,255,255,.82)'};`
+      + `color:${!f.pinned && days <= 7 ? '#8a1c1c' : '#1c2434'};`
+      + 'font-size:.7rem;font-weight:600;line-height:1;cursor:pointer;';
+    keep.addEventListener('click', guard(async () => {
+      await pinBackground(f.path, !f.pinned);
+      await refreshUploads();
+    }));
+
+    tile.append(use, keep, del);
     grid.append(tile);
   });
+
+  warnIfBackgroundExpiring(files);
+  showQuotaIfNear(quota);
+}
+
+/**
+ * The upload quota, shown only when it is nearly reached.
+ *
+ * There is a 25 MB per-account cap (BACKGROUND_QUOTA_BYTES in the
+ * Worker), and it is deliberately invisible until you are at 80% of it.
+ * Announcing a limit to everybody makes a tool feel rationed; almost
+ * nobody will ever approach this one, and the people who do are the only
+ * ones the number helps.
+ */
+function showQuotaIfNear(quota) {
+  const host = $('bgQuotaNote');
+  if (!host) return;
+  host.hidden = true;
+  if (!quota || !Number.isFinite(quota.total)) return;
+
+  const ratio = quota.used / quota.total;
+  if (ratio < (quota.warn_at ?? 0.8)) return;
+
+  const mb = (n) => (n / 1_000_000).toFixed(1);
+  host.hidden = false;
+  host.textContent = ratio >= 1
+    ? `Image storage is full — ${mb(quota.used)} MB of ${mb(quota.total)} MB. `
+      + 'Delete a backdrop, or unpin one and let it expire, before uploading another.'
+    : `Image storage: ${mb(quota.used)} MB of ${mb(quota.total)} MB used.`;
+}
+
+/** Whole days until an epoch-ms deadline, never negative. */
+function daysLeft(at) {
+  return Math.max(0, Math.ceil((Number(at || 0) - Date.now()) / 86_400_000));
+}
+
+/**
+ * The one case the retention rule can genuinely hurt: this deck's own
+ * background is an upload that is about to be deleted.
+ *
+ * Shown from a week out, with the fix attached — one click pins it. The
+ * alternative to warning here is a deck that silently loses its backdrop
+ * between the term you built it and the term you teach it again.
+ */
+function warnIfBackgroundExpiring(files) {
+  const host = $('bgExpiryWarn');
+  if (!host) return;
+  host.textContent = '';
+  host.hidden = true;
+
+  if (deck.background?.kind !== 'image') return;
+  const mine = files.find((f) => f.url === deck.background.url);
+  if (!mine || mine.pinned) return;
+
+  const days = daysLeft(mine.expires_at);
+  if (days > 7) return;
+
+  host.hidden = false;
+  const text = document.createElement('span');
+  text.textContent = days === 0
+    ? "This deck's background image is being deleted today."
+    : `This deck's background image is deleted in ${days} day${days === 1 ? '' : 's'}.`;
+  const fix = document.createElement('button');
+  fix.type = 'button';
+  fix.className = 'btn btn-sm';
+  fix.textContent = 'Keep it';
+  fix.addEventListener('click', guard(async () => {
+    await pinBackground(mine.path, true);
+    await refreshUploads();
+  }));
+  host.append(text, fix);
 }
 
 /**

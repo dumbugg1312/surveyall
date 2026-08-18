@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Edit deck — SurveyAll</title>
+<!-- Tab icon. The SVG is what modern browsers use; the PNGs are for
+     Safari's older raster paths and for a phone home screen. Paths are
+     root-relative so they resolve the same from /join and /create as
+     they do from /. -->
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/favicon-180.png">
 <link rel="stylesheet" href="styles/fonts.css">
 <link rel="stylesheet" href="styles/base.css">
 <link rel="stylesheet" href="styles/app.css">
@@ -172,7 +179,25 @@
         <input type="file" id="bgFile" accept="image/*" hidden>
       </label>
 
+      <!-- Uploads expire 30 days after upload unless pinned — the number
+           on each tile is the countdown, and the pin is the exemption. -->
+      <p class="muted" style="font-size:.72rem;line-height:1.45">
+        Uploaded images are deleted 30 days after upload. The number on a
+        tile is the days it has left; press it to keep the image for good.
+      </p>
+
       <div class="bg-grid" id="uploadGrid"></div>
+
+      <!-- Filled in by app/edit-page.js when THIS deck's background is the
+           one about to go. Empty and hidden the rest of the time. -->
+      <div class="alert alert-warn row row-wrap" id="bgExpiryWarn"
+           style="font-size:.8rem;gap:var(--sp-2);align-items:center" hidden></div>
+
+      <!-- Per-account upload quota. Filled in by app/edit-page.js only
+           once 80% of it is used — there is no reason to tell somebody
+           with four images that a limit exists. -->
+      <p class="muted" id="bgQuotaNote"
+         style="font-size:.72rem;line-height:1.45" hidden></p>
 
       <div class="bg-controls" id="imageControls" hidden>
         <label class="label" for="bgDim">Dim <span id="dimVal">45%</span></label>

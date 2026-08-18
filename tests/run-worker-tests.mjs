@@ -412,7 +412,7 @@ describe('sign-up', () => {
     eq(decks.length, 1);
     eq(decks[0].title, 'From before accounts');
     eq((await call(env, 'GET', '/api/sessions', { token })).data.length, 1);
-    eq((await call(env, 'GET', '/api/backgrounds', { token })).data.length, 1);
+    eq((await call(env, 'GET', '/api/backgrounds', { token })).data.images.length, 1);
   });
 
   it('does not hand them to the second account', async () => {
@@ -821,8 +821,8 @@ describe('cross-account isolation', () => {
     const { env, alice, bob } = await twoInstructors();
     const bg = (await call(env, 'POST', '/api/backgrounds',
       { token: alice, body: { dataUri: 'data:image/jpeg;base64,AAAA' } })).data;
-    eq((await call(env, 'GET', '/api/backgrounds', { token: alice })).data.length, 1);
-    eq((await call(env, 'GET', '/api/backgrounds', { token: bob })).data.length, 0);
+    eq((await call(env, 'GET', '/api/backgrounds', { token: alice })).data.images.length, 1);
+    eq((await call(env, 'GET', '/api/backgrounds', { token: bob })).data.images.length, 0);
     eq((await call(env, 'DELETE', `/api/backgrounds/${bg.id}`, { token: bob })).status, 404);
     eq(env.DB.db.prepare('select count(*) as n from backgrounds').get().n, 1);
   });
@@ -1215,6 +1215,231 @@ describe('a bad value is answered, not described', () => {
     eq(res.status, 500);
     ok(!/constraint|sqlite|column|bound|bind/i.test(res.data.error),
       `the 500 leaks internals: ${res.data.error}`);
+  });
+});
+
+describe('the admin page', () => {
+  it('lists accounts for the admin, with what each has built', async () => {
+    const env = freshEnv();
+    const admin = await account(env, 'admin-first');
+    await account(env, 'colleague');
+    await call(env, 'POST', '/api/decks', { token: admin, body: { title: 'A deck' } });
+
+    const res = await call(env, 'GET', '/api/admin/users', { token: admin });
+    eq(res.status, 200);
+    eq(res.data.length, 2);
+    const first = res.data.find((u) => u.username === 'admin-first');
+    eq(first.is_admin, true);
+    eq(first.deck_count, 1);
+    eq(res.data.find((u) => u.username === 'colleague').is_admin, false);
+  });
+
+  it('never sends a password hash or salt with the accounts list', async () => {
+    const env = freshEnv();
+    const admin = await account(env, 'admin-first');
+    const res = await call(env, 'GET', '/api/admin/users', { token: admin });
+    const keys = Object.keys(res.data[0]);
+    for (const secret of ['password_hash', 'salt', 'iterations']) {
+      ok(!keys.includes(secret), `accounts list must not carry ${secret}`);
+    }
+  });
+
+  it('refuses the accounts list and the summary to a non-admin', async () => {
+    const env = freshEnv();
+    await account(env, 'admin-first');
+    const other = await account(env, 'colleague');
+    eq((await call(env, 'GET', '/api/admin/users', { token: other })).status, 403);
+    eq((await call(env, 'GET', '/api/admin/summary', { token: other })).status, 403);
+    eq((await call(env, 'GET', '/api/admin/users')).status, 401);
+  });
+
+  it('counts the deployment, including unread feedback', async () => {
+    const env = freshEnv();
+    const admin = await account(env, 'admin-first');
+    await call(env, 'POST', '/api/decks', { token: admin, body: { title: 'A deck' } });
+    await call(env, 'POST', '/api/feedback', { body: { body: 'Something to read.' } });
+
+    const s = (await call(env, 'GET', '/api/admin/summary', { token: admin })).data;
+    eq(s.users, 1);
+    eq(s.decks, 1);
+    eq(s.unread_feedback, 1);
+    eq(s.background_bytes, 0);
+
+    // Marking it handled is what makes the dashboard badge go away.
+    const id = env.DB.db.prepare('select id from feedback').get().id;
+    await call(env, 'PATCH', `/api/feedback/${id}`, { token: admin, body: { handled: true } });
+    eq((await call(env, 'GET', '/api/admin/summary', { token: admin })).data.unread_feedback, 0);
+  });
+
+  it('does not become a back door into a colleague\'s decks', async () => {
+    const { env, bob, deck } = await twoInstructors();
+    // Alice is the admin here (created first) — but Bob being able to
+    // read the accounts list must not imply anything about deck access,
+    // and the admin's own routes expose no deck contents at all.
+    eq((await call(env, 'GET', `/api/decks/${deck.id}`, { token: bob })).status, 404);
+    eq((await call(env, 'GET', '/api/admin/users', { token: bob })).status, 403);
+  });
+});
+
+describe('backdrop retention', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const tinyImage = 'data:image/png;base64,iVBORw0KGgo=';
+
+  /** Upload one backdrop and backdate it, since the rule is about age. */
+  async function upload(env, token, ageDays) {
+    const res = await call(env, 'POST', '/api/backgrounds', { token, body: { dataUri: tinyImage } });
+    if (ageDays) {
+      env.DB.db.prepare('update backgrounds set created_at = ? where id = ?')
+        .run(Date.now() - ageDays * DAY, res.data.id);
+    }
+    return res.data.id;
+  }
+
+  it('deletes an unpinned upload once it is over 30 days old', async () => {
+    const env = freshEnv();
+    const token = await account(env, 'alice');
+    await upload(env, token, 31);
+    const fresh = await upload(env, token, 3);
+
+    // Listing sweeps, so the editor never shows a doomed tile.
+    const list = (await call(env, 'GET', '/api/backgrounds', { token })).data.images;
+    eq(list.length, 1);
+    eq(list[0].id, fresh);
+    eq(env.DB.db.prepare('select count(*) as n from backgrounds').get().n, 1);
+  });
+
+  it('keeps a pinned upload however old it is', async () => {
+    const env = freshEnv();
+    const token = await account(env, 'alice');
+    const id = await upload(env, token, 400);
+    eq((await call(env, 'PATCH', `/api/backgrounds/${id}`,
+      { token, body: { pinned: true } })).status, 200);
+
+    const list = (await call(env, 'GET', '/api/backgrounds', { token })).data.images;
+    eq(list.length, 1);
+    eq(list[0].pinned, true);
+    // A pinned upload has no deadline to report.
+    eq(list[0].expires_at, null);
+  });
+
+  it('reports the deadline so the editor can count down to it', async () => {
+    const env = freshEnv();
+    const token = await account(env, 'alice');
+    const id = await upload(env, token, 10);
+    const row = (await call(env, 'GET', '/api/backgrounds', { token })).data.images[0];
+    eq(row.id, id);
+    eq(row.pinned, false);
+    const daysLeft = Math.round((row.expires_at - Date.now()) / DAY);
+    eq(daysLeft, 20);
+  });
+
+  it('deletes an expired image even while a deck is using it', async () => {
+    // The operator chose this rule knowingly: expiry is measured from
+    // upload, not from last use. The editor warns; the sweep does not
+    // make exceptions. Pinning is the only way out.
+    const env = freshEnv();
+    const token = await account(env, 'alice');
+    const id = await upload(env, token, 31);
+    const deck = (await call(env, 'POST', '/api/decks', { token, body: { title: 'In use' } })).data;
+    await call(env, 'PATCH', `/api/decks/${deck.id}`, {
+      token,
+      body: { background: { kind: 'image', url: `/api/backgrounds/${id}` } },
+    });
+
+    await call(env, 'GET', '/api/backgrounds', { token });
+    eq(env.DB.db.prepare('select count(*) as n from backgrounds').get().n, 0);
+    // The deck survives with a dangling reference, and falls back to its
+    // theme's backdrop rather than breaking.
+    eq((await call(env, 'GET', `/api/decks/${deck.id}`, { token })).status, 200);
+  });
+
+  it('refuses to let one instructor pin or unpin another\'s upload', async () => {
+    const env = freshEnv();
+    const alice = await account(env, 'alice');
+    const bob = await account(env, 'bob');
+    const id = await upload(env, alice, 1);
+    eq((await call(env, 'PATCH', `/api/backgrounds/${id}`,
+      { token: bob, body: { pinned: true } })).status, 404);
+    eq(env.DB.db.prepare('select pinned from backgrounds where id = ?').get(id).pinned, 0);
+  });
+
+  it('sweeps on the cron schedule, not only when someone opens the editor', async () => {
+    const env = freshEnv();
+    const token = await account(env, 'alice');
+    await upload(env, token, 45);
+    eq(env.DB.db.prepare('select count(*) as n from backgrounds').get().n, 1);
+
+    const waits = [];
+    await worker.scheduled({ cron: '10 4 * * *' }, env, { waitUntil: (p) => waits.push(p) });
+    await Promise.all(waits);
+    eq(env.DB.db.prepare('select count(*) as n from backgrounds').get().n, 0);
+  });
+});
+
+describe('backdrop storage quota', () => {
+  // A data URI whose length is the byte figure the Worker records, so a
+  // test can put an account at a known distance from the 25 MB cap.
+  const imageOf = (bytes) => 'data:image/png;base64,' + 'A'.repeat(Math.max(0, bytes - 22));
+
+  it('accepts uploads well under the cap without mentioning it', async () => {
+    const env = freshEnv();
+    const token = await account(env, 'alice');
+    eq((await call(env, 'POST', '/api/backgrounds',
+      { token, body: { dataUri: imageOf(400_000) } })).status, 200);
+
+    const res = (await call(env, 'GET', '/api/backgrounds', { token })).data;
+    // The numbers travel; whether to show them is the client's call.
+    eq(res.quota.total, 25_000_000);
+    ok(res.quota.used > 0, 'usage should be reported');
+    ok(res.quota.used / res.quota.total < res.quota.warn_at, 'one image is nowhere near the cap');
+  });
+
+  it('refuses the upload that would cross 25 MB, and says so only then', async () => {
+    const env = freshEnv();
+    const token = await account(env, 'alice');
+    // Fill to just under the line with rows written directly: the point
+    // is the boundary, not the upload path.
+    env.DB.db.prepare(
+      'insert into backgrounds (id, owner_id, data_uri, bytes, created_at, pinned) values (?, ?, ?, ?, ?, 1)',
+    ).run('big', (await call(env, 'GET', '/api/auth/check', { token })).data.user.id,
+      'data:image/png;base64,x', 24_900_000, Date.now());
+
+    const res = await call(env, 'POST', '/api/backgrounds',
+      { token, body: { dataUri: imageOf(300_000) } });
+    eq(res.status, 413);
+    ok(/25\.0 MB/.test(res.data.error), `error should name the cap: ${res.data.error}`);
+    eq(env.DB.db.prepare('select count(*) as n from backgrounds').get().n, 1);
+  });
+
+  it('counts each account separately', async () => {
+    const env = freshEnv();
+    const alice = await account(env, 'alice');
+    const bob = await account(env, 'bob');
+    const aliceId = (await call(env, 'GET', '/api/auth/check', { token: alice })).data.user.id;
+    env.DB.db.prepare(
+      'insert into backgrounds (id, owner_id, data_uri, bytes, created_at, pinned) values (?, ?, ?, ?, ?, 1)',
+    ).run('hers', aliceId, 'data:image/png;base64,x', 24_900_000, Date.now());
+
+    eq((await call(env, 'POST', '/api/backgrounds',
+      { token: alice, body: { dataUri: imageOf(300_000) } })).status, 413);
+    // Bob is unaffected by how much Alice has stored.
+    eq((await call(env, 'POST', '/api/backgrounds',
+      { token: bob, body: { dataUri: imageOf(300_000) } })).status, 200);
+  });
+
+  it('does not count images the sweep is about to delete', async () => {
+    const env = freshEnv();
+    const token = await account(env, 'alice');
+    const id = (await call(env, 'GET', '/api/auth/check', { token })).data.user.id;
+    // Expired, unpinned, and nearly the whole quota: it must not block
+    // an upload, because it is already gone in every sense that matters.
+    env.DB.db.prepare(
+      'insert into backgrounds (id, owner_id, data_uri, bytes, created_at, pinned) values (?, ?, ?, ?, ?, 0)',
+    ).run('stale', id, 'data:image/png;base64,x', 24_900_000,
+      Date.now() - 31 * 24 * 60 * 60 * 1000);
+
+    eq((await call(env, 'POST', '/api/backgrounds',
+      { token, body: { dataUri: imageOf(300_000) } })).status, 200);
   });
 });
 

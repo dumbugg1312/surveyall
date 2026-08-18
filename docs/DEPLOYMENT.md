@@ -154,6 +154,37 @@ Everyone signed in on the old version is signed out by the upgrade and needs to 
 
 ---
 
+## Backdrop images expire after 30 days
+
+Uploaded projector backdrops are stored **inside** the database as data
+URIs — R2 object storage wants a card on file, and this project's rule is
+that no credit card is ever required — so they are the only thing here
+that can fill D1's free 500 MB.
+
+They are therefore the only thing with a retention rule: **an uploaded
+image is deleted 30 days after upload unless it is pinned.** The editor
+shows the days remaining on every upload tile; pressing that number keeps
+the image for good. A deck still using an unpinned image loses it when the
+clock runs out — the editor warns for the last week, with a one-click
+Keep — and falls back to its theme's own backdrop rather than breaking.
+
+Two things run the rule, so a fork that drops either one still behaves:
+
+- a **Cron Trigger** (`wrangler.jsonc`, nightly at 04:10 UTC), and
+- an opportunistic sweep whenever the editor lists uploads.
+
+To change the window, edit `BACKGROUND_RETENTION_DAYS` in
+`worker/index.js`. A database that predates this needs the column:
+
+```
+npx wrangler d1 execute DB --remote --file=worker/migrations/0005-background-retention.sql
+```
+
+That migration **pins every image already uploaded**, so switching the
+rule on never deletes anything anyone already had.
+
+---
+
 ## Adding the feedback button to a database that predates it
 
 The quill button in the corner of the instructor pages writes to a
@@ -166,9 +197,10 @@ the migration on its own:
 npx wrangler d1 execute DB --remote --file=worker/migrations/0004-feedback.sql
 ```
 
-Notes are readable at `/feedback.html` by the **admin account only** —
-the first account created. Everyone else gets a 403 from the API, not
-just a hidden link.
+Notes are readable at `/admin.html` by the **admin account only** — the
+first account created. That page is also where you reset a colleague's
+forgotten password and see how much of D1's free 500 MB is used.
+Everyone else gets a 403 from the API, not just a hidden link.
 
 ---
 

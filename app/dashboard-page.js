@@ -16,6 +16,7 @@
 import {
   configured, currentUser, signOut, listDecks, createDeck, deleteDeck,
   listSessions, createSession, deleteSession, listQuestions, replaceQuestions,
+  adminSummary,
 } from './db.js';
 import { resolveTheme } from './themes.js';
 import { parseDeck, SAMPLE_DECK } from './deck-format.js';
@@ -58,9 +59,19 @@ async function boot() {
   // password, and it is worth knowing which account you are in.
   $('who').textContent = user.is_admin ? `${user.username} · admin` : (user.username || '');
 
-  // Only the admin can read what the quill button collects, so only the
-  // admin is offered the link to it.
-  $('feedbackLink').hidden = !user.is_admin;
+  // Only the admin can read the feedback or reset a colleague's
+  // password, so only the admin is offered the link. The unread count
+  // rides along on the label — the whole point of collecting notes is
+  // noticing that they arrived.
+  if (user.is_admin) {
+    $('adminLink').hidden = false;
+    adminSummary()
+      .then((s) => {
+        if (s.unread_feedback > 0) $('adminLink').textContent = `Admin · ${s.unread_feedback}`;
+      })
+      // A failed count is not worth a visible error: the link still works.
+      .catch(() => {});
+  }
 
   $('signOut').addEventListener('click', async () => {
     await signOut();

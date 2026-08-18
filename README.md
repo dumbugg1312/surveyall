@@ -94,7 +94,7 @@ dashboard.html      your decks and the session archive
 edit.html           deck editor — questions, themes, backgrounds
 results.html        one session's results, and its CSV export
 compare.html        the same question run over run, across sessions
-feedback.html       inbox for the quill button, admin only
+admin.html          feedback inbox, accounts, password resets, usage
 privacy.html        what is stored, and how to verify it
 
 media/              the home page loop (home-loop.mp4) and its poster

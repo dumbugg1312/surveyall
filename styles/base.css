@@ -461,22 +461,18 @@ textarea { resize: vertical; min-height: 5rem; }
 .fb-button:active { transform: translateY(0); }
 .fb-button.is-sent { color: var(--good-text); border-color: var(--good); }
 
-/* In an app bar it is one control among others: no shadow, no plate, and
-   the same height as the small buttons beside it. */
+/* In an app bar it drops the shadow and shrinks to sit level with the
+   small buttons beside it — but it keeps the ring. Without the circle
+   the quill read as a stray glyph in the toolbar rather than a control
+   you could press. */
 .fb-button.fb-inline {
   position: static;
-  width: 2rem;
-  height: 2rem;
-  border-color: transparent;
-  background: transparent;
+  width: 2.1rem;
+  height: 2.1rem;
   box-shadow: none;
 }
-.fb-button.fb-inline svg { width: 1.15rem; height: 1.15rem; }
-.fb-button.fb-inline:hover {
-  border-color: transparent;
-  background: color-mix(in srgb, var(--ink) 6%, transparent);
-  transform: none;
-}
+.fb-button.fb-inline svg { width: 1.1rem; height: 1.1rem; }
+.fb-button.fb-inline:hover { transform: none; }
 
 /* Print and project without it: the button is for the person editing,
    not for the room. */

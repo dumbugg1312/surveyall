@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="SurveyAll">
+  <!-- Three answer bars on the app's cream, in the app's own accent and
+       call-to-action colours. A letterform would be illegible at 16px and
+       would collide with every other S-for-something tab; bars of unequal
+       length read as "poll results" even at favicon size. -->
+  <rect width="64" height="64" rx="14" fill="#f7f4ee"/>
+  <g>
+    <rect x="12" y="17" width="34" height="9" rx="4.5" fill="#4a5d23"/>
+    <rect x="12" y="30" width="22" height="9" rx="4.5" fill="#c2410c"/>
+    <rect x="12" y="43" width="13" height="9" rx="4.5" fill="#8b8f6b"/>
+  </g>
+</svg>

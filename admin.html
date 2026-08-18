@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin — SurveyAll</title>
+<!-- Tab icon. The SVG is what modern browsers use; the PNGs are for
+     Safari's older raster paths and for a phone home screen. Paths are
+     root-relative so they resolve the same from /join and /create as
+     they do from /. -->
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/favicon-180.png">
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="styles/fonts.css">
+<link rel="stylesheet" href="styles/base.css">
+<link rel="stylesheet" href="styles/app.css">
+</head>
+<body>
+
+<!-- The whole of running this site, on one page: what people have told
+     you, who has an account, and how much room is left. Admin-only — the
+     Worker refuses /api/admin and /api/feedback to everyone else, so this
+     page failing closed is the server's decision, not the UI's. -->
+<header class="appbar">
+  <a class="brand" href="dashboard.html">SurveyAll</a>
+  <span class="spacer"></span>
+  <a class="btn btn-sm btn-ghost" href="dashboard.html">← Decks</a>
+</header>
+
+<main class="page">
+
+  <!-- At a glance ---------------------------------------------------- -->
+  <section class="dash-section" aria-labelledby="glanceHead">
+    <div class="section-head">
+      <h2 id="glanceHead">At a glance</h2>
+    </div>
+    <div class="stat-row">
+      <div class="stat"><span class="stat-value" id="statUsers">—</span><span class="stat-label">Accounts</span></div>
+      <div class="stat"><span class="stat-value" id="statDecks">—</span><span class="stat-label">Decks</span></div>
+      <div class="stat"><span class="stat-value" id="statSessions">—</span><span class="stat-label">Sessions run</span></div>
+      <div class="stat"><span class="stat-value" id="statResponses">—</span><span class="stat-label">Answers stored</span></div>
+      <div class="stat"><span class="stat-value" id="statUnread">—</span><span class="stat-label">Unread feedback</span></div>
+      <!-- The only figure here that grows fast: backdrops are stored
+           inline as data URIs, against D1's free 500 MB. -->
+      <div class="stat"><span class="stat-value" id="statStorage">—</span><span class="stat-label" id="statStorageNote">Backdrops</span></div>
+    </div>
+  </section>
+
+  <!-- Feedback ------------------------------------------------------- -->
+  <section class="dash-section" aria-labelledby="fbHead">
+    <div class="section-head">
+      <h2 id="fbHead">Feedback</h2>
+      <span class="head-count" id="fbCount" hidden></span>
+      <span class="spacer"></span>
+      <label class="checkline">
+        <input type="checkbox" id="showHandled"> Show handled
+      </label>
+    </div>
+    <div id="fbArea"></div>
+  </section>
+
+  <!-- Accounts ------------------------------------------------------- -->
+  <section class="dash-section" aria-labelledby="usersHead">
+    <div class="section-head">
+      <h2 id="usersHead">Accounts</h2>
+      <span class="head-count" id="userCount" hidden></span>
+    </div>
+    <p class="muted" style="font-size:.85rem;margin-bottom:var(--sp-4)">
+      There is no reset email — this app stores no email addresses — so
+      you are the only way back in for a colleague who forgets a password.
+      Set them a temporary one here and tell them in person.
+    </p>
+    <div id="userArea"></div>
+  </section>
+
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script type="module" src="app/admin-page.js"></script>
+</body>
+</html>

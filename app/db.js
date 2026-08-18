@@ -634,14 +634,40 @@ export async function uploadBackground(file) {
   return { path: res.id, url: apiURL(res.url) };
 }
 
+/**
+ * Uploaded backdrops, plus how much of this account's image storage is
+ * used. The quota is deliberately not surfaced until it is nearly full —
+ * see BACKGROUND_QUOTA_BYTES in worker/index.js — so callers get the
+ * numbers and decide whether to say anything.
+ * @returns {Promise<{images: Array, quota: {used, total, warn_at}}>}
+ */
 export async function listBackgrounds() {
   try {
-    const rows = await api('/api/backgrounds', { auth: true });
-    return (rows || []).map((r) => ({ path: r.id, url: apiURL(`/api/backgrounds/${r.id}`) }));
+    const res = await api('/api/backgrounds', { auth: true });
+    const rows = Array.isArray(res) ? res : (res?.images || []);
+    const images = rows.map((r) => ({
+      path: r.id,
+      url: apiURL(`/api/backgrounds/${r.id}`),
+      bytes: r.bytes,
+      created_at: r.created_at,
+      // Unpinned uploads are deleted 30 days after upload, whether or
+      // not a deck is using them; `expires_at` is null once pinned.
+      pinned: !!r.pinned,
+      expires_at: r.expires_at ?? null,
+    }));
+    const used = images.reduce((n, f) => n + Number(f.bytes || 0), 0);
+    return {
+      images,
+      quota: res?.quota || { used, total: Infinity, warn_at: 1 },
+    };
   } catch {
-    return [];
+    return { images: [], quota: { used: 0, total: Infinity, warn_at: 1 } };
   }
 }
+
+/** Keep an upload forever, or put it back on the clock. */
+export const pinBackground = (path, pinned) =>
+  api(`/api/backgrounds/${path}`, { method: 'PATCH', body: { pinned }, auth: true });
 
 export const deleteBackground = (path) =>
   api(`/api/backgrounds/${path}`, { method: 'DELETE', auth: true });
@@ -667,3 +693,13 @@ export const markFeedback = (id, handled) =>
 
 export const deleteFeedback = (id) =>
   api(`/api/feedback/${id}`, { method: 'DELETE', auth: true });
+
+// =====================================================================
+// Admin — the person who runs this site, and nobody else
+// =====================================================================
+
+/** Every account: username, admin flag, dates, and how much they've built. */
+export const listUsers = () => api('/api/admin/users', { auth: true });
+
+/** Counts for the whole deployment, including how much of D1 is used. */
+export const adminSummary = () => api('/api/admin/summary', { auth: true });

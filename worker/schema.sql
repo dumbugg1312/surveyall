@@ -298,7 +298,17 @@ create table if not exists backgrounds (
   owner_id   text not null default 'owner',
   data_uri   text not null,
   bytes      integer not null,
-  created_at integer not null
+  -- Uploads expire 30 days after this date unless `pinned` is set. See
+  -- BACKGROUND_RETENTION_DAYS in worker/index.js for the sweep, and the
+  -- note below for why the deadline is on the upload rather than on last
+  -- use.
+  created_at integer not null,
+  -- 1 = keep forever. The instructor sets this from the editor's upload
+  -- list. It is the ONLY thing that exempts an image, deliberately: a
+  -- deck still using an unpinned image will lose it, which is why the
+  -- editor warns about exactly that case rather than quietly pinning on
+  -- your behalf.
+  pinned     integer not null default 0
 );
 
 create index if not exists backgrounds_owner_idx on backgrounds (owner_id, created_at desc);

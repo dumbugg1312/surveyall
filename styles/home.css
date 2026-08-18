@@ -110,13 +110,25 @@ body.home {
 }
 
 .hero h1 {
-  /* Full width now, so it can carry a larger size without wrapping into
-     a narrow three-line column. */
-  font-size: clamp(2.4rem, 6.6vw, 4.4rem);
-  max-width: 20ch;
+  /* One line, deliberately. The headline sets the width of the whole
+     page, and broken across two lines it read as a stacked slogan rather
+     than a sentence.
+     The sizing is measured, not guessed. Fraunces is optical-size
+     variable, so the line's width per em changes with the size itself —
+     it runs about 14.4em at these sizes, not the 12.5em a probe at 100px
+     suggests. The cap and the vw term are both set from that worst case
+     against the column width (minus a scrollbar), which is why they look
+     oddly specific.
+     No `max-width` here: a ch cap is what forced the wrap in the first
+     place. */
+  font-size: clamp(2.4rem, 6vw, 4.3rem);
   font-weight: 650;
   letter-spacing: -.02em;
   margin-bottom: var(--sp-4);
+}
+
+@media (min-width: 56rem) {
+  .hero h1 { white-space: nowrap; }
 }
 
 .lede {

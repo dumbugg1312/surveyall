@@ -63,6 +63,16 @@
     }
   ],
 
+  // Nightly housekeeping, 04:10 UTC. The only job is expiring unpinned
+  // backdrop uploads after 30 days (BACKGROUND_RETENTION_DAYS in
+  // worker/index.js). Cron Triggers are free on the Workers free plan.
+  // If you remove this, the rule still holds — the Worker also sweeps
+  // whenever the editor lists uploads — it just stops happening on a
+  // deployment nobody opens.
+  "triggers": {
+    "crons": ["10 4 * * *"]
+  },
+
   "observability": {
     "enabled": true
   }

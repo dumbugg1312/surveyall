@@ -67,6 +67,60 @@ const parse = (text, fallback) => {
   try { return JSON.parse(text); } catch { return fallback; }
 };
 
+/**
+ * How long an unpinned backdrop upload survives.
+ *
+ * Backdrops are the only thing in this database that grows quickly —
+ * they are stored inline as data URIs against D1's free 500 MB ceiling,
+ * because R2 wants a card on file — so they are the only thing with an
+ * expiry date.
+ *
+ * The rule is deliberately blunt: 30 days after UPLOAD, pinned or gone,
+ * whether or not a deck is still using it. That was a considered choice
+ * by the operator rather than an oversight, and it has a real cost — a
+ * deck taught once a year loses its backdrop between runs unless it was
+ * pinned. Two things soften it: the editor shows a countdown on every
+ * tile, and it warns on any deck whose own background is about to
+ * expire, with a one-click Keep. A deck that loses its image falls back
+ * to its theme's background rather than breaking.
+ */
+const BACKGROUND_RETENTION_DAYS = 30;
+const BACKGROUND_RETENTION_MS = BACKGROUND_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+
+/**
+ * How much backdrop storage one account may hold, pinned or not.
+ *
+ * 25 MB is roughly 60–100 images at the size the client downscales to,
+ * which is far more than anyone teaching a real course uses — the cap
+ * exists so that one enthusiastic uploader cannot consume a shared
+ * 500 MB database, not to ration a normal instructor.
+ *
+ * Deliberately UNSTATED in the interface until it is nearly reached: a
+ * limit announced up front reads as a restriction on a tool whose whole
+ * pitch is that it has none, and 95% of accounts will never come near
+ * it. The editor stays quiet until 80%, and the only other time the
+ * number is ever named is the error you get when a specific upload will
+ * not fit — the one moment it is actually useful information.
+ */
+const BACKGROUND_QUOTA_BYTES = 25 * 1_000_000;
+const BACKGROUND_QUOTA_WARN_AT = 0.8;
+
+/**
+ * Delete every unpinned backdrop past its date.
+ *
+ * Runs from the nightly cron AND opportunistically whenever the editor
+ * lists uploads, so the rule holds even if the cron trigger is missing
+ * from a fork's wrangler.jsonc.
+ * @returns {Promise<number>} how many rows went
+ */
+async function sweepBackgrounds(env) {
+  const cutoff = Date.now() - BACKGROUND_RETENTION_MS;
+  const res = await env.DB.prepare(
+    'delete from backgrounds where pinned = 0 and created_at < ?',
+  ).bind(cutoff).run();
+  return Number(res?.meta?.changes || 0);
+}
+
 /** Feedback limits — long enough for a real complaint, capped so one
  *  sender cannot fill a 500 MB database on their own. */
 const FEEDBACK_MAX_CHARS = 2000;
@@ -457,6 +511,21 @@ async function notifyRoom(env, sessionId, event, data, to = 'all') {
 // =====================================================================
 
 export default {
+  /**
+   * Nightly housekeeping (Cron Triggers in wrangler.jsonc).
+   *
+   * One job today: expire unpinned backdrop uploads. Nothing else in
+   * this database has a retention rule — sessions and answers are kept
+   * permanently on purpose, and they are small.
+   */
+  async scheduled(event, env, ctx) {
+    if (!env.DB) return;
+    ctx.waitUntil((async () => {
+      const gone = await sweepBackgrounds(env);
+      if (gone) console.log(`background sweep: removed ${gone} expired upload(s)`);
+    })());
+  },
+
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
@@ -980,6 +1049,65 @@ async function instructorRoute(request, env, seg, method, body, url, ctx, user) 
     return fail('Unknown feedback route', 404);
   }
 
+  // ------------------------------------------------------------- admin
+  // Everything the person who runs this site needs and nobody else does.
+  // Admin-only, and deliberately thin: usernames and counts, never
+  // another instructor's decks, sessions, or results. Being the admin
+  // means you can reset a password and read the feedback — it does not
+  // mean you can read a colleague's class.
+  if (seg[0] === 'admin') {
+    if (!user.is_admin) return fail('Admins only.', 403);
+
+    // The accounts list. `select` names its columns rather than using *,
+    // so a column added to `users` later cannot leak into this response
+    // by accident — password_hash and salt live in the same table.
+    if (seg[1] === 'users' && method === 'GET') {
+      const { results } = await DB.prepare(`
+        select u.id, u.username, u.is_admin, u.created_at, u.last_seen_at,
+               (select count(*) from decks d where d.owner_id = u.id) as deck_count,
+               (select count(*) from sessions s
+                  join decks d2 on d2.id = s.deck_id
+                 where d2.owner_id = u.id) as session_count
+          from users u
+         order by u.created_at
+      `).all();
+      return json((results || []).map((r) => ({
+        id: r.id,
+        username: r.username,
+        is_admin: !!r.is_admin,
+        created_at: r.created_at,
+        last_seen_at: r.last_seen_at,
+        deck_count: Number(r.deck_count) || 0,
+        session_count: Number(r.session_count) || 0,
+      })));
+    }
+
+    // At a glance. The number that actually matters here is `bytes`:
+    // backgrounds are stored inline as data URIs (see schema.sql), so
+    // they are the only thing in this database that grows quickly, and
+    // D1's free ceiling is 500 MB.
+    if (seg[1] === 'summary' && method === 'GET') {
+      const one = async (sql) => Number((await DB.prepare(sql).first())?.n || 0);
+      const [users, decks, sessions, responses, questions, backgrounds, bytes, unread] = await Promise.all([
+        one('select count(*) as n from users'),
+        one('select count(*) as n from decks'),
+        one('select count(*) as n from sessions'),
+        one('select count(*) as n from responses'),
+        one('select count(*) as n from audience_questions'),
+        one('select count(*) as n from backgrounds'),
+        one('select coalesce(sum(bytes), 0) as n from backgrounds'),
+        one('select count(*) as n from feedback where handled = 0'),
+      ]);
+      return json({
+        users, decks, sessions, responses, questions, backgrounds,
+        background_bytes: bytes,
+        unread_feedback: unread,
+      });
+    }
+
+    return fail('Unknown admin route', 404);
+  }
+
   // ------------------------------------------------------------- decks
   if (seg[0] === 'decks') {
     const deckId = seg[1];
@@ -1381,12 +1509,30 @@ async function instructorRoute(request, env, seg, method, body, url, ctx, user) 
   // ------------------------------------------------------- backgrounds
   if (seg[0] === 'backgrounds') {
     if (!seg[1] && method === 'GET') {
+      // Sweep before listing, so the editor never shows a tile that the
+      // next cron run is about to remove. Cheap — one DELETE against an
+      // indexed integer — and it means the retention rule still holds on
+      // a deployment where the cron trigger was never configured.
+      await sweepBackgrounds(env);
       // Deliberately omits data_uri: the picker only needs ids, and
       // shipping every image on every editor load would be wasteful.
       const { results } = await DB.prepare(
-        'select id, bytes, created_at from backgrounds where owner_id = ? order by created_at desc',
+        'select id, bytes, created_at, pinned from backgrounds where owner_id = ? order by created_at desc',
       ).bind(user.id).all();
-      return json(results || []);
+      const rows = (results || []).map((r) => ({
+        ...r,
+        pinned: !!r.pinned,
+        // The client shows a countdown rather than doing this arithmetic
+        // in three places.
+        expires_at: r.pinned ? null : r.created_at + BACKGROUND_RETENTION_MS,
+      }));
+      // Sent every time, shown only near the line: see the note on
+      // BACKGROUND_QUOTA_BYTES for why the editor stays quiet below 80%.
+      const used = rows.reduce((n, r) => n + Number(r.bytes || 0), 0);
+      return json({
+        images: rows,
+        quota: { used, total: BACKGROUND_QUOTA_BYTES, warn_at: BACKGROUND_QUOTA_WARN_AT },
+      });
     }
     if (!seg[1] && method === 'POST') {
       const dataUri = String(body.dataUri || '');
@@ -1394,6 +1540,26 @@ async function instructorRoute(request, env, seg, method, body, url, ctx, user) 
       // D1 rows are capped well below this, and the client already
       // downscales; this is the backstop.
       if (dataUri.length > 1_500_000) return fail('Image too large after compression', 413);
+
+      // Per-account quota. Swept first so expired images do not count
+      // against somebody who is already at the line — otherwise an
+      // account could be blocked by images the next cron run deletes.
+      await sweepBackgrounds(env);
+      const used = Number((await DB.prepare(
+        'select coalesce(sum(bytes), 0) as n from backgrounds where owner_id = ?',
+      ).bind(user.id).first())?.n || 0);
+      if (used + dataUri.length > BACKGROUND_QUOTA_BYTES) {
+        // The one place the cap is ever named, because here it explains
+        // something the person needs to act on.
+        const mb = (n) => (n / 1_000_000).toFixed(1);
+        return fail(
+          `That image would put you over ${mb(BACKGROUND_QUOTA_BYTES)} MB of uploaded `
+          + `images (you are using ${mb(used)} MB). Delete a backdrop you no longer `
+          + 'need, or unpin one and let it expire.',
+          413,
+        );
+      }
+
       const id = uid();
       await DB.prepare(
         'insert into backgrounds (id, owner_id, data_uri, bytes, created_at) values (?, ?, ?, ?, ?)',
@@ -1402,6 +1568,18 @@ async function instructorRoute(request, env, seg, method, body, url, ctx, user) 
     }
     // NOTE: GET /api/backgrounds/:id is handled earlier, before the
     // instructor gate, because the browser fetches it as an image.
+
+    // Pin or unpin. The pin is the whole exemption from the retention
+    // sweep, so it is owner-scoped like everything else here.
+    if (seg[1] && method === 'PATCH') {
+      const owned = await DB.prepare('select id from backgrounds where id = ? and owner_id = ?')
+        .bind(seg[1], user.id).first();
+      if (!owned) return notYours();
+      await DB.prepare('update backgrounds set pinned = ? where id = ? and owner_id = ?')
+        .bind(body.pinned ? 1 : 0, seg[1], user.id).run();
+      return json({ ok: true });
+    }
+
     if (seg[1] && method === 'DELETE') {
       const owned = await DB.prepare('select id from backgrounds where id = ? and owner_id = ?')
         .bind(seg[1], user.id).first();
