@@ -133,9 +133,16 @@ body.home {
    page's own corner radius — rather than floating unbounded.
    ------------------------------------------------------------------- */
 
-/* Full column width: at 1088px the join code, the bars and the phone in
-   the loop are all legible. */
-.showcase { padding-bottom: clamp(2.5rem, 6vw, 4.5rem); }
+/* Capped below the column width on purpose. The master is 1280 wide, so
+   at the full 1088px column a 2x display asks the browser to invent 2176
+   pixels from 1280 and the whole thing goes soft — which reads as a
+   cheap video rather than as a compression setting. 900px keeps the
+   upscale mild while still showing the editor and the phone clearly.
+   Raise this the day the loop is re-mastered at 1920x1080. */
+.showcase {
+  padding-bottom: clamp(2.5rem, 6vw, 4.5rem);
+  max-width: calc(900px + 2 * clamp(1rem, 4vw, 2.5rem));
+}
 
 .scene { position: relative; margin: 0; }
 
@@ -228,7 +235,8 @@ body.home {
   .spec dd { border-top: 0; padding-top: 0; }
 }
 
-/* The ten question types, as a plain set of names. */
+/* The question types, as a plain set of names — a snapshot of a list
+   that grows, which is why the heading above it does not count them. */
 .types {
   display: flex;
   flex-wrap: wrap;

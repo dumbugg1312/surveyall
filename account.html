@@ -63,7 +63,8 @@
         <input type="text" id="suUsername" autocomplete="username" required
                autocapitalize="none" autocorrect="off" spellcheck="false">
         <p class="field-hint">
-          3–32 characters. Letters, numbers, dots, dashes, underscores.
+          3–32 characters, starting with a letter or a number. After that,
+          letters, numbers, dots, dashes and underscores are all fine.
           It doesn't have to be your real name.
         </p>
       </div>
@@ -96,7 +97,9 @@
     <p class="state-text">
       Usually this means the D1 database hasn't been created and bound, or
       <code>worker/schema.sql</code> hasn't been run yet.
-      See <strong>docs/DEPLOYMENT.md</strong>.
+      The fix is in <code>docs/DEPLOYMENT.md</code>, in the repository this
+      site was deployed from — <code>docs/</code> is deliberately not
+      published as part of the site, so there is no link to follow here.
     </p>
   </section>
 

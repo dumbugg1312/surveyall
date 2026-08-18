@@ -22,8 +22,9 @@ import {
   uploadBackground, listBackgrounds, deleteBackground, regenerateDeckCode,
 } from './db.js';
 import {
-  TYPE_LABELS, TYPE_BLURBS, splitPassage, DEFAULT_JOIN_STEPS, isContentSlide, joinURL,
-  PROMPT_SCALES, DEFAULT_PROMPT_SCALE, promptScale, showSlideLabel,
+  TYPE_LABELS, TYPE_BLURBS, splitPassage, DEFAULT_JOIN_STEPS, isContentSlide,
+  joinURL, joinURLPretty,
+  PROMPT_SCALES, DEFAULT_PROMPT_SCALE, promptScale, showSlideLabel, questionNumber,
   defaultConfig, retypeQuestion, clozeParts,
 } from './logic.js';
 import { typeIcon, chartIcon } from './icons.js';
@@ -58,11 +59,19 @@ let saveTimer = null;
  * real thing while you are still writing it — the same code and the same
  * scannable QR the room will see. Encoding is not free, so it happens on
  * load and after a rotation, never per keystroke.
+ *
+ * `url` is the typed address, in the same shortened form the projector
+ * prints, so a step written with %URL% reads here exactly as it will read
+ * on the wall.
  */
-let joinArt = { code: '', qrSVG: null };
+let joinArt = { code: '', url: '', qrSVG: null };
 
 async function refreshJoinArt() {
-  joinArt = { code: deck.join_code || '', qrSVG: null };
+  joinArt = {
+    code: deck.join_code || '',
+    url: deck.join_code ? joinURLPretty(joinBase(), deck.join_code) : '',
+    qrSVG: null,
+  };
   if (!deck.join_code) return;
   const ink = qrInk(getComputedStyle(document.documentElement)
     .getPropertyValue('--ink').trim());
@@ -93,12 +102,16 @@ async function boot() {
     saveDeck({ title: $('deckTitle').value.trim() || 'Untitled deck' });
   });
 
-  $('addSlide').addEventListener('click', toggleSlideGallery);
-  $('addTemplate').addEventListener('click', openTemplatePicker);
-  $('textView').addEventListener('click', openTextView);
-  $('btnPreview').addEventListener('click', onPreview);
-  $('startSession').addEventListener('click', onStart);
-  $('btnDesign').addEventListener('click', toggleDesign);
+  // Every appbar handler goes through guard(). "Start session" was the one
+  // that didn't, and it is the worst one to lose: a createSession that
+  // rejects left an unhandled rejection and a button that looked dead, in
+  // front of a room.
+  $('addSlide').addEventListener('click', guard(toggleSlideGallery));
+  $('addTemplate').addEventListener('click', guard(openTemplatePicker));
+  $('textView').addEventListener('click', guard(openTextView));
+  $('btnPreview').addEventListener('click', guard(onPreview));
+  $('startSession').addEventListener('click', guard(onStart));
+  $('btnDesign').addEventListener('click', guard(toggleDesign));
   $('deckCode')?.addEventListener('click', guard(rotateCode));
 
   await refreshJoinArt();
@@ -317,6 +330,138 @@ function guard(fn) {
   };
 }
 
+// ------------------------------------------------------------- overlays
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), '
+  + 'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Keep the keyboard inside an overlay, and give it back afterwards.
+ *
+ * A layer with a backdrop over it is a layer the mouse cannot leave, so
+ * the keyboard must not be able to either — tabbing past the last control
+ * of the slide gallery used to walk off into the page behind it, where
+ * every click was being swallowed by the backdrop. And whatever opened the
+ * overlay gets focus back when it closes, because otherwise focus falls to
+ * the top of the document and the instructor has to tab in from the brand
+ * link.
+ *
+ * Returns the release function; call it once, when the overlay closes.
+ */
+function trapFocus(container, { onEscape, restoreTo } = {}) {
+  const previous = restoreTo || document.activeElement;
+
+  const onKey = (e) => {
+    if (e.key === 'Escape' && onEscape) {
+      e.preventDefault();
+      e.stopPropagation();
+      onEscape();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    const items = [...container.querySelectorAll(FOCUSABLE)]
+      .filter((n) => n.offsetParent !== null || n === document.activeElement);
+    if (!items.length) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey && (active === first || !container.contains(active))) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && (active === last || !container.contains(active))) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+
+  container.addEventListener('keydown', onKey);
+  return function release({ restore = true } = {}) {
+    container.removeEventListener('keydown', onKey);
+    if (restore && previous && document.contains(previous)) previous.focus();
+  };
+}
+
+let dialogSeq = 0;
+
+/**
+ * Ask for one line of text, in the page.
+ *
+ * Not window.prompt(). A browser offers "prevent this page from creating
+ * additional dialogs" after a handful of native prompts, and once an
+ * instructor has ticked it — probably during a rehearsal — starting a
+ * session simply stops working, with nothing on screen to say why. This
+ * also looks like the rest of the editor and can be styled, labelled and
+ * trapped like every other overlay here.
+ *
+ * Resolves with the string, or null if it was dismissed.
+ */
+function askText({ title, note, label, value = '', placeholder = '', confirmLabel = 'OK' }) {
+  return new Promise((resolve) => {
+    dialogSeq += 1;
+    const titleId = `askTitle${dialogSeq}`;
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.maxWidth = '28rem';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-labelledby', titleId);
+
+    const h = document.createElement('h2');
+    h.id = titleId;
+    h.textContent = title;
+    modal.append(h);
+
+    if (note) {
+      const p = document.createElement('p');
+      p.className = 'muted';
+      p.style.fontSize = '.86rem';
+      p.textContent = note;
+      modal.append(p);
+    }
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = value;
+    input.placeholder = placeholder;
+    modal.append(field(label, input));
+
+    let done = false;
+    let release = null;
+    const finish = (out) => {
+      if (done) return;
+      done = true;
+      if (release) release();
+      backdrop.remove();
+      resolve(out);
+    };
+
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.append(
+      spacer(),
+      btn('Cancel', '', () => finish(null)),
+      btn(confirmLabel, 'btn-primary', () => finish(input.value)),
+    );
+    modal.append(row);
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); finish(input.value); }
+    });
+
+    backdrop.append(modal);
+    backdrop.addEventListener('click', (e) => { if (e.target === backdrop) finish(null); });
+    document.body.append(backdrop);
+
+    release = trapFocus(modal, { onEscape: () => finish(null) });
+    input.focus();
+    input.select();
+  });
+}
+
 // ------------------------------------------------------- drag to reorder
 
 let dragFrom = null;
@@ -354,6 +499,10 @@ function wireDrag(item, index) {
 }
 
 async function moveTo(from, to) {
+  // Reordering writes positions straight to the server, so anything still
+  // queued against these rows has to land first — otherwise a patch built
+  // before the move is applied after it.
+  await flushNow();
   const [moved] = questions.splice(from, 1);
   questions.splice(to, 0, moved);
   questions.forEach((q, i) => { q.position = i; });
@@ -428,10 +577,22 @@ function toggleSlideGallery() {
   openSlideGallery();
 }
 
+/** Release the gallery's focus trap, set while it is open. */
+let galleryRelease = null;
+
 function closeSlideGallery() {
-  document.getElementById('slideGallery')?.remove();
+  const open = document.getElementById('slideGallery');
   document.getElementById('galleryBackdrop')?.remove();
+  open?.remove();
   $('addSlide').setAttribute('aria-expanded', 'false');
+  // Focus goes back to the button that opened it — always, and before
+  // anything a tile click goes on to do, so a keyboard user is never left
+  // standing at the top of the document wondering where they are.
+  if (galleryRelease) {
+    const release = galleryRelease;
+    galleryRelease = null;
+    release({ restore: !!open });
+  }
 }
 
 function openSlideGallery() {
@@ -443,10 +604,16 @@ function openSlideGallery() {
   const pop = document.createElement('div');
   pop.id = 'slideGallery';
   pop.className = 'slide-gallery';
+  // A popup with a backdrop over the page is a modal, whatever it is
+  // anchored to: say so, name it, and keep the keyboard inside it.
+  pop.setAttribute('role', 'dialog');
+  pop.setAttribute('aria-modal', 'true');
+  pop.setAttribute('aria-labelledby', 'galleryTitle');
 
   const head = document.createElement('div');
   head.className = 'gallery-head';
-  head.append(Object.assign(document.createElement('h3'), { textContent: 'New slide' }));
+  head.append(Object.assign(document.createElement('h3'),
+    { id: 'galleryTitle', textContent: 'New slide' }));
   pop.append(head);
 
   const grid = document.createElement('div');
@@ -504,6 +671,10 @@ function openSlideGallery() {
     pop.style.bottom = 'auto';
     pop.style.top = `${r.bottom + 8}px`;
   }
+  galleryRelease = trapFocus(pop, {
+    restoreTo: $('addSlide'),
+    onEscape: closeSlideGallery,
+  });
   pop.querySelector('.gallery-tile:not([hidden])')?.focus();
 }
 
@@ -650,9 +821,14 @@ function renderCanvas() {
   // a picture that disagrees with the room.
   host.style.setProperty('--prompt-scale', String(promptScale(deck)));
   const slide = renderSlide(host, q, deck, resolveTheme(deck.theme, deck), {
-    kicker: showSlideLabel(deck)
-      ? `${TYPE_LABELS[q.type] || q.type} · Slide ${index + 1} of ${questions.length}`
-      : '',
+    // Mirrors present-page.js's kicker exactly, content-slide branch and
+    // all. It used to count every slide and say "Slide 3 of 9" where the
+    // projector says "Question 3 of 8" — two different nouns and two
+    // different denominators for the same slide, because the room is told
+    // how many times it will be asked to answer and an instructions slide
+    // is not one of those. An instructor could not predict from this
+    // canvas what the room would read, which is the one job it has.
+    kicker: showSlideLabel(deck) ? slideKicker(q, index) : '',
     join: joinArt,
     ambience: true,
   });
@@ -1007,6 +1183,19 @@ async function changeType(q, to) {
     + 'read them as the new type.');
 
   if (!window.confirm(lines.join('\n'))) return false;
+
+  // Get the debounce out of the way before writing directly.
+  //
+  // A pending patch holds a *reference* to the config object this is about
+  // to replace, and window.confirm blocks straight past the 420ms debounce
+  // — so retyping a slide you had just been typing in put two PATCHes in
+  // the air at once and whichever landed second won. Losing that race left
+  // a row carrying the new type and the old type's config, which no editor
+  // branch renders and retypeQuestion cannot repair.
+  if (!(await flushNow())) {
+    toast('Your last edit has not saved yet — try the retype again in a moment');
+    return false;
+  }
 
   q.type = to;
   q.config = config;
@@ -1938,29 +2127,72 @@ async function refreshUploads() {
   let files = [];
   try { files = await listBackgrounds(); } catch { return; }
 
-  files.forEach((f) => {
-    const tile = document.createElement('button');
-    tile.type = 'button';
+  files.forEach((f, i) => {
+    // Two controls, not one button with a hidden second meaning. This used
+    // to be shift-click, advertised in a `title` — which never shows on a
+    // phone or a tablet, is never read out, and cannot be produced from the
+    // keyboard at all, since Space and Enter carry no shiftKey. Deleting
+    // somebody's uploaded image is not a thing to hide behind a hover hint.
+    const tile = document.createElement('div');
     const active = deck.background?.kind === 'image' && deck.background.url === f.url;
     tile.className = 'bg-tile' + (active ? ' is-active' : '');
     tile.style.backgroundImage = `url("${f.url}")`;
-    tile.title = 'Click to use · shift-click to delete';
 
-    tile.addEventListener('click', async (e) => {
-      if (e.shiftKey) {
-        if (!confirm('Delete this uploaded image?')) return;
-        await deleteBackground(f.path);
-        await refreshUploads();
-        return;
-      }
-      setBackground({
-        kind: 'image', url: f.url,
-        dim: Number($('bgDim').value) / 100,
-        blur: Number($('bgBlur').value),
-      });
-    });
+    const use = document.createElement('button');
+    use.type = 'button';
+    use.setAttribute('aria-label',
+      `Use uploaded background ${i + 1}${active ? ' (in use)' : ''}`);
+    use.title = 'Use this background';
+    // .bg-tile's own rules style the frame; this is just the hit area
+    // filling it. The styling lives here because styles/app.css belongs to
+    // somebody else.
+    // outline-offset pulls the focus ring inside the frame: .bg-tile clips
+    // its overflow, and a ring drawn on the tile's own edge would be shaved
+    // off by that.
+    use.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;'
+      + 'border:0;background:none;padding:0;cursor:pointer;outline-offset:-3px;';
+    use.addEventListener('click', () => setBackground({
+      kind: 'image', url: f.url,
+      dim: Number($('bgDim').value) / 100,
+      blur: Number($('bgBlur').value),
+    }));
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.textContent = '×';
+    del.setAttribute('aria-label', `Delete uploaded background ${i + 1}`);
+    del.title = 'Delete this uploaded image';
+    // Always visible, 1.6rem square so it clears the 24px minimum, and on
+    // its own light disc so it stays legible over any photograph.
+    del.style.cssText = 'position:absolute;top:.2rem;right:.2rem;'
+      + 'width:1.6rem;height:1.6rem;display:grid;place-items:center;padding:0;'
+      + 'border:1px solid rgba(0,0,0,.28);border-radius:50%;'
+      + 'background:rgba(255,255,255,.94);color:#8a1c1c;'
+      + 'font-size:1rem;line-height:1;cursor:pointer;';
+    del.addEventListener('click', guard(async () => {
+      if (!confirm('Delete this uploaded image?')) return;
+      await deleteBackground(f.path);
+      await refreshUploads();
+    }));
+
+    tile.append(use, del);
     grid.append(tile);
   });
+}
+
+/**
+ * The line above the prompt, exactly as the projector will print it.
+ *
+ * KEEP IN STEP with the kicker in app/present-page.js. `questionNumber()`
+ * is the shared source of truth for the numbering; the two call sites
+ * differ only in where they read the deck from.
+ */
+function slideKicker(q, index) {
+  if (isContentSlide(q.type)) {
+    return `Slide ${index + 1} of ${questions.length}`;
+  }
+  const n = questionNumber(questions, q.id);
+  return `${TYPE_LABELS[q.type] || q.type} · Question ${n.number} of ${n.total}`;
 }
 
 function wireBackgroundControls() {
@@ -2071,6 +2303,12 @@ async function setBackground(bg) {
   if (next.motion === undefined) next.motion = ambienceLevel(deck.background);
   if (next.motion === 'off') delete next.motion;
 
+  // Same reference-capture hazard as changeType: a queued deck patch is
+  // about to be overtaken by a direct write to the same row. flushNow()
+  // does nothing at all when the queue is empty, so dragging the dim
+  // slider still costs one request per change, not two.
+  await flushNow();
+
   deck.background = next;
   await updateDeck(deck.id, { background: next });
   $('imageControls').hidden = next.kind !== 'image';
@@ -2170,15 +2408,34 @@ function openTextView() {
  * did it look like at the last save".
  */
 function onPreview() {
-  if (!questions.length) { toast('Add a slide first'); return; }
+  if (!questions.length) { toast('Add a question first'); return; }
   openPreview(deck, questions);
 }
 
 async function onStart() {
-  if (!questions.length) { toast('Add a slide first'); return; }
-  const label = prompt('Label this session (e.g. "Tue 9am section")',
-    new Date().toLocaleDateString());
-  if (label == null) return;
+  if (!questions.length) { toast('Add a question first'); return; }
+
+  const label = await askText({
+    title: 'Start a session',
+    note: 'A session holds one run of this deck and its results. Name it for '
+      + 'the class you are about to teach — you will be picking it out of a '
+      + 'list weeks from now.',
+    label: 'Session label',
+    value: new Date().toLocaleDateString(),
+    placeholder: 'Tue 9am section',
+    confirmLabel: 'Start session',
+  });
+  // Escape used to abort with no sign at all, which reads as a dead button.
+  if (label == null) { toast('Session not started'); return; }
+
+  // The presenter reads the slides back from the server, so an edit still
+  // sitting in the debounce would be projected as it was before the
+  // correction — in front of the class. Nothing starts until it has landed.
+  if (!(await flushNow())) {
+    toast('Your last edit has not saved yet — the session would run the old version');
+    return;
+  }
+
   const session = await createSession(deck.id, label.trim(), deck.theme);
   window.location.href = `present.html?session=${session.id}`;
 }
@@ -2192,8 +2449,28 @@ async function onStart() {
  * but they accumulate rather than replace. Editing a prompt and then
  * immediately editing an option must not drop the prompt: patches merge
  * per target and every pending target is flushed together.
+ *
+ * A patch leaves this queue only once the server has taken it. The queue
+ * used to be cleared before the first request went out, so one dropped
+ * PATCH — a wifi blip, an expired token, a 500 — took that edit and every
+ * edit queued behind it with it, permanently. One more keystroke then
+ * started a fresh queue that succeeded, and the status read "Saved" while
+ * the rewritten prompt existed nowhere but on screen. Reloading the tab
+ * was the first anyone heard about it.
  */
 const pendingPatches = new Map();
+
+/** The flush currently talking to the server, if any. */
+let inFlight = null;
+/** A flush asked for while one was already running. */
+let flushQueued = false;
+/** Set once a flush has failed; cleared only by a flush that succeeds. */
+let saveFailed = false;
+let retryTimer = null;
+let retryDelay = 0;
+let savedClearTimer = null;
+
+function patchKey(job) { return job.kind === 'deck' ? 'deck' : `q:${job.id}`; }
 
 function save(q, patch) {
   const key = `q:${q.id}`;
@@ -2208,36 +2485,154 @@ function saveDeck(patch) {
   scheduleFlush();
 }
 
+/**
+ * Put a job that never reached the server back at the front of the queue.
+ *
+ * Anything typed since the failed request went out is newer and wins; the
+ * fields only the failed patch carried are restored underneath it, so a
+ * retry can't resurrect a prompt the instructor has since rewritten.
+ */
+function requeue(job) {
+  const key = patchKey(job);
+  const newer = pendingPatches.get(key)?.patch || {};
+  pendingPatches.set(key, { ...job, patch: { ...job.patch, ...newer } });
+}
+
 function scheduleFlush() {
-  setSaveState('Saving…');
+  if (!saveFailed) setSaveState('Saving…');
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(flushSaves, 420);
+  saveTimer = setTimeout(() => { flushSaves().catch(() => {}); }, 420);
   // The canvas and the open thumbnail follow every keystroke; the rest of
   // the rail is untouched, so nothing you are not looking at repaints.
   renderCanvas();
   refreshSelectedThumb();
 }
 
+/** Is there an edit that the server has not confirmed? */
+function hasUnsavedWork() {
+  return pendingPatches.size > 0 || inFlight != null || saveFailed;
+}
+
 async function flushSaves() {
+  // A retry timer and a keystroke can both arrive mid-request. Let the
+  // running pass finish and take another one after it rather than firing
+  // two overlapping streams of PATCHes at the same rows.
+  if (inFlight) { flushQueued = true; return inFlight; }
+
+  clearTimeout(retryTimer);
+  retryTimer = null;
+  inFlight = runFlush();
+  try {
+    await inFlight;
+  } finally {
+    inFlight = null;
+  }
+  if (flushQueued) {
+    flushQueued = false;
+    if (pendingPatches.size && !saveFailed) await flushSaves();
+  }
+  return undefined;
+}
+
+async function runFlush() {
   const jobs = [...pendingPatches.values()];
   pendingPatches.clear();
   try {
-    for (const job of jobs) {
-      if (job.kind === 'question') await updateQuestion(job.id, job.patch);
-      else if (job.kind === 'deck') await updateDeck(deck.id, job.patch);
+    for (let i = 0; i < jobs.length; i += 1) {
+      const job = jobs[i];
+      try {
+        if (job.kind === 'question') await updateQuestion(job.id, job.patch);
+        else if (job.kind === 'deck') await updateDeck(deck.id, job.patch);
+      } catch (e) {
+        // This one and everything still behind it goes back on the queue.
+        // The loop stops here on purpose: the patches are ordered, and
+        // running the rest against a server that just refused would land
+        // later edits without the earlier ones.
+        jobs.slice(i).forEach(requeue);
+        throw e;
+      }
     }
-    await updateDeck(deck.id, {}); // bump updated_at so the dashboard sorts right
+    // Bump updated_at so the dashboard sorts right. Its own failure is not
+    // worth alarming anyone about — no edit rides on it.
+    try { await updateDeck(deck.id, {}); } catch { /* sort order only */ }
+    saveFailed = false;
+    retryDelay = 0;
     setSaveState('Saved');
-    setTimeout(() => setSaveState(''), 1600);
+    clearTimeout(savedClearTimer);
+    savedClearTimer = setTimeout(() => {
+      if (!hasUnsavedWork()) setSaveState('');
+    }, 1600);
   } catch (e) {
-    setSaveState('Not saved');
-    toast(e.message || 'Could not save');
+    markSaveFailed(e);
   }
+}
+
+/**
+ * Say so, and keep saying so.
+ *
+ * The old behaviour put "Not saved" in a small grey span that wiped itself
+ * after a second and a half — a message you could miss by looking at the
+ * keyboard. An edit that is not on the server is a state the instructor has
+ * to know they are in, so this one stays up until a save actually lands,
+ * and it keeps retrying on its own in the meantime.
+ */
+function markSaveFailed(e) {
+  saveFailed = true;
+  setSaveState('Not saved — retrying');
+  toast(e?.message || 'Could not save — still trying');
+  retryDelay = Math.min(retryDelay ? retryDelay * 2 : 2000, 15000);
+  clearTimeout(retryTimer);
+  retryTimer = setTimeout(() => { flushSaves().catch(() => {}); }, retryDelay);
+}
+
+/**
+ * Get everything on the server now, and say whether that worked.
+ *
+ * For the handful of places that must not run against a stale row: leaving
+ * the page, and any direct write that would race the debounce.
+ */
+async function flushNow() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  clearTimeout(retryTimer);
+  retryTimer = null;
+  retryDelay = 0;
+  // A flush already in the air does not carry a patch queued a moment ago,
+  // so a couple of passes drain what it left behind. A pass that fails
+  // stops the rest — the backoff retry has it from there, and nobody
+  // waiting on this wants three round trips to the same dead server.
+  for (let i = 0; i < 3 && hasUnsavedWork(); i += 1) {
+    await flushSaves();
+    if (saveFailed) break;
+  }
+  return !hasUnsavedWork();
 }
 
 function touch() { scheduleFlush(); }
 
-function setSaveState(text) { $('saveState').textContent = text; }
+/**
+ * The save indicator.
+ *
+ * "Not saved" is the one state that has to survive being glanced past, and
+ * the rule that draws it lives in styles/app.css, which this editor does not
+ * own — so the emphasis is applied here, and the tab title carries it too
+ * for the case where the instructor has switched away to look something up.
+ */
+function setSaveState(text) {
+  const node = $('saveState');
+  if (!node) return;
+  node.textContent = text;
+  const bad = saveFailed;
+  node.classList.toggle('muted', !bad);
+  node.style.color = bad ? 'var(--bad-text, #b42318)' : '';
+  node.style.fontWeight = bad ? '700' : '';
+  node.style.fontSize = bad ? '.82rem' : '';
+  node.title = bad
+    ? 'This deck has changes the server has not taken yet. Keep this tab open.'
+    : '';
+  const base = document.title.replace(/^• Unsaved — /, '');
+  document.title = bad ? `• Unsaved — ${base}` : base;
+}
 
 function field(label, control) {
   const wrap = document.createElement('div');
@@ -2304,10 +2699,33 @@ window.addEventListener('keydown', (e) => {
   // Slide-to-slide with the keyboard, but only when the caret isn't in a
   // field — otherwise arrowing through your own prompt would jump slides.
   if (e.target.matches('input, textarea, select')) return;
+  // …and only when nothing nearer the key has already claimed it. The
+  // element handles on the canvas take arrow keys for a nudge, and they are
+  // buttons, not fields, so the test above waves them straight through.
+  if (e.defaultPrevented) return;
   if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
   const i = questions.findIndex((q) => q.id === selectedId);
   const next = questions[i + (e.key === 'ArrowDown' ? 1 : -1)];
   if (!next) return;
   e.preventDefault();
   selectSlide(next.id);
+});
+
+/**
+ * Don't let an edit leave with the tab.
+ *
+ * Saves are debounced by 420ms, so closing the tab, hitting Back or
+ * clicking anything in the appbar within that window used to drop the last
+ * thing typed without a word. The browser's own "leave site?" prompt is the
+ * only thing that can interrupt a navigation, and it only appears when
+ * there is genuinely something outstanding.
+ */
+window.addEventListener('beforeunload', (e) => {
+  if (!hasUnsavedWork()) return;
+  // A last-ditch attempt to get it out of the door: some browsers still run
+  // this while the confirmation sits on screen, and if it lands the second
+  // attempt to leave goes through silently.
+  flushSaves().catch(() => {});
+  e.preventDefault();
+  e.returnValue = '';
 });

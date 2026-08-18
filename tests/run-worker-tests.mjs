@@ -189,6 +189,61 @@ async function twoInstructors() {
   return { env, alice, bob, deck, question, session, responses, qa };
 }
 
+/**
+ * One instructor, one deck of N slides, one live session on the first of
+ * them, and a phone that has claimed a nickname. The fixture the
+ * participant-facing tests share — everything below drives it through the
+ * same unauthenticated /api/join/:code routes a real phone uses.
+ */
+async function liveRoom(types = ['multiple_choice']) {
+  const env = freshEnv();
+  const token = await account(env, 'alice');
+  const deck = (await call(env, 'POST', '/api/decks',
+    { token, body: { title: 'A real class' } })).data;
+
+  const questions = [];
+  for (const [i, type] of types.entries()) {
+    questions.push((await call(env, 'POST', `/api/decks/${deck.id}/questions`, {
+      token,
+      body: { type, prompt: `Slide ${i + 1}`, config: { options: ['a', 'b'] } },
+    })).data);
+  }
+
+  const session = (await call(env, 'POST', '/api/sessions',
+    { token, body: { deckId: deck.id } })).data;
+  await call(env, 'PATCH', `/api/sessions/${session.id}`, {
+    token,
+    body: {
+      state: 'live', current_question_id: questions[0].id, current_round: 1,
+      accepting: true, qa_moderated: false,
+    },
+  });
+
+  const claim = (await call(env, 'POST', `/api/join/${session.join_code}/pseudonym`)).data;
+  return { env, token, deck, questions, session, claim, code: session.join_code };
+}
+
+/** Answer as the room's phone. `slot` is omitted unless given, as the client omits it. */
+function answer(room, questionId, payload, slot) {
+  return call(room.env, 'POST', `/api/join/${room.code}/respond`, {
+    body: {
+      questionId,
+      round: 1,
+      pseudonym: room.claim.pseudonym,
+      pseudonymToken: room.claim.token,
+      payload,
+      ...(slot === undefined ? {} : { slot }),
+    },
+  });
+}
+
+/** Presenter-side PATCH, in the room's own voice. */
+const patch = (room, body) => call(room.env, 'PATCH', `/api/sessions/${room.session.id}`,
+  { token: room.token, body });
+
+const countOf = (room, table) => room.env.DB.db
+  .prepare(`select count(*) as n from ${table}`).get().n;
+
 // =====================================================================
 
 describe('password hashing', () => {
@@ -891,6 +946,275 @@ describe('feedback', () => {
     eq(env.DB.db.prepare('select handled from feedback').get().handled, 1);
     eq((await call(env, 'DELETE', `/api/feedback/${id}`, { token: admin })).status, 200);
     eq(env.DB.db.prepare('select count(*) as n from feedback').get().n, 0);
+  });
+});
+
+describe('a phone reads only the slide that was pushed', () => {
+  // Rule 3. `reveal` and `show_on_devices` are properties of the SESSION,
+  // so they answer "may anything be shared right now?" and nothing else.
+  // The question of WHICH slide was shared used to be answered by the
+  // caller's own `?question=`, which is to say by the student.
+
+  it('serves aggregates for the slide the presenter is actually on', async () => {
+    const room = await liveRoom(['open_ended']);
+    eq((await answer(room, room.questions[0].id, { text: 'the shared answer' })).status, 200);
+    await patch(room, { reveal: true, show_on_devices: true });
+
+    const shared = (await call(room.env, 'GET',
+      `/api/join/${room.code}/results?question=${room.questions[0].id}&round=1`)).data;
+    eq(shared.round, 1);
+    eq(shared.payloads, [{ text: 'the shared answer' }]);
+  });
+
+  it('NEVER serves a slide the presenter did not push', async () => {
+    // The proof: answer slide 1, let the presenter move to slide 2 and
+    // share THAT, then ask for slide 1 anyway. Slide 1's open-ended
+    // answers were never revealed to anyone and must not come back.
+    const room = await liveRoom(['open_ended', 'open_ended']);
+    await answer(room, room.questions[0].id, { text: 'my private confession' });
+    await patch(room, {
+      current_question_id: room.questions[1].id, reveal: true, show_on_devices: true,
+    });
+
+    const pushed = await call(room.env, 'GET',
+      `/api/join/${room.code}/results?question=${room.questions[1].id}&round=1`);
+    const notPushed = await call(room.env, 'GET',
+      `/api/join/${room.code}/results?question=${room.questions[0].id}&round=1`);
+
+    eq(pushed.data.payloads, []);          // the shared slide still reads
+    eq(notPushed.data, null);              // the other one does not
+    ok(!JSON.stringify(notPushed.data).includes('confession'),
+      'a raw open-ended answer reached a phone that asked for an unshared slide');
+  });
+
+  it('stops sharing the moment the session is no longer live', async () => {
+    const room = await liveRoom(['open_ended']);
+    await answer(room, room.questions[0].id, { text: 'said during class' });
+    await patch(room, { reveal: true, show_on_devices: true });
+    const url = `/api/join/${room.code}/results?question=${room.questions[0].id}&round=1`;
+    eq((await call(room.env, 'GET', url)).data.payloads.length, 1);
+
+    // The switches stay on; the session ends. The room is over, so the
+    // code on a student's phone stops being a key to what was said in it.
+    await patch(room, { state: 'ended' });
+    eq((await call(room.env, 'GET', url)).data, null);
+  });
+});
+
+describe('Q&A upvotes', () => {
+  it('counts an upvote posted the way the client posts it', async () => {
+    // app/db.js sends `body: {}`. The route used to fall through to the
+    // create-a-question branch and answer "Write a question first.", so
+    // this had never once worked.
+    const room = await liveRoom();
+    await call(room.env, 'POST', `/api/join/${room.code}/qa`,
+      { body: { body: 'Can you repeat that?' } });
+    const asked = (await call(room.env, 'GET', `/api/join/${room.code}/qa`)).data;
+    eq(asked.length, 1);
+
+    const res = await call(room.env, 'POST',
+      `/api/join/${room.code}/qa/${asked[0].id}/upvote`, { body: {} });
+    eq(res.status, 200);
+    eq(res.data.upvotes, 1);
+    eq((await call(room.env, 'GET', `/api/join/${room.code}/qa`)).data[0].upvotes, 1);
+
+    // and the question itself was not duplicated by the upvote
+    eq(countOf(room, 'audience_questions'), 1);
+  });
+
+  it('will not upvote a question belonging to another room', async () => {
+    const room = await liveRoom();
+    await call(room.env, 'POST', `/api/join/${room.code}/qa`, { body: { body: 'Mine' } });
+    const mine = (await call(room.env, 'GET', `/api/join/${room.code}/qa`)).data[0];
+
+    // A second room in the same database. Its code must not reach into
+    // the first room's Q&A, ids being sequential and trivially guessable.
+    const other = (await call(room.env, 'POST', '/api/decks',
+      { token: room.token, body: { title: 'Next door' } })).data;
+    const otherSession = (await call(room.env, 'POST', '/api/sessions',
+      { token: room.token, body: { deckId: other.id } })).data;
+    await patch({ ...room, session: otherSession }, { state: 'live' });
+
+    const res = await call(room.env, 'POST',
+      `/api/join/${otherSession.join_code}/qa/${mine.id}/upvote`, { body: {} });
+    eq(res.status, 200);
+    eq(res.data.upvotes, 0);
+    eq(room.env.DB.db.prepare('select upvotes from audience_questions where id = ?')
+      .get(mine.id).upvotes, 0);
+  });
+
+  it('throttles a Q&A flood from one device', async () => {
+    const room = await liveRoom();
+    let blocked = 0;
+    for (let i = 0; i < 150; i += 1) {
+      const res = await call(room.env, 'POST', `/api/join/${room.code}/qa`,
+        { body: { body: `spam ${i}` } });
+      if (res.status === 429) blocked += 1;
+    }
+    ok(blocked > 0, 'expected the rolling limit to refuse some of 150 questions in a row');
+    ok(countOf(room, 'audience_questions') < 150,
+      'every one of 150 looped questions was stored');
+  });
+
+  it('does not silence the room next door when one room floods', async () => {
+    // The limit is keyed by session for exactly this reason: keyed
+    // globally, one phone could shut off Q&A for every class on the site.
+    const room = await liveRoom();
+    for (let i = 0; i < 150; i += 1) {
+      await call(room.env, 'POST', `/api/join/${room.code}/qa`, { body: { body: `spam ${i}` } });
+    }
+    const other = (await call(room.env, 'POST', '/api/decks',
+      { token: room.token, body: { title: 'Next door' } })).data;
+    const otherSession = (await call(room.env, 'POST', '/api/sessions',
+      { token: room.token, body: { deckId: other.id } })).data;
+    await patch({ ...room, session: otherSession }, { state: 'live', qa_moderated: false });
+
+    eq((await call(room.env, 'POST', `/api/join/${otherSession.join_code}/qa`,
+      { body: { body: 'A genuine question' } })).status, 200);
+  });
+});
+
+describe('a join code is not a licence to write', () => {
+  it('takes several slots on a word cloud, which is what slots are for', async () => {
+    const room = await liveRoom(['word_cloud']);
+    for (const slot of [0, 1, 2]) {
+      eq((await answer(room, room.questions[0].id, { text: `word ${slot}` }, slot)).status, 200,
+        `slot ${slot} must be accepted on a word cloud`);
+    }
+    eq(countOf(room, 'responses'), 3);
+  });
+
+  it('refuses a slot outside the range', async () => {
+    const room = await liveRoom(['word_cloud']);
+    // NaN is absent on purpose: JSON has no way to carry it, so it
+    // arrives as null and means "no slot given", the same as omitting it.
+    for (const slot of [-1, -99999, 50, 2 ** 31, 1.5, '3', true, [1], { n: 1 }]) {
+      eq((await answer(room, room.questions[0].id, { text: 'x' }, slot)).status, 400,
+        `slot ${slot} must be refused, not coerced to 0`);
+    }
+    eq(countOf(room, 'responses'), 0);
+  });
+
+  it('refuses any slot but 0 where one person means one answer', async () => {
+    // Otherwise one nickname is a whole class: the slot is part of the
+    // row's unique key, so varying it turns an upsert into an insert.
+    const room = await liveRoom(['multiple_choice']);
+    eq((await answer(room, room.questions[0].id, { choice: 0 }, 0)).status, 200);
+    eq((await answer(room, room.questions[0].id, { choice: 1 }, 1)).status, 400);
+    eq((await answer(room, room.questions[0].id, { choice: 1 }, 49)).status, 400);
+    eq(countOf(room, 'responses'), 1);
+  });
+
+  it('caps the payload, so one phone cannot store a novel', async () => {
+    const room = await liveRoom(['open_ended']);
+    eq((await answer(room, room.questions[0].id, { text: 'x'.repeat(3900) })).status, 200,
+      'a long but plausible open-ended answer must still go through');
+    eq((await answer(room, room.questions[0].id, { text: 'x'.repeat(2_000_000) })).status, 400);
+
+    const stored = room.env.DB.db.prepare('select payload from responses').get().payload;
+    ok(stored.length < 4100, `a 2 MB payload was stored (${stored.length} bytes)`);
+  });
+});
+
+describe('a session may only point at its own deck', () => {
+  it('takes a question from its own deck and refuses another instructor\'s', async () => {
+    const { env, alice, bob, question, session } = await twoInstructors();
+    const bobDeck = (await call(env, 'POST', '/api/decks',
+      { token: bob, body: { title: 'Bob deck' } })).data;
+    const bobQuestion = (await call(env, 'POST', `/api/decks/${bobDeck.id}/questions`,
+      { token: bob, body: { type: 'open_ended', prompt: 'Bob private prompt' } })).data;
+
+    // Alice's own slide still works ...
+    eq((await call(env, 'PATCH', `/api/sessions/${session.id}`,
+      { token: alice, body: { current_question_id: question.id } })).status, 200);
+
+    // ... and Bob's does not. 400, not 404: Alice owns this session and is
+    // entitled to know her value was wrong. The message says the id is not
+    // in this deck, never whose deck it is in.
+    const stolen = await call(env, 'PATCH', `/api/sessions/${session.id}`,
+      { token: alice, body: { current_question_id: bobQuestion.id } });
+    eq(stolen.status, 400);
+    ok(!stolen.data.error.includes('Bob'), `names another account: ${stolen.data.error}`);
+
+    // and no phone in Alice's room was ever shown Bob's prompt
+    const seen = (await call(env, 'GET', `/api/join/${session.join_code}/question`)).data;
+    eq(seen.prompt, 'Pick one');
+    eq(env.DB.db.prepare('select current_question_id from sessions where id = ?')
+      .get(session.id).current_question_id, question.id);
+  });
+
+  it('refuses a question id that exists nowhere at all', async () => {
+    const { env, alice, question, session } = await twoInstructors();
+    for (const current_question_id of ['no-such-question', 42, { id: 'x' }]) {
+      eq((await call(env, 'PATCH', `/api/sessions/${session.id}`,
+        { token: alice, body: { current_question_id } })).status, 400,
+      `${JSON.stringify(current_question_id)} must be refused`);
+    }
+    eq(env.DB.db.prepare('select current_question_id from sessions where id = ?')
+      .get(session.id).current_question_id, question.id);
+  });
+
+  it('still lets a presenter clear the slide', async () => {
+    // Null is how a session goes back to holding no live slide, and the
+    // deck check must not have taken that away.
+    const { env, alice, session } = await twoInstructors();
+    eq((await call(env, 'PATCH', `/api/sessions/${session.id}`,
+      { token: alice, body: { current_question_id: null } })).status, 200);
+    eq(env.DB.db.prepare('select current_question_id from sessions where id = ?')
+      .get(session.id).current_question_id, null);
+  });
+});
+
+describe('a bad value is answered, not described', () => {
+  it('refuses an illegal state with a 400 that names no schema', async () => {
+    const { env, alice, session } = await twoInstructors();
+    const res = await call(env, 'PATCH', `/api/sessions/${session.id}`,
+      { token: alice, body: { state: 'paused' } });
+    eq(res.status, 400);
+    ok(!/constraint|sqlite|check \(/i.test(res.data.error),
+      `the reply describes the database: ${res.data.error}`);
+    eq(env.DB.db.prepare('select state from sessions where id = ?').get(session.id).state, 'live');
+  });
+
+  it('takes each of the three real states', async () => {
+    const { env, alice, session } = await twoInstructors();
+    for (const state of ['lobby', 'live', 'ended']) {
+      eq((await call(env, 'PATCH', `/api/sessions/${session.id}`,
+        { token: alice, body: { state } })).status, 200, `${state} is a real state`);
+    }
+  });
+
+  it('refuses a round that is not a positive whole number', async () => {
+    const { env, alice, session } = await twoInstructors();
+    for (const current_round of [-5, 0, 1.7, 1e9, '2', null]) {
+      eq((await call(env, 'PATCH', `/api/sessions/${session.id}`,
+        { token: alice, body: { current_round } })).status, 400,
+      `current_round ${current_round} must be refused`);
+    }
+    eq((await call(env, 'PATCH', `/api/sessions/${session.id}`,
+      { token: alice, body: { current_round: 2 } })).status, 200);
+    eq(env.DB.db.prepare('select current_round from sessions where id = ?')
+      .get(session.id).current_round, 2);
+  });
+
+  it('never hands a raw error message to a client', async () => {
+    // With state and round validated above, reaching the top-level catch
+    // takes something no handler wrote a message for. Whatever that is,
+    // the reply must be a sentence — not the exception, which on this
+    // stack means column names and CHECK constraints.
+    const { env, alice, session } = await twoInstructors();
+    const quiet = console.error;
+    console.error = () => {};
+    let res;
+    try {
+      res = await call(env, 'PATCH', `/api/sessions/${session.id}`,
+        { token: alice, body: { label: { not: 'a string' } } });
+    } finally {
+      console.error = quiet;
+    }
+    eq(res.status, 500);
+    ok(!/constraint|sqlite|column|bound|bind/i.test(res.data.error),
+      `the 500 leaks internals: ${res.data.error}`);
   });
 });
 

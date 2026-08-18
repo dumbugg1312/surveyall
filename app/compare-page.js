@@ -100,7 +100,7 @@ async function boot() {
 
   if (shown.length < 2) {
     showEmpty('Only one run so far',
-      'Comparison needs at least two sessions that produced answers. Run this '
+      'Comparison needs at least two runs that produced answers. Run this '
       + 'deck with another section, or in another term, and this page fills in.');
     return;
   }
@@ -180,7 +180,7 @@ function renderBlocks({ shown, byDeck, responses, deckTitles }) {
   if (!drawn) {
     showEmpty('No question has been asked twice yet',
       'Every run so far answered a different set of questions. Once the same '
-      + 'prompt has been answered in two sessions, its runs line up here.');
+      + 'prompt has been answered in two runs, they line up here.');
   }
 }
 
@@ -279,7 +279,7 @@ function runGrid(q, cols) {
     head.append(el('span', 'cmp-run-name', runLabel(c.session)));
     const people = new Set(c.rows.map((r) => r.pseudonym)).size;
     head.append(el('span', 'cmp-run-count',
-      `${people} ${people === 1 ? 'person' : 'people'}`));
+      `${people} ${people === 1 ? 'nickname' : 'nicknames'}`));
     if (c.foreign) head.append(el('span', 'cmp-run-deck', c.foreign));
     cell.append(head);
 

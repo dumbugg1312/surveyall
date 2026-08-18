@@ -25,7 +25,13 @@
     <span class="code-value"></span>
   </button>
   <span class="spacer"></span>
-  <span class="muted" id="saveState" style="font-size:.78rem"></span>
+  <!-- Announced, because "Not saved" is the one thing in this appbar you
+       must not be able to miss. It stays on screen until a save actually
+       lands — see setSaveState() in app/edit-page.js, which also colours it
+       and marks the tab title, since the rule for that would otherwise have
+       to live in styles/app.css. -->
+  <span class="muted" id="saveState" style="font-size:.78rem"
+        role="status" aria-live="polite"></span>
   <button class="btn btn-sm" id="textView" type="button">Text view</button>
   <button class="btn btn-sm" id="btnDesign" type="button"
           aria-expanded="true" aria-controls="designPanel">Design</button>

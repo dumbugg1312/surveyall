@@ -633,15 +633,39 @@ function renderDonut(container, agg, opts = {}) {
 //    drops the least frequent words if even the minimum scale fails.
 // =====================================================================
 
+/**
+ * How many words the projector will actually draw. Anything past this is
+ * not rendered, so whoever paints the cloud has to say so out loud —
+ * see the "someone's answer vanishing with no explanation" note in
+ * runLayout(); a word cut off by this ceiling is the same failure.
+ */
+export const CLOUD_MAX_WORDS = 80;
+
 export function renderWordCloud(container, agg, opts = {}) {
   const state = useChart(container, 'cloud');
   const root = container;
 
-  const words = (agg.words || []).slice(0, 80);
+  const words = (agg.words || []).slice(0, CLOUD_MAX_WORDS);
   if (opts.hidden || !words.length) {
     if (!state.meta.empty) {
       container.textContent = '';
       state.nodes = new Map();
+      // The nodes are gone, so every word will be a cache miss on the
+      // next visible render — but the layout cache would still claim
+      // they are all positioned and unchanged, and runLayout() is the
+      // only thing that ever writes font-size. Left behind, it makes
+      // shouldLayout false on all four terms and the cloud comes back as
+      // an unsized pile at the centre, with no vote left to shake it
+      // loose. The cache must die with the nodes it describes.
+      clearTimeout(state.meta.trailing);
+      state.meta.trailing = null;
+      state.meta.positioned = null;
+      state.meta.layoutKey = null;
+      state.meta.W = null;
+      state.meta.H = null;
+      // a wiped container is a first fill again: let it assemble rather
+      // than detonate when it comes back
+      state.meta.hadWords = false;
     }
     const waiting = !opts.hidden && opts.awaiting !== false;
     emptyCard(container, state,

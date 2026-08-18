@@ -11,7 +11,7 @@
 export const TEMPLATES = [
   {
     id: 'minute-paper',
-    name: 'Minute Paper',
+    name: 'Minute paper',
     blurb: 'The classic two-question closer, in its canonical wording.',
     source: 'Angelo & Cross, Classroom Assessment Techniques (1993)',
     questions: [
@@ -29,7 +29,7 @@ export const TEMPLATES = [
   },
   {
     id: 'muddiest-point',
-    name: 'Muddiest Point',
+    name: 'Muddiest point',
     blurb: 'One question, honest answers — anonymity is what makes it work.',
     source: 'Angelo & Cross, Classroom Assessment Techniques (1993)',
     questions: [
@@ -42,7 +42,7 @@ export const TEMPLATES = [
   },
   {
     id: 'exit-ticket',
-    name: 'Exit Ticket',
+    name: 'Exit ticket',
     blurb: 'Concept check + muddiest point + a confidence pulse. Open next class with the results.',
     source: 'Black & Wiliam, Inside the Black Box (1998) — the value is acting on it',
     questions: [
@@ -111,7 +111,7 @@ export const TEMPLATES = [
     questions: [
       {
         type: 'open_ended',
-        prompt: 'Complete the move: "While ___ argues ___, I contend ___ because ___."',
+        prompt: 'Complete the move: “While ___ argues ___, I contend ___ because ___.”',
         config: { max_length: 300 },
       },
     ],
@@ -180,7 +180,7 @@ export const TEMPLATES = [
     id: 'reading-temperature',
     name: 'Reading temperature',
     blurb: 'A one-word warm-up plus two honest scales — the discussion opener that shows the room to itself.',
-    source: 'standard practice (Pitt, Hunter teaching centers); anonymity research on honest self-report',
+    source: 'standard practice (Pitt, Hunter teaching centres); anonymity research on honest self-report',
     questions: [
       {
         type: 'word_cloud',

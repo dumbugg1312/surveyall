@@ -103,9 +103,15 @@ function patchLive(q, index, patch) {
   items[index] = next;
   q.config.decor = items;
 
-  // every surface that has this element drawn: the canvas, the rail
-  // thumbnail, and the projector if a preview is open
-  document.querySelectorAll(`.decor-item[data-decor-index="${index}"]`).forEach((node) => {
+  // Every surface that has this element drawn: the canvas, the rail
+  // thumbnail, and the projector if a preview is open — but only the ones
+  // drawing THIS question. Element indexes restart on every slide, so an
+  // unscoped query repainted slide 7's second element with slide 3's
+  // colour on every tick of the opacity slider.
+  const mine = q?.id != null
+    ? `.sp-slide[data-qid="${CSS.escape(String(q.id))}"] `
+    : '';
+  document.querySelectorAll(`${mine}.decor-item[data-decor-index="${index}"]`).forEach((node) => {
     if (!node.closest('.sp-slide, .stage')) return;
     const fresh = decorNode(next);
     node.style.cssText = fresh.style.cssText;
@@ -627,9 +633,15 @@ export function mountDecorEditor(slide, q, ctx) {
       ctx.onChange({ quiet: true });
     });
 
+    // Keys the handle claims are claimed outright — stopPropagation as well
+    // as preventDefault. The editor moves slide-to-slide on ArrowUp and
+    // ArrowDown from a window listener, so a nudge that was allowed to bubble
+    // moved the element half a percent AND jumped to the next slide, throwing
+    // the selection away. Left and right worked, which made it look random.
     handle.addEventListener('keydown', (e) => {
       if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
+        e.stopPropagation();
         const next = listOf(q);
         next.splice(i, 1);
         selectDecor(q, -1);
@@ -639,6 +651,7 @@ export function mountDecorEditor(slide, q, ctx) {
       const step = nudgeFor(e.key, e.shiftKey);
       if (!step) return;
       e.preventDefault();
+      e.stopPropagation();
       selectDecor(q, i);
       patchItem(q, i, { x: coord(item.x + step.x), y: coord(item.y + step.y) }, ctx);
     });

@@ -50,10 +50,11 @@ function short(s, max = 34) {
  * @param {object} deck         the deck, for background + custom theme
  * @param {string|object} themeRef  resolved theme reference
  * @param {{kicker?: string, placeholder?: boolean, ambience?: boolean,
- *          join?: {code?: string, qrSVG?: string}}} opts
- *        `join` carries the deck's real code and an encoded QR. A deck owns
- *        its code from creation, so the editor draws the same scannable
- *        thing the room will see — no placeholder, no "it'll be real later".
+ *          join?: {code?: string, url?: string, qrSVG?: string}}} opts
+ *        `join` carries the deck's real code, the address a person types,
+ *        and an encoded QR. A deck owns its code from creation, so the
+ *        editor draws the same scannable thing the room will see — no
+ *        placeholder, no "it'll be real later".
  *        `ambience` opts this preview into the deck's backdrop motion.
  */
 export function renderSlide(host, q, deck, themeRef, opts = {}) {
@@ -62,6 +63,11 @@ export function renderSlide(host, q, deck, themeRef, opts = {}) {
   const theme = getTheme(themeRef);
   const frame = el('div', 'sp-frame');
   const slide = el('div', 'sp-slide');
+  // Which question this drawing is of. The same slide is drawn in several
+  // places at once — rail thumbnail, big canvas, an open preview — and a
+  // live in-place repaint has to be able to find *this* question's copies
+  // rather than whatever happens to sit at the same index on another slide.
+  if (q?.id != null) slide.dataset.qid = String(q.id);
   applyTheme(slide, themeRef);
   slide.style.backgroundColor = theme.tokens['--ground'];
 
@@ -135,9 +141,13 @@ function sketch(q, opts) {
 function instructionsSketch(cfg, opts = {}) {
   const wrap = el('div', 'sp-instructions');
   const code = opts.join?.code || '';
+  // %URL% too, not just %CODE%. This file exists so the editor's preview
+  // and the projector cannot drift apart, and a step that read as an empty
+  // gap here and as a real address in class was exactly that drift.
+  const url = opts.join?.url || '';
 
   const steps = (Array.isArray(cfg.steps) && cfg.steps.length ? cfg.steps : DEFAULT_JOIN_STEPS)
-    .map((s) => fillJoinPlaceholders(s, { code }))
+    .map((s) => fillJoinPlaceholders(s, { code, url }))
     .slice(0, 4);
   const list = el('ol', 'sp-steps');
   steps.forEach((s, i) => {

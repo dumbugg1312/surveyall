@@ -138,9 +138,16 @@ Run each in the browser console **signed out** (open `join.html` in a private wi
 | 7 | Presenter presses `C` (close voting), then POST a response | Rejected `409` |
 | 8 | POST a response with a stale `round` number | Rejected `409` |
 | 9 | `await (await fetch('/api/join/CODE/results?question=<id>')).json()` while "push to phones" is **off** | `null` — aggregates must not leak before the presenter shares them |
+| 9b | With push **on** for the live slide, ask for a **different** slide's id: `await (await fetch('/api/join/CODE/results?question=<other id>')).json()` | `null`. The push switches say *whether* to share, not *what* — a student holding an earlier slide's id must not be able to read answers the presenter never pushed. This one leaked until it was fixed; it is the probe most worth re-running. |
+| 9c | Ask for results after the presenter ends the session | `null` — an ended session left with push on must not stay readable |
 | 10 | `await (await fetch('/api/join/CODE')).json()` | Succeeds and contains **no** student data — expected and safe |
+| 11 | POST a response with `slot: 9999`, or with any `slot` above 0 on a type that is not `word_cloud`/`open_ended` | Rejected `400`. One device wrote 500 rows to one question before this was bounded. |
+| 12 | POST a response whose `payload` is a megabyte of junk | Rejected `400` |
+| 13 | `PATCH /api/sessions/<your id>` with a `current_question_id` from a deck you do not own | Rejected `400` — a session may only point at its own deck's slides |
 
-Report results as a table. Any surprise in 1–9 is a release blocker. Re-run all of these after **any** edit to `worker/index.js`.
+Report results as a table. Any surprise in 1–13 is a release blocker. Re-run all of these after **any** edit to `worker/index.js`.
+
+Probes 9b–13 cover invariants the Worker did not enforce until they were found by audit, so `tests/run-worker-tests.mjs` now regression-tests each of them against the real routes. Run `node tests/run-worker-tests.mjs` first — if it fails, there is no point running the live probes.
 
 ### 4c. Realtime and load
 

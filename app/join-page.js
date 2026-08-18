@@ -18,7 +18,7 @@ import {
   getSessionByCode, fetchLiveQuestion, claimPseudonym,
   submitResponse, subscribeToSession, fetchSharedResults,
   askAudienceQuestion, listAudienceQuestions, upvoteAudienceQuestion,
-  subscribeToAudienceQuestions,
+  subscribeToAudienceQuestions, reconnectSockets,
 } from './db.js';
 import {
   validateResponse, aggregate, optionLabels, MULTI_SUBMIT_TYPES,
@@ -32,9 +32,11 @@ import { prefersReducedMotion } from './motion.js';
 import {
   ensurePseudonym, rememberAnswer, recallAnswer,
   codeFromLocation, upvotedIds, markUpvoted,
+  rememberSlot, recallSlot,
 } from './participant-state.js';
 
 const app = document.getElementById('app');
+const statusNode = document.getElementById('join-status');
 
 const state = {
   session: null,
@@ -46,11 +48,37 @@ const state = {
   unsubSession: null,
   unsubAQ: null,
   submitted: false,
+  volunteered: false,
   slot: 0,
   questionShownAt: 0,
   sharedTimer: null,
   pollTimer: null,
+  retryTimer: null,
+  // The live question's DOM, held onto so a presenter toggling results does
+  // not cost the room its half-typed answers. See renderQuestion.
+  view: null,
+  // The question fetch failed. Nothing in the session row has moved, so the
+  // backstop poll would never retry unless it knew to look at this.
+  needsQuestion: false,
+  online: true,
 };
+
+/**
+ * Say one short thing to a screen reader.
+ *
+ * The whole page used to be a live region, so a student using VoiceOver had
+ * the entire screen re-read at them on every repaint — and, once results
+ * were pushed, a chart re-read every four seconds. This is the replacement:
+ * announcements happen because the controller decided something was worth
+ * saying, not because the DOM moved.
+ */
+function announce(text) {
+  if (!statusNode) return;
+  // Re-setting the same string is a no-op to assistive tech, so clear first
+  // when the message repeats (e.g. two dropped connections in a row).
+  if (statusNode.textContent === text) statusNode.textContent = '';
+  statusNode.textContent = text;
+}
 
 // =====================================================================
 // Boot
@@ -72,21 +100,42 @@ async function init() {
   await joinByCode(code);
 }
 
-async function joinByCode(code) {
+async function joinByCode(code, attempt = 0) {
+  clearRetry();
   showState('', 'Joining…', '', true);
 
   let session;
   try {
     session = await getSessionByCode(code);
   } catch (err) {
-    return showState('⚠️', 'Could not connect', err.message);
+    // This is the request that decides whether the phone works at all. It
+    // runs at the exact moment sixty other phones are making the same call
+    // off one lecture-theatre access point, so a single dropped request
+    // here is ordinary — and it used to be terminal, because everything
+    // that could have recovered (the socket, the backstop poll) is set up
+    // further down this function and never got created. Retry on a timer
+    // the student can see, with a button for anyone unwilling to wait.
+    return showJoinRetry(code, err?.message, attempt);
   }
 
   if (!session) {
-    return showCodeEntry(`No session found for “${code}”. Check the code on the screen.`);
+    // Keep what they typed. Six characters is not much to retype but it is
+    // infuriating to retype when five of them were right, and a bad code in
+    // the hash means a reload lands straight back on this same error.
+    clearCodeFromURL();
+    return showCodeEntry(
+      `No session found for “${code}”. Check the code on the screen.`, code);
   }
 
   state.session = session;
+  // A different session (or a re-join) means none of the per-question
+  // bookkeeping below belongs to this device any more.
+  state.question = null;
+  state.submitted = false;
+  state.volunteered = false;
+  state.slot = 0;
+  state.needsQuestion = false;
+  state.view = null;
   // an instructor-built theme arrives as tokens on the join payload;
   // built-in themes are just an id
   applyTheme(document.documentElement, session.custom_theme?.tokens
@@ -127,11 +176,94 @@ async function joinByCode(code) {
   state.pollTimer = setInterval(async () => {
     try {
       const fresh = await getSessionByCode(state.session.join_code);
-      if (fresh && hasMoved(state.session, fresh)) onSessionChange(fresh);
-    } catch { /* offline; try again next tick */ }
+      setOnline(true);
+      // `hasMoved` only ever looks at the session row. When it was the
+      // QUESTION fetch that failed, nothing in that row has moved, so this
+      // poll would spin harmlessly while the phone sat on an error screen
+      // for the whole six minutes of a discussion question. The flag is how
+      // the poll finds out there is something to heal.
+      if (fresh && (hasMoved(state.session, fresh) || state.needsQuestion)) {
+        onSessionChange(fresh);
+      }
+    } catch {
+      // Not "offline" in the navigator sense necessarily — the request
+      // failed, and that is the part worth telling the student about,
+      // because the alternative is a screen that looks perfectly normal.
+      setOnline(false);
+    }
   }, 8000);
 
   await refresh();
+}
+
+// =====================================================================
+// Staying in sync
+//
+// Three things conspire to leave a phone quietly out of date: iOS throttles
+// and then freezes setInterval in a backgrounded tab, the OS usually kills
+// the WebSocket on suspend without a close frame, and neither of those is
+// visible on screen. So a student can unlock their phone on question 3
+// while the room is on question 6, looking at a page that gives no hint
+// anything is wrong. Every path back into the foreground goes through
+// resync().
+// =====================================================================
+
+async function resync() {
+  if (!state.session) return;
+  reconnectSockets();
+  try {
+    const fresh = await getSessionByCode(state.session.join_code);
+    setOnline(true);
+    if (fresh) onSessionChange(fresh);
+    else await refresh();
+  } catch {
+    setOnline(false);
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') resync();
+});
+window.addEventListener('online', () => { setOnline(true); resync(); });
+window.addEventListener('offline', () => setOnline(false));
+// Coming back through the back/forward cache: the page is restored whole,
+// timers and all, from a moment that may be many minutes old.
+window.addEventListener('pageshow', (e) => { if (e.persisted) resync(); });
+
+/**
+ * The offline strip.
+ *
+ * It hangs off <body> rather than #app because #app is emptied on every
+ * render, and the one thing a student needs to keep being told is that what
+ * they are looking at is not live. Fixed to the top so it is visible
+ * whatever they have scrolled to, and styled from theme tokens inline —
+ * it is a single element that only this controller knows about.
+ */
+let offlineStrip = null;
+
+function setOnline(ok) {
+  if (state.online === ok) return;
+  state.online = ok;
+
+  if (ok) {
+    offlineStrip?.remove();
+    offlineStrip = null;
+    announce('Back online.');
+    return;
+  }
+
+  if (!offlineStrip) {
+    offlineStrip = div('offline-strip', 'Offline — this screen may be out of date');
+    document.body.append(offlineStrip);
+  }
+  announce('Connection lost. This screen may be out of date.');
+}
+
+function clearRetry() {
+  if (state.retryTimer) {
+    clearInterval(state.retryTimer);
+    state.retryTimer = null;
+  }
 }
 
 /**
@@ -176,7 +308,21 @@ function onSessionChange(next) {
 // Render
 // =====================================================================
 
+/**
+ * Which refresh is allowed to paint.
+ *
+ * `onSessionChange` fires refresh() without awaiting it, and a presenter
+ * clicking twice inside one round trip therefore has two fetches in flight
+ * at once. Without this, whichever one the network happened to finish last
+ * won — routinely the OLDER question — and the phone would render question
+ * 3 while `state.session.current_question_id` said 4. The student's answer
+ * then went to a question the server had closed, and came back a 409 they
+ * had no way to make sense of.
+ */
+let refreshGen = 0;
+
 async function refresh() {
+  const gen = (refreshGen += 1);
   const s = state.session;
   if (!s) return;
 
@@ -201,8 +347,14 @@ async function refresh() {
   try {
     q = await fetchLiveQuestion(s.id);
   } catch (err) {
-    return showState('⚠️', 'Could not load the question', err.message);
+    if (gen !== refreshGen) return;
+    state.question = null;
+    state.view = null;
+    state.needsQuestion = true;
+    return showQuestionError(err?.message);
   }
+  if (gen !== refreshGen) return;
+  state.needsQuestion = false;
 
   if (!q) {
     teardownShared();
@@ -218,7 +370,17 @@ async function refresh() {
   if (changed) {
     state.questionShownAt = performance.now();
     const prior = recallAnswer(s.id, q.id, q.round);
-    state.submitted = !!prior && !MULTI_SUBMIT_TYPES.has(q.type);
+    // The slot is read back from storage rather than zeroed, because the
+    // pseudonym half of the row key survives a reload and this half has to
+    // as well — see rememberSlot in participant-state.js.
+    state.slot = recallSlot(s.id, q.id, q.round);
+    state.submitted = MULTI_SUBMIT_TYPES.has(q.type) ? state.slot > 0 : !!prior;
+    // Likewise the raised hand: it is recorded on the answer itself, so a
+    // reloaded phone can tell it is already on the instructor's list.
+    state.volunteered = !!prior?.volunteer;
+    if (!isContentSlide(q.type) && q.type !== 'qa') {
+      announce(q.prompt ? `New question. ${q.prompt}` : 'New question.');
+    }
   }
 
   if (isContentSlide(q.type)) return renderContentSlide(q);
@@ -236,9 +398,10 @@ async function refresh() {
  */
 function renderContentSlide(q) {
   teardownShared();
+  state.view = null;
   app.textContent = '';
   app.append(header(q));
-  app.append(div('q-prompt', q.prompt || 'How this works'));
+  app.append(heading('h1', 'q-prompt', q.prompt || 'How this works'));
 
   const steps = (Array.isArray(q.config?.steps) && q.config.steps.length
     ? q.config.steps : DEFAULT_JOIN_STEPS)
@@ -266,18 +429,45 @@ function renderContentSlide(q) {
   app.append(wrap);
 }
 
+/**
+ * Draw — or, far more often, DON'T redraw — the live question.
+ *
+ * This function used to empty #app and rebuild every control on every call,
+ * and it is called from refresh(), which runs on any session change at all.
+ * `hasMoved` counts `accepting`, `reveal` and `show_on_devices`, so the
+ * instructor pressing H to hide results, or pushing them to phones, blanked
+ * sixty half-written textareas at once. A student six items into ranking
+ * eight lost the order, because that order lives in the control's closure
+ * and `recallAnswer` only restores answers that were actually SENT. The
+ * instructor had no idea they had done it.
+ *
+ * So the control is now sacred: while the question and round are unchanged
+ * and it is still on screen, nothing touches it, and only the chrome around
+ * it — heading, hint, button, results — is brought up to date.
+ */
 function renderQuestion(q, isNew) {
   const s = state.session;
+  const live = state.view;
+  if (!isNew && live && live.id === q.id && live.round === q.round
+      && live.control && app.contains(live.control.el)) {
+    repaintChrome(q);
+    return;
+  }
+
   const prior = recallAnswer(s.id, q.id, q.round);
+  const multi = MULTI_SUBMIT_TYPES.has(q.type);
 
   app.textContent = '';
-  app.append(header(q));
+  const head = header(q);
+  app.append(head);
 
-  const prompt = div('q-prompt', q.prompt || 'Your answer');
+  const prompt = heading('h1', 'q-prompt', q.prompt || 'Your answer');
   app.append(prompt);
 
-  const hint = hintFor(q);
-  if (hint) app.append(div('q-hint', hint));
+  const hintText = hintFor(q);
+  const hint = div('q-hint', hintText);
+  hint.hidden = !hintText;
+  app.append(hint);
 
   const body = div('q-body');
   const control = buildControl(q, prior);
@@ -286,10 +476,13 @@ function renderQuestion(q, isNew) {
 
   const actions = div('join-actions');
   const error = div('field-error');
+  // Without this a failed validation is completely silent to a screen
+  // reader: the message appears, the student hears nothing, and the only
+  // feedback is a button that seems not to work.
+  error.setAttribute('role', 'alert');
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'submit-btn';
-  btn.textContent = submitLabel(q, state.submitted);
 
   // confidence rider (anonymous, optional, off unless the question asks)
   let conf = null;
@@ -326,6 +519,25 @@ function renderQuestion(q, isNew) {
   hand.textContent = '🖐 I’d say more about mine aloud';
   hand.hidden = true;
 
+  // A device that already answered this question — usually one that just
+  // reloaded — gets the hand back rather than being told nothing happened.
+  if (!multi && state.submitted && prior) {
+    hand.__payload = prior;
+    hand.hidden = false;
+    if (state.volunteered) {
+      hand.disabled = true;
+      hand.textContent = 'Hand raised ✓';
+      hand.classList.add('is-raised');
+    }
+  }
+
+  // Everything the chrome-only repaint needs. Built before the handlers so
+  // they can close over it and leave `state.view` free to move on.
+  const view = {
+    id: q.id, round: q.round, control, head, prompt, hint, btn, hand, error,
+    busy: false, open: undefined,
+  };
+
   btn.addEventListener('click', async () => {
     error.textContent = '';
     const raw = control.value();
@@ -336,31 +548,43 @@ function renderQuestion(q, isNew) {
       return;
     }
 
+    view.busy = true;
     btn.disabled = true;
     btn.textContent = 'Sending…';
 
     try {
-      const multi = MULTI_SUBMIT_TYPES.has(q.type);
       const slot = multi ? state.slot : 0;
+      // Raising your hand is recorded ON the answer row — same slot, plus a
+      // volunteer flag. So a later "Change my answer" that sent the bare
+      // payload overwrote that row without the flag and quietly withdrew
+      // the student from the instructor's list of who will speak. Nothing
+      // told either of them, and because `state.volunteered` stayed true
+      // the hand button never came back to offer a way in again. Carry it.
+      const payload = (!multi && state.volunteered)
+        ? { ...check.payload, volunteer: true }
+        : check.payload;
+
       await submitResponse({
         sessionId: s.id,
         questionId: q.id,
         round: q.round,
         pseudonym: state.pseudonym,
         pseudonymToken: state.pseudonymToken,
-        payload: check.payload,
+        payload,
         slot,
       });
 
-      rememberAnswer(s.id, q.id, q.round, check.payload);
+      rememberAnswer(s.id, q.id, q.round, payload);
       state.submitted = true;
       if (multi) {
         state.slot += 1;
+        rememberSlot(s.id, q.id, q.round, state.slot);
         control.reset?.();
       }
 
       btn.classList.add('is-sent');
       btn.textContent = multi ? 'Sent — add another' : 'Answer sent ✓';
+      announce(multi ? 'Sent. You can add another.' : 'Answer sent.');
       // one small physical beat on success — the green text alone is
       // easy to miss mid-lecture with the phone at arm's length
       if (!prefersReducedMotion()) {
@@ -371,30 +595,31 @@ function renderQuestion(q, isNew) {
       }
       setTimeout(() => {
         btn.classList.remove('is-sent');
-        btn.disabled = !state.session.accepting;
-        btn.textContent = submitLabel(q, state.submitted);
+        view.busy = false;
+        syncSendButton(view, q);
       }, 1400);
 
-      if (!multi && !state.volunteered) {
-        hand.hidden = false;
-        hand.__payload = check.payload;
+      if (!multi) {
+        hand.__payload = payload;
+        if (!state.volunteered) hand.hidden = false;
       }
 
       maybeShowSharedResults();
     } catch (err) {
-      // The database rejects late votes; say so in human terms.
-      const closed = String(err?.message || '').includes('row-level security');
-      error.textContent = closed
-        ? 'Voting just closed for this question.'
-        : (err.message || 'Could not send. Check your connection.');
-      btn.disabled = false;
-      btn.textContent = submitLabel(q, state.submitted);
+      // No special-casing of the message. There used to be a branch here
+      // looking for 'row-level security' — a Supabase artefact that this
+      // backend has never produced, and which only appeared to work
+      // because the Worker's own wording happened to be right anyway.
+      error.textContent = err.message || 'Could not send. Check your connection.';
+      view.busy = false;
+      syncSendButton(view, q);
     }
   });
 
   hand.addEventListener('click', async () => {
     if (!hand.__payload) return;
     hand.disabled = true;
+    const payload = { ...hand.__payload, volunteer: true };
     try {
       await submitResponse({
         sessionId: s.id,
@@ -402,25 +627,86 @@ function renderQuestion(q, isNew) {
         round: q.round,
         pseudonym: state.pseudonym,
         pseudonymToken: state.pseudonymToken,
-        payload: { ...hand.__payload, volunteer: true },
+        payload,
         slot: 0,
       });
       state.volunteered = true;
+      // Store the flagged payload, so a reload — and any later change of
+      // answer — both know this device is on the list.
+      rememberAnswer(s.id, q.id, q.round, payload);
+      hand.__payload = payload;
       hand.textContent = 'Hand raised ✓';
       hand.classList.add('is-raised');
+      announce('Hand raised.');
     } catch {
       hand.disabled = false;
     }
   });
 
-  actions.append(error, btn, hand);
+  // The error sits BELOW the button. Above it, a validation message
+  // arriving at the moment a thumb is on its way down moved the target.
+  actions.append(btn, hand, error);
   app.append(actions);
+
+  state.view = view;
+  syncSendButton(view, q);
 
   if (isNew && !prefersReducedMotion()) prompt.animate?.(
     [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }],
     { duration: 260, easing: 'cubic-bezier(.22,.8,.3,1)' });
 
   maybeShowSharedResults();
+}
+
+/**
+ * Everything around the answer control, brought up to date in place.
+ *
+ * Called instead of a rebuild whenever the session moved but the question
+ * did not — which is most of the time, because hiding results, revealing
+ * them, pushing them to phones and closing voting are all session changes.
+ */
+function repaintChrome(q) {
+  const view = state.view;
+  if (!view) return;
+
+  const head = header(q);
+  view.head.replaceWith(head);
+  view.head = head;
+
+  view.prompt.textContent = q.prompt || 'Your answer';
+
+  const hintText = hintFor(q);
+  view.hint.textContent = hintText;
+  view.hint.hidden = !hintText;
+
+  syncSendButton(view, q);
+  maybeShowSharedResults();
+}
+
+/**
+ * Make the Send button tell the truth about whether the room is voting.
+ *
+ * `accepting` used to be read in exactly two places, neither of them the
+ * moment the button was built. So a student who joined late, or who was
+ * looking at their phone when the instructor pressed C, saw a full-strength
+ * accent-coloured "Send answer", tapped it, waited out a round trip, and
+ * got a red error for their trouble. The session payload already carries
+ * the answer; the button just has to say it.
+ */
+function syncSendButton(view, q) {
+  if (!view || view.busy || !view.btn.isConnected) return;
+  const open = !!state.session?.accepting;
+
+  view.btn.disabled = !open;
+  view.btn.textContent = open ? submitLabel(q, state.submitted) : 'Voting is closed';
+  if (view.hand && !state.volunteered) view.hand.disabled = !open;
+
+  // Only worth saying out loud when it CHANGES under them — announcing it
+  // on first paint would just be noise on top of the question itself.
+  if (view.open !== undefined && view.open !== open) {
+    announce(open ? 'Voting is open again.' : 'Voting has closed for this question.');
+  }
+  view.open = open;
 }
 
 function submitLabel(q, submitted) {
@@ -1331,7 +1617,13 @@ function maybeShowSharedResults() {
   teardownShared();
   const s = state.session;
   const q = state.question;
-  if (!s?.show_on_devices || !s.reveal || !q || q.type === 'qa') return;
+  if (!s?.show_on_devices || !s.reveal || !q || q.type === 'qa') {
+    // The chart used to be cleared as a side effect of the whole page
+    // being rebuilt. Now that the question survives a repaint, taking
+    // results back down has to be said out loud.
+    app.querySelector('.shared-result')?.remove();
+    return;
+  }
 
   const paint = async () => {
     try {
@@ -1340,7 +1632,7 @@ function maybeShowSharedResults() {
       let host = app.querySelector('.shared-result');
       if (!host) {
         host = div('shared-result');
-        host.append(div('eyebrow', 'The room so far'));
+        host.append(heading('h2', 'eyebrow', 'The room so far'));
         const chart = div('chart');
         host.append(chart);
         app.querySelector('.q-body')?.append(host);
@@ -1362,9 +1654,10 @@ function maybeShowSharedResults() {
 
 async function renderQAPage(q) {
   const s = state.session;
+  state.view = null;
   app.textContent = '';
   app.append(header(q));
-  app.append(div('q-prompt', q.prompt || 'Ask a question'));
+  app.append(heading('h1', 'q-prompt', q.prompt || 'Ask a question'));
   // Deliberately no "questions are anonymous" here. Naming the moderation
   // step is kept, because that one is a deterrent rather than an invitation.
   app.append(div('q-hint', s.qa_moderated
@@ -1379,6 +1672,7 @@ async function renderQAPage(q) {
   area.maxLength = 500;
   area.placeholder = 'Type your question — no need to include your name';
   const err = div('field-error');
+  err.setAttribute('role', 'alert');
   const send = document.createElement('button');
   send.type = 'button';
   send.className = 'submit-btn';
@@ -1408,11 +1702,11 @@ async function renderQAPage(q) {
     }
   });
 
-  compose.append(area, err, send);
+  compose.append(area, send, err);
   panel.append(compose);
 
   const list = div('qa-list');
-  panel.append(div('eyebrow', 'From the room'), list);
+  panel.append(heading('h2', 'eyebrow', 'From the room'), list);
   app.append(panel);
 
   const voted = upvotedIds(s.id);
@@ -1461,16 +1755,23 @@ async function renderQAPage(q) {
 // Simple screens
 // =====================================================================
 
+/** @returns {HTMLElement} the wrapper, so callers can hang a button off it. */
 function showState(icon, title, text, waiting = false) {
+  state.view = null;
   app.textContent = '';
   const wrap = div('join-state');
   if (icon) wrap.append(div('state-icon', icon));
   if (waiting) {
     const dots = div('pulse-wait');
+    dots.setAttribute('aria-hidden', 'true');
     dots.innerHTML = '<span></span><span></span><span></span>';
     wrap.append(dots);
   }
-  if (title) wrap.append(div('state-title', title));
+  // Every one of these screens IS the page while it is up, so its title is
+  // the page's <h1>. Before this the join page emitted no heading at all,
+  // which left a screen-reader user with no landmark to jump to and no way
+  // to tell one screen from the next except by reading everything.
+  if (title) wrap.append(heading('h1', 'state-title', title));
   if (text) wrap.append(div('state-text', text));
   if (state.pseudonym && state.session && showNickname()) {
     const tag = document.createElement('span');
@@ -1479,15 +1780,68 @@ function showState(icon, title, text, waiting = false) {
     wrap.append(tag);
   }
   app.append(wrap);
+  return wrap;
 }
 
-function showCodeEntry(message) {
+/**
+ * The join request failed. Show a countdown, retry on it, and offer a
+ * button to anyone not willing to watch it tick.
+ */
+function showJoinRetry(code, message, attempt) {
+  const wrap = showState('⚠️', 'Could not connect',
+    message || 'The network dropped on the way in.');
+  announce('Could not connect. Trying again.');
+
+  const countdown = div('state-text');
+  const again = document.createElement('button');
+  again.type = 'button';
+  again.className = 'submit-btn';
+  again.textContent = 'Try again now';
+  again.addEventListener('click', () => joinByCode(code, attempt + 1));
+  wrap.append(countdown, again);
+
+  // Backs off, but never past fifteen seconds: a class is happening.
+  let left = Math.round(Math.min(2000 * 2 ** attempt, 15000) / 1000);
+  const tick = () => {
+    if (left <= 0) {
+      clearRetry();
+      joinByCode(code, attempt + 1);
+      return;
+    }
+    countdown.textContent = `Trying again in ${left}s…`;
+    left -= 1;
+  };
+  tick();
+  state.retryTimer = setInterval(tick, 1000);
+}
+
+/**
+ * The question fetch failed. The backstop poll heals this within 8s (it
+ * watches `state.needsQuestion`), but a stuck screen with no explanation is
+ * its own problem — say what is happening, and let them skip the wait.
+ */
+function showQuestionError(message) {
+  const wrap = showState('⚠️', 'Could not load the question',
+    message || 'That did not come through.');
+  wrap.append(div('state-text', 'Trying again automatically…'));
+  const again = document.createElement('button');
+  again.type = 'button';
+  again.className = 'submit-btn';
+  again.textContent = 'Try again now';
+  again.addEventListener('click', () => refresh());
+  wrap.append(again);
+  announce('Could not load the question. Trying again.');
+}
+
+function showCodeEntry(message, prefill = '') {
+  state.view = null;
   app.textContent = '';
   const wrap = div('join-state');
-  wrap.append(div('state-title', 'Enter the code'));
+  wrap.append(heading('h1', 'state-title', 'Enter the code'));
   wrap.append(div('state-text', 'It\'s on the screen at the front of the room.'));
   if (message) {
     const warn = div('alert alert-error');
+    warn.setAttribute('role', 'alert');
     warn.textContent = message;
     wrap.append(warn);
   }
@@ -1504,6 +1858,9 @@ function showCodeEntry(message) {
   input.autocapitalize = 'characters';
   input.spellcheck = false;
   input.setAttribute('aria-label', 'Session code');
+  // Whatever they typed comes back, cursor at the end. One wrong character
+  // should cost one keystroke to fix, not six to retype.
+  input.value = prefill;
 
   const go = document.createElement('button');
   go.type = 'submit';
@@ -1530,6 +1887,37 @@ function div(cls, text) {
   if (cls) d.className = cls;
   if (text != null) d.textContent = text;
   return d;
+}
+
+/**
+ * Same as div(), but a real heading. The styles are all class-based and
+ * base.css already flattens h1–h4 to margin 0, so this is purely a change
+ * of semantics — nothing moves on screen.
+ */
+function heading(tag, cls, text) {
+  const h = document.createElement(tag);
+  if (cls) h.className = cls;
+  if (text != null) h.textContent = text;
+  return h;
+}
+
+/**
+ * Drop the join code out of the address bar.
+ *
+ * Only called when the code turned out to be wrong. Leaving it in the hash
+ * means a reload — the first thing anyone tries — reproduces the same error
+ * instead of showing the empty box the student now needs. `replaceState`
+ * does not fire `hashchange`, so the listener at the bottom of this file
+ * stays out of it.
+ */
+function clearCodeFromURL() {
+  try {
+    const url = new URL(window.location.href);
+    url.hash = '';
+    url.searchParams.delete('code');
+    url.searchParams.delete('c');
+    window.history.replaceState(null, '', url.pathname + url.search);
+  } catch { /* no history API; the prefilled field still saves the retype */ }
 }
 
 function syncThemeColor() {

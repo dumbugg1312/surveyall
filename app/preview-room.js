@@ -26,10 +26,20 @@
 import {
   isContentSlide, sortedQuestions, optionLabels, correctIndices, splitPassage,
   trafficLabels, moodIcons, pairList, budgetTotal, clozeBlanks,
-  exitPrompts, timelineItems,
+  exitPrompts, timelineItems, MULTI_SUBMIT_TYPES,
 } from './logic.js';
 
 const CHANNEL = 'surveyall-preview';
+
+/**
+ * Write limits, mirrored from worker/index.js.
+ *
+ * KEEP THESE IN STEP with the Worker's MAX_SLOT and RESPONSE_MAX_CHARS.
+ * Nothing enforces the match, and the cost of drift is an instructor who
+ * rehearses a deck that behaves one way here and another way in class.
+ */
+const MAX_SLOT = 49;
+const RESPONSE_MAX_CHARS = 4000;
 
 /** Content slides and Q&A collect nothing a chart can draw. */
 const NO_RESPONSES = new Set(['instructions', 'qa']);
@@ -667,6 +677,18 @@ export function createPreviewRoom(deck, questions) {
   //
   // Mirrors worker/index.js. Anything not listed 404s, exactly as there,
   // so a call the real server would not answer does not silently work here.
+  //
+  // THE ERROR STRINGS BELOW ARE A VERBATIM COPY OF THE WORKER'S. Every
+  // message passed to nope() — "This session is not live.", "Voting just
+  // closed for this question.", "That question is no longer live.", "That
+  // round has ended.", "No session found for that code.", "Write a question
+  // first." — is the same sentence the real fail() returns in
+  // worker/index.js. That matters because the preview runs the REAL
+  // join-page.js, which draws whatever text it is handed: a preview that
+  // words a refusal differently teaches the instructor a sentence their
+  // students will never see, and does it in the one place they cannot
+  // check. Nothing enforces the match, so when a message changes there,
+  // change it here in the same commit.
 
   const ok = (body) => ({ status: 200, body });
   const nope = (error, status = 404) => ({ status, body: { error } });
@@ -720,16 +742,31 @@ export function createPreviewRoom(deck, questions) {
         if (Number(body.round) !== Number(session.current_round)) {
           return nope('That round has ended.', 409);
         }
+        // Bounded exactly as the Worker bounds it. A rehearsal that accepts
+        // what the real room refuses is worse than no rehearsal.
+        const slot = Number.isInteger(body.slot) ? body.slot : 0;
+        if (slot < 0 || slot > MAX_SLOT) return nope('That answer slot is out of range.', 400);
+        if (slot > 0 && !MULTI_SUBMIT_TYPES.has(currentQuestion()?.type)) {
+          return nope('This question takes one answer.', 400);
+        }
+        if (JSON.stringify(body.payload ?? {}).length > RESPONSE_MAX_CHARS) {
+          return nope('That answer is too long.', 400);
+        }
         return ok(addResponse(
           body.questionId, Number(body.round), String(body.pseudonym),
-          Number.isInteger(body.slot) ? body.slot : 0, body.payload ?? {},
+          slot, body.payload ?? {},
         ));
       }
 
       if (tail === 'results' && method === 'GET') {
+        if (session.state !== 'live') return ok(null);
         if (!session.reveal || !session.show_on_devices) return ok(null);
         const questionId = params.get('question');
         const round = Number(params.get('round') || session.current_round);
+        // Same second half of the check the Worker makes: the presenter
+        // revealed ONE slide, so that is the only slide readable. See the
+        // long note on rule 3 in worker/index.js.
+        if (questionId !== session.current_question_id) return ok(null);
         return ok({
           round,
           payloads: responses

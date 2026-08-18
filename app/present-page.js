@@ -16,7 +16,7 @@ import {
 } from './db.js';
 import {
   aggregate, computeDelta, quizLeaderboard, sortedQuestions,
-  neighbourQuestion, joinURL, TYPE_LABELS, correctIndices, optionLabels,
+  neighbourQuestion, joinURL, joinURLPretty, TYPE_LABELS, correctIndices, optionLabels,
   promptKey, isContentSlide, fillJoinPlaceholders, DEFAULT_JOIN_STEPS,
   questionNumber, promptScale, showSlideLabel,
 } from './logic.js';
@@ -26,7 +26,7 @@ import {
 import { ambiencePlan, applyAmbience } from './ambience.js';
 import {
   renderAggregate, renderDelta, renderLeaderboard, renderInstructions,
-  celebrate, pulseCount,
+  celebrate, pulseCount, CLOUD_MAX_WORDS,
 } from './charts.js';
 import { countTo, delay } from './motion.js';
 import { renderQR, qrSVG, qrInk } from './qr.js';
@@ -63,6 +63,12 @@ const state = {
   unsubs: [],
   repaintQueued: false,
   chartPaintQueued: false,
+  // what the delta view has already played its transition for, so a
+  // repaint doesn't replay it (see paintDelta)
+  deltaKey: null,
+  // the leaderboard fans out one fetch per quiz question; this keeps a
+  // busy room from firing that fan-out again every frame
+  boardBusy: false,
   // live headcount from the Durable Object; null until the first event, so
   // the lobby can stay silent rather than flash a stale zero
   presence: null,
@@ -170,7 +176,7 @@ async function paintJoin() {
   // decks had codes — those still resolve server-side.
   const code = state.deck.join_code || state.session.join_code;
   const url = joinURL(joinBase(), code);
-  const pretty = url.replace(/^https?:\/\//, '').replace(/\/join\.html#.*$/, '');
+  const pretty = joinURLPretty(joinBase(), code);
 
   state.joinURL = url;
   state.joinPretty = pretty;
@@ -291,7 +297,7 @@ async function render() {
     // entrance animation under the room every few seconds.
     renderDecor(ui.decor, q.config);
 
-    state.view = 'results';
+    setView('results');
     state.rows = [];
     resetChart();
     stopTimer();
@@ -380,15 +386,34 @@ function paintControlStates() {
     : (!s.reveal ? 'Results hidden from the room' : '');
 }
 
+/**
+ * Is `q` still the slide on the projector?
+ *
+ * Every painter below captures state.question, awaits the network, then
+ * writes to the screen. On lecture-hall wifi that await outlives the
+ * slide often enough to matter: the instructor advances, the old fetch
+ * lands, and the previous question's results are painted over the new
+ * question and stay there until the next vote or the 10s backstop poll.
+ * Nothing on screen says the chart is stale, which is the worst part.
+ * Compare the round too — a re-ask is a different set of answers under
+ * the same question id.
+ */
+function isCurrent(q) {
+  return !!q && state.question?.id === q.id && state.question?.__round === q.__round;
+}
+
 async function loadRows() {
   const q = state.question;
   if (!q) return;
+  let rows;
   try {
-    state.rows = await fetchResponses(state.session.id, q.id, state.session.current_round);
+    rows = await fetchResponses(state.session.id, q.id, state.session.current_round);
   } catch (err) {
     console.error(err);
     return;
   }
+  if (!isCurrent(q)) return;
+  state.rows = rows;
   paintChart();
 }
 
@@ -423,6 +448,19 @@ function queuePaintChart() {
 }
 
 /**
+ * Switch the projector view.
+ *
+ * The delta view plays a one-time transition when it opens, and knows it
+ * has played by the latch in paintDelta(). Entering or leaving any view
+ * clears that latch, so coming back to a comparison replays it while a
+ * repaint of the view you are already in does not.
+ */
+function setView(v) {
+  if (v !== state.view) state.deltaKey = null;
+  state.view = v;
+}
+
+/**
  * Full chart teardown. Emptying textContent alone is a trap: useChart's
  * per-container state survives, still holding references to the now
  * detached rows, and the next render updates nodes nobody can see. Any
@@ -444,8 +482,11 @@ function resetChart() {
 const KEYED_TYPES = new Set(['quiz', 'cloze', 'matching', 'timeline']);
 
 function formatCount(q, nRows, nPeople) {
+  // Both halves pluralise. A seminar of six, and every demo, opens on
+  // exactly the case that used to read "1 response · 1 people".
   return q.type === 'open_ended' || q.type === 'word_cloud'
-    ? `${nRows} ${nRows === 1 ? 'response' : 'responses'} · ${nPeople} people`
+    ? `${nRows} ${nRows === 1 ? 'response' : 'responses'}`
+      + ` · ${nPeople} ${nPeople === 1 ? 'person' : 'people'}`
     : `${nPeople} ${nPeople === 1 ? 'response' : 'responses'}`;
 }
 
@@ -498,7 +539,15 @@ function paintChart() {
   paintHands();
   paintPIHint();
 
-  if (state.view === 'leaderboard') return paintLeaderboard();
+  if (state.view === 'leaderboard') {
+    // The compare picker and the hold chips belong to the results view.
+    // The early return used to skip the cleanup below, so both stayed
+    // floating over the scoreboard — a dropdown offering to compare
+    // rounds of a question that isn't on screen any more.
+    document.getElementById('compareBar')?.remove();
+    document.getElementById('holdStrip')?.remove();
+    return paintLeaderboard();
+  }
   if (state.view === 'delta') return paintDelta();
   document.getElementById('compareBar')?.remove();
 
@@ -663,6 +712,7 @@ function paintCloudCuration(q, agg) {
   let chip = $('curateChip');
   if (q.type !== 'word_cloud') {
     if (chip) chip.remove();
+    $('cloudMore')?.remove();
     return;
   }
   const merged = agg.merged || 0;
@@ -689,7 +739,37 @@ function paintCloudCuration(q, agg) {
       hidden ? `${hidden} hidden` : '',
     ].filter(Boolean).join(' · ');
   }
+  paintCloudOverflow(agg);
   wireCloudWordTaps(q);
+}
+
+/**
+ * The tail the cloud couldn't draw.
+ *
+ * The renderer only ever paints its top CLOUD_MAX_WORDS, and charts.js
+ * is explicit that a student's answer must not disappear off the
+ * projector with no explanation (see the rescale-before-drop note in its
+ * layout pass). A ceiling is the same disappearance by another route, so
+ * it gets counted on screen next to the curation chip — the instructor
+ * shapes what the room sees, and the room is told how much it is seeing.
+ */
+function paintCloudOverflow(agg) {
+  // distinct, not words.length: aggregate caps its own list at 400, and
+  // an overflow note that quietly stops counting at 400 is the same bug.
+  const shown = Math.min(agg.words?.length || 0, CLOUD_MAX_WORDS);
+  const extra = Math.max(0, (agg.distinct ?? shown) - shown);
+  let note = $('cloudMore');
+  // nothing is on screen while results are hidden, so "not shown" would
+  // be counting against a blank
+  if (!extra || !state.session.reveal) { note?.remove(); return; }
+  if (!note) {
+    note = document.createElement('span');
+    note.id = 'cloudMore';
+    note.className = 'hold-note';
+    note.title = 'The cloud shows the most frequent words that fit on screen';
+    ui.foot.append(note);
+  }
+  note.textContent = `+${extra} more ${extra === 1 ? 'word' : 'words'} not shown`;
 }
 
 let curateSelection = null; // the word awaiting a merge target
@@ -782,7 +862,7 @@ async function discussStep() {
   if (s.accepting && s.current_round >= 2) {
     // final beat: close round two and reveal what moved
     await patch({ accepting: false, reveal: true });
-    state.view = 'delta';
+    setView('delta');
     paintControlStates();
     paintChart();
     announce('Both rounds revealed.');
@@ -914,6 +994,10 @@ async function paintDelta() {
   const q = state.question;
   const round = state.session.current_round;
   await ensureCompareBar();
+  // ensureCompareBar lists the room's other sessions over the network,
+  // and everything below writes to the projector — bail if the deck has
+  // moved on while we were waiting.
+  if (!isCurrent(q) || state.view !== 'delta') return;
 
   let before = null;
   if (state.compareWith) {
@@ -921,32 +1005,51 @@ async function paintDelta() {
   } else if (round >= 2) {
     before = await fetchResponses(state.session.id, q.id, round - 1);
   }
+  if (!isCurrent(q) || state.view !== 'delta') return;
   if (!before) {
     renderDelta(ui.chart, null);
     return;
   }
   const after = await fetchResponses(state.session.id, q.id, round);
+  if (!isCurrent(q) || state.view !== 'delta') return;
   const beforeAgg = aggregate(q.type, q.config, before);
   const afterAgg = aggregate(q.type, q.config, after);
+
+  // The transition below is a one-time reveal, but paintChart runs on
+  // every arriving vote AND on the 10s backstop poll. Replaying it each
+  // time meant a cloud left in delta view during a discussion blanked
+  // itself and re-bloomed every ten seconds, in front of the room, with
+  // nobody touching anything. Latch on what is being compared, so the
+  // teardown happens on entry and later repaints just retarget the
+  // springs already on screen.
+  const key = `${q.id}:${q.__round}:${state.compareWith || ''}`;
+  const firstEntry = state.deltaKey !== key;
+  state.deltaKey = key;
 
   // clouds morph rather than ghost: paint the old counts, then let the
   // springs carry every word to its new size and place. The fresh
   // teardown is what makes the replay possible — otherwise the current
   // round is already on screen and there is nothing to travel from.
   if (q.type === 'word_cloud') {
+    if (!firstEntry) {
+      renderAggregate(ui.chart, q.type, afterAgg, { awaiting: false });
+      return;
+    }
     resetChart();
     renderAggregate(ui.chart, q.type, beforeAgg, { awaiting: false });
     delay(0.9, () => {
-      if (state.view !== 'delta') return;
+      if (state.view !== 'delta' || !isCurrent(q)) return;
       renderAggregate(ui.chart, q.type, afterAgg, { awaiting: false });
     });
     return;
   }
   // spectra migrate: same dots, old position to new
   if (q.type === 'spectrum') {
-    resetChart();
+    if (firstEntry) resetChart();
     renderAggregate(ui.chart, q.type, afterAgg, {
       awaiting: false,
+      // only new dots read this, so a repaint of an already-migrated
+      // spectrum leaves the dots where the migration put them
       beforePoints: beforeAgg.points,
       leftLabel: q.config?.left_label,
       rightLabel: q.config?.right_label,
@@ -964,12 +1067,33 @@ async function paintDelta() {
 }
 
 async function paintLeaderboard() {
-  const quizzes = state.questions.filter((q) => q.type === 'quiz');
-  const perQuestion = await Promise.all(quizzes.map(async (question) => ({
-    question,
-    rows: await fetchResponses(state.session.id, question.id),
-  })));
-  renderLeaderboard(ui.chart, quizLeaderboard(perQuestion));
+  // One fetch per quiz question, and paintChart runs once per animation
+  // frame while votes land — unlatched, a ten-question quiz fired ten
+  // requests a frame at the exact moment the room was busiest. Skipping
+  // a repaint costs nothing: the next vote or the 10s backstop poll
+  // draws whatever arrived while this one was in flight.
+  if (state.boardBusy) return;
+  state.boardBusy = true;
+  const q = state.question;
+  let board;
+  try {
+    const quizzes = state.questions.filter((x) => x.type === 'quiz');
+    const perQuestion = await Promise.all(quizzes.map(async (question) => ({
+      question,
+      rows: await fetchResponses(state.session.id, question.id),
+    })));
+    board = quizLeaderboard(perQuestion);
+  } catch (err) {
+    console.error(err);
+    return;
+  } finally {
+    state.boardBusy = false;
+  }
+  // renderLeaderboard empties the chart container, so a scoreboard that
+  // resolves after the instructor has moved on would land on top of the
+  // next slide and stay there.
+  if (!isCurrent(q) || state.view !== 'leaderboard') return;
+  renderLeaderboard(ui.chart, board);
 }
 
 // =====================================================================
@@ -1029,7 +1153,7 @@ async function reask() {
   const highest = await maxRound(state.session.id, q.id);
   const next = Math.max(state.session.current_round, highest) + 1;
   await patch({ current_round: next, accepting: true, reveal: true });
-  state.view = 'results';
+  setView('results');
   flash('Ask it again');
 }
 
@@ -1063,9 +1187,19 @@ function startTimer(seconds) {
     pill.classList.toggle('is-urgent', left <= 10);
     if (left <= 0) {
       stopTimer();
-      patch({ accepting: false });
-      flash('Time');
-      announce("Time's up. Voting closed.");
+      // Closing voting is a network write like every other control on
+      // this page, and this is the one nobody's finger is on. Fired bare
+      // it could reject into the void: "Time" flashes, the timer
+      // disappears, and every phone in the room quietly keeps taking
+      // answers — the only tell being the button still reading "Close
+      // voting". ctrl() puts that failure on the projector, and the
+      // flash waits for the write so it can't announce a close that
+      // didn't happen.
+      ctrl(async () => {
+        await patch({ accepting: false });
+        flash('Time');
+        announce("Time's up. Voting closed.");
+      })();
     }
   };
   tick();
@@ -1211,11 +1345,11 @@ function wireControls() {
   $('btnEnd').addEventListener('click', ctrl(endSession));
 
   $('btnDelta').addEventListener('click', () => {
-    state.view = state.view === 'delta' ? 'results' : 'delta';
+    setView(state.view === 'delta' ? 'results' : 'delta');
     paintControlStates(); paintChart();
   });
   $('btnBoard').addEventListener('click', () => {
-    state.view = state.view === 'leaderboard' ? 'results' : 'leaderboard';
+    setView(state.view === 'leaderboard' ? 'results' : 'leaderboard');
     paintControlStates(); paintChart();
   });
   $('btnShare').addEventListener('click', ctrl(async () => {
@@ -1252,7 +1386,25 @@ function wireKeyboard() {
   // lecture-hall connection fails silently, which is the single worst
   // place in this app for something to fail silently.
   window.addEventListener('keydown', ctrl((e) => {
-    if (e.target.matches('input, textarea')) return undefined;
+    // The browser's own shortcuts win, always. Cmd/Ctrl+R is the reflex
+    // when a projector looks stuck — and unguarded it lands on 're-ask'
+    // one instant before the reload: every phone in the room resets, the
+    // chart empties, and the reload then hides the cause, so the
+    // instructor blames the reload. Nothing in this app can put a room
+    // back on a previous round. Cmd+F/P/T/L and Cmd+1-9 collide the same
+    // way, just less destructively.
+    if (e.metaKey || e.ctrlKey || e.altKey) return undefined;
+    // A focused control does its own thing with letters and arrows: the
+    // compare picker is a <select>, and typing "p" to reach "Period 3"
+    // would otherwise drop the full-screen discussion overlay over the
+    // room while the arrows walked the deck.
+    // optional call: with nothing focused the target can be the document,
+    // which has no matches() — and a TypeError here would put a red flash
+    // on the projector on every keystroke.
+    if (e.target.matches?.(
+      'input, textarea, select, [contenteditable]:not([contenteditable="false"])')) {
+      return undefined;
+    }
     const k = e.key.toLowerCase();
 
     if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); return go(1); }

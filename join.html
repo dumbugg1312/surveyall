@@ -14,7 +14,17 @@
 </head>
 <body class="join-body">
 
-  <main class="join-shell" id="app" aria-live="polite">
+  <!-- The one thing on this page that talks to a screen reader by itself.
+       <main> used to carry aria-live, which meant every repaint re-read the
+       whole screen — prompt, hint, every option, the button — and, once the
+       presenter pushed results, re-read the chart every four seconds with no
+       way for the student to stop it. Announcements are now deliberate: the
+       controller writes a single short sentence here when something has
+       actually changed underneath the student (voting closed, a new
+       question, the connection dropped). -->
+  <p id="join-status" class="sr-only" role="status" aria-live="polite"></p>
+
+  <main class="join-shell" id="app">
     <div class="join-state">
       <div class="pulse-wait" aria-hidden="true"><span></span><span></span><span></span></div>
       <p class="state-text">Connecting…</p>

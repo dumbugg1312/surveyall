@@ -10,15 +10,24 @@
  * Supabase the database itself refused to hand a quiz answer key to a
  * student; D1 has no such mechanism, so these handlers are the only
  * thing standing between a participant and data they must not see.
- * Four rules, enforced here and nowhere else:
+ * Five rules, enforced here and nowhere else:
  *
  *   1. `sanitiseQuestion()` strips answer keys before any question is
  *      sent to a phone.
  *   2. A participant may write a response ONLY to the currently-live
  *      question, in a live session that is accepting, at the current
  *      round — checked against the database, not trusted from the body.
+ *      A write is also bounded: a capped payload, and a slot inside a
+ *      small range, so holding a join code is not a licence to fill the
+ *      database from one phone.
  *   3. A participant may never read raw responses. Aggregates are served
- *      only once the presenter has both revealed AND pushed to devices.
+ *      only once the presenter has both revealed AND pushed to devices —
+ *      and only for the question the presenter is actually on, in a live
+ *      session. The session-wide switches say WHETHER to share; they do
+ *      not say WHAT, and a `?question=` from the caller must never be
+ *      allowed to answer that second question. Reveal is a per-slide act,
+ *      so the read has to be scoped per slide too, or a phone can name a
+ *      slide that was never pushed and read every answer on it.
  *   4. Every instructor route requires a valid token before it touches
  *      anything.
  *   5. Every instructor route is scoped to the signed-in user. This one
@@ -62,6 +71,47 @@ const parse = (text, fallback) => {
  *  sender cannot fill a 500 MB database on their own. */
 const FEEDBACK_MAX_CHARS = 2000;
 const FEEDBACK_MAX_PER_HOUR = 30;
+
+/**
+ * Participant write limits — the same bargain the feedback route strikes,
+ * for the same reason. Anyone standing in the room can read the join code
+ * off the projector, and from that moment they can POST. None of these
+ * caps is a security boundary against a determined student; each is the
+ * difference between "one device answered oddly" and "one device filled
+ * the database during a fifty-minute class".
+ *
+ * RESPONSE_MAX_CHARS is the serialised payload, not the typed text: a
+ * ranking or a matching answer is an array, and the cap has to bound what
+ * actually gets stored. Generous enough for a long open-ended paragraph
+ * and every structured answer the editor can build.
+ *
+ * MAX_SLOT bounds the ONE field a participant supplies that becomes part
+ * of a primary key. Slots exist so a word cloud can take several words
+ * from one phone; every other type stores exactly one row per label per
+ * round, and its slot is always 0. Unbounded, `slot` turns the row's
+ * uniqueness constraint into a counter the participant controls.
+ *
+ * QA_MAX_PER_HOUR is per session, not per device — a phone is deliberately
+ * unidentifiable here, so the room is the only thing there is to key on.
+ * Well above what a real class asks, low enough to stop a loop.
+ */
+const RESPONSE_MAX_CHARS = 4000;
+const MAX_SLOT = 49;
+const QA_MAX_PER_HOUR = 120;
+
+/**
+ * Types where one device may submit several rows, each in its own slot.
+ * Kept in step with MULTI_SUBMIT_TYPES in app/logic.js — and checked
+ * here, because the client deciding not to send a slot is not the same
+ * thing as the server refusing one.
+ */
+const MULTI_SUBMIT_TYPES = new Set(['word_cloud', 'open_ended']);
+
+/** Legal session states, mirroring the CHECK constraint in schema.sql. */
+const SESSION_STATES = ['lobby', 'live', 'ended'];
+
+/** Re-asking one question forever is a fine plan; 1000 rounds is not. */
+const MAX_ROUND = 1000;
 
 /**
  * The page a note was written from, reduced to a bare path.
@@ -436,8 +486,15 @@ export default {
     try {
       return await route(request, env, url, ctx);
     } catch (err) {
+      // The real error goes to the log, where the person who can act on
+      // it will read it; the client gets a sentence. An unhandled error
+      // is by definition one nobody wrote a message for, so its text is
+      // whatever the layer that threw happened to say — and that layer is
+      // usually SQLite, which answers with the schema: column names,
+      // CHECK constraints, table shapes. A 500 must not double as a
+      // description of the database to anybody who sends a bad value.
       console.error(err);
-      return fail(err.message || 'Unexpected error', 500);
+      return fail('Something went wrong. Please try again.', 500);
     }
   },
 };
@@ -701,7 +758,26 @@ async function participantRoute(request, env, seg, method, body, url) {
     );
     if (!liveQuestion) return fail('That question is no longer live.', 409);
 
-    const slot = Number.isInteger(body.slot) ? body.slot : 0;
+    // Bound the two things the participant controls about the ROW itself,
+    // rather than about the answer. See RESPONSE_MAX_CHARS / MAX_SLOT.
+    // Both refuse rather than coerce: silently rewriting a slot to 0 would
+    // overwrite an answer the student already gave, and silently truncating
+    // a payload would store a corrupted answer under their name.
+    const slot = body.slot === undefined || body.slot === null ? 0 : body.slot;
+    if (!Number.isInteger(slot) || slot < 0 || slot > MAX_SLOT) {
+      return fail('That answer slot is out of range.', 400);
+    }
+    if (slot > 0 && !MULTI_SUBMIT_TYPES.has(liveQuestion.type)) {
+      // One row per label per round for every other type — a slot here is
+      // a device trying to be several students.
+      return fail('This question takes one answer per person.', 400);
+    }
+
+    const raw = JSON.stringify(body.payload ?? {});
+    if (raw.length > RESPONSE_MAX_CHARS) {
+      return fail(`Keep it under ${RESPONSE_MAX_CHARS} characters.`, 400);
+    }
+
     const payload = await unshuffleAnswer(env, liveQuestion, body.payload ?? {});
     await env.DB.prepare(`
       insert into responses (session_id, question_id, round, pseudonym, slot, payload, created_at)
@@ -729,10 +805,26 @@ async function participantRoute(request, env, seg, method, body, url) {
   if (tail === 'results' && method === 'GET') {
     // Two switches must both be on. `reveal` alone means "on the
     // projector"; pushing to phones is a separate, deliberate act.
+    // Both are properties of the session, and neither says which slide
+    // was pushed — so on their own they are only half the check.
+    if (session.state !== 'live') return json(null);
     if (!session.reveal || !session.show_on_devices) return json(null);
     const questionId = url.searchParams.get('question');
     const round = Number(url.searchParams.get('round') || session.current_round);
     if (!questionId) return fail('Missing question', 400);
+
+    // The other half, and rule 3's whole point: the presenter revealed ONE
+    // slide, so that is the only slide anyone may read. Without this the
+    // `?question=` is the caller's to choose, and a phone in a room where
+    // any slide has ever been pushed can walk the deck and read the raw
+    // answers to every other question — including the open-ended ones,
+    // verbatim — none of which was ever revealed to anybody.
+    //
+    // Answered `null` rather than 403: "nothing to show you yet" is the
+    // truthful answer to a phone that asked a beat before the presenter
+    // moved, and it is the same answer the un-revealed case gives, so the
+    // response never reports which slides exist.
+    if (questionId !== session.current_question_id) return json(null);
 
     const { results } = await env.DB.prepare(
       'select payload from responses where session_id = ? and question_id = ? and round = ?',
@@ -743,7 +835,28 @@ async function participantRoute(request, env, seg, method, body, url) {
   }
 
   // ---- Q&A ---------------------------------------------------------------
-  if (tail === 'qa') {
+  // Upvote first, and note the `!seg[3]` on the block below it. `tail` is
+  // seg[2], so BOTH routes have tail === 'qa': /qa and /qa/:id/upvote.
+  // Matching on `tail` alone therefore swallowed every upvote into the
+  // create-a-question branch, where a body carrying no text was answered
+  // "Write a question first." — and the handler further down could never
+  // be reached at all.
+  if (tail === 'qa' && seg[3] && seg[4] === 'upvote' && method === 'POST') {
+    const id = Number(seg[3]);
+    if (!Number.isInteger(id)) return fail('Unknown route', 404);
+    await env.DB.prepare(
+      'update audience_questions set upvotes = upvotes + 1 where id = ? and session_id = ? and approved = 1',
+    ).bind(id, session.id).run();
+    // Scoped to this session on the way back out as well as on the way in:
+    // a bare `where id = ?` would report another room's tally.
+    const row = await env.DB.prepare(
+      'select upvotes from audience_questions where id = ? and session_id = ?',
+    ).bind(id, session.id).first();
+    await notifyRoom(env, session.id, 'qa', { changed: true });
+    return json({ upvotes: row?.upvotes ?? 0 });
+  }
+
+  if (tail === 'qa' && !seg[3]) {
     if (method === 'GET') {
       const { results } = await env.DB.prepare(`
         select id, body, upvotes, answered, created_at from audience_questions
@@ -756,6 +869,17 @@ async function participantRoute(request, env, seg, method, body, url) {
       if (session.state !== 'live') return fail('This session is not live.', 409);
       const text = String(body.body || '').trim().slice(0, 500);
       if (!text) return fail('Write a question first.', 400);
+
+      // The same rolling counter the feedback route uses, keyed by room
+      // rather than by nothing, so one class flooding its own Q&A cannot
+      // silence the class next door. Keyed by session id and not by
+      // device on purpose: there is no device identifier here to key on,
+      // and inventing one would put a participant identifier in the
+      // database — which is the thing this whole app refuses to do.
+      if (!await underGlobalLimit(env, `qa:${session.id}`, QA_MAX_PER_HOUR, 1000 * 60 * 60)) {
+        return fail('Too many questions at once — try again shortly.', 429);
+      }
+
       const approved = session.qa_moderated ? 0 : 1;
       await env.DB.prepare(
         'insert into audience_questions (session_id, body, approved, created_at) values (?, ?, ?, ?)',
@@ -763,17 +887,6 @@ async function participantRoute(request, env, seg, method, body, url) {
       await notifyRoom(env, session.id, 'qa', { changed: true });
       return json({ ok: true, pending: !approved });
     }
-  }
-
-  if (seg[2] === 'qa' && seg[4] === 'upvote' && method === 'POST') {
-    const id = Number(seg[3]);
-    await env.DB.prepare(
-      'update audience_questions set upvotes = upvotes + 1 where id = ? and session_id = ? and approved = 1',
-    ).bind(id, session.id).run();
-    const row = await env.DB.prepare('select upvotes from audience_questions where id = ?')
-      .bind(id).first();
-    await notifyRoom(env, session.id, 'qa', { changed: true });
-    return json({ upvotes: row?.upvotes ?? 0 });
   }
 
   return fail('Unknown route', 404);
@@ -1153,7 +1266,47 @@ async function instructorRoute(request, env, seg, method, body, url, ctx, user) 
     }
 
     if (sessionId && method === 'PATCH') {
-      if (!(await ownedSession(DB, sessionId, user))) return notYours();
+      const owned = await ownedSession(DB, sessionId, user);
+      if (!owned) return notYours();
+
+      // Owning the session is rule 5, and it is not the whole of it: this
+      // is the write that tells sixty phones what to show, and three of
+      // its columns have a meaning the database cannot check. Validate
+      // them here, where a wrong value is a 400 with a sentence, rather
+      // than letting SQLite refuse it as a 500 with no explanation — or,
+      // in current_question_id's case, not refuse it at all.
+
+      // A live session must point at a question in its OWN deck. Nothing
+      // else in this handler would have noticed: the column takes any
+      // string, and the participant routes read it back and serve it. The
+      // effect of a foreign id is that another instructor's prompt appears
+      // on your students' phones and their answers are filed under your
+      // session — so this is 400, not 404. The caller owns the session and
+      // is entitled to be told their value was the problem; the reply says
+      // the id is not in this deck, never whose deck it is in.
+      if (body.current_question_id !== undefined && body.current_question_id !== null) {
+        // Type first, so a non-string never reaches a bind() — which
+        // throws, and a throw here is a 500 for what is plainly a 400.
+        if (typeof body.current_question_id !== 'string') {
+          return fail('current_question_id must be a question id.', 400);
+        }
+        const inDeck = await DB.prepare(
+          'select 1 as yes from questions where id = ? and deck_id = ?',
+        ).bind(body.current_question_id, owned.deck_id).first();
+        if (!inDeck) return fail('That question is not in this session\'s deck.', 400);
+      }
+
+      if (body.state !== undefined && !SESSION_STATES.includes(body.state)) {
+        return fail(`state must be one of ${SESSION_STATES.join(', ')}.`, 400);
+      }
+
+      if (body.current_round !== undefined) {
+        const round = body.current_round;
+        if (!Number.isInteger(round) || round < 1 || round > MAX_ROUND) {
+          return fail(`current_round must be a whole number from 1 to ${MAX_ROUND}.`, 400);
+        }
+      }
+
       const allowed = ['state', 'current_question_id', 'current_round', 'accepting',
         'reveal', 'show_on_devices', 'qa_moderated', 'label', 'started_at', 'ended_at'];
       const bools = new Set(['accepting', 'reveal', 'show_on_devices', 'qa_moderated']);

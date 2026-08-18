@@ -389,11 +389,28 @@ export const moderateAudienceQuestion = (id, patch) =>
 
 const sockets = new Map();
 
+// How often a client says "still here", and how long it will wait for any
+// reply before deciding the socket is dead.
+//
+// A TCP connection that is dropped without a close frame — a phone going
+// through a tunnel, campus wifi handing off between APs, iOS suspending a
+// backgrounded tab — leaves `readyState === OPEN` forever. No 'close'
+// event fires, so the retry ladder below never runs, and the page sits
+// there looking connected while the room moves on without it. The only
+// way to find out is to send something and notice that nothing comes
+// back. The Durable Object answers 'ping' with 'pong' (see
+// worker/session-room.js) precisely so this can exist.
+const PING_MS = 25000;
+const SILENCE_MS = PING_MS * 2 + 5000;
+
 function socketFor(sessionId) {
   let entry = sockets.get(sessionId);
   if (entry) return entry;
 
-  entry = { ws: null, handlers: new Set(), closed: false, retry: 0, timer: null };
+  entry = {
+    ws: null, handlers: new Set(), closed: false, retry: 0, timer: null,
+    ping: null, lastSeen: 0, connect: null,
+  };
   sockets.set(sessionId, entry);
 
   const connect = () => {
@@ -427,9 +444,16 @@ function socketFor(sessionId) {
     }
     entry.ws = ws;
 
-    ws.addEventListener('open', () => { entry.retry = 0; });
+    ws.addEventListener('open', () => {
+      entry.retry = 0;
+      entry.lastSeen = Date.now();
+      startHeartbeat();
+    });
 
     ws.addEventListener('message', (ev) => {
+      // Any frame at all proves the link is alive, 'pong' included — which
+      // is the whole reason the heartbeat is worth sending.
+      entry.lastSeen = Date.now();
       if (ev.data === 'pong') return;
       let msg;
       try { msg = JSON.parse(ev.data); } catch { return; }
@@ -438,9 +462,32 @@ function socketFor(sessionId) {
       });
     });
 
-    ws.addEventListener('close', scheduleRetry);
+    ws.addEventListener('close', () => { stopHeartbeat(); scheduleRetry(); });
     ws.addEventListener('error', () => { try { ws.close(); } catch { /* ignore */ } });
   };
+
+  entry.connect = connect;
+
+  function stopHeartbeat() {
+    clearInterval(entry.ping);
+    entry.ping = null;
+  }
+
+  function startHeartbeat() {
+    stopHeartbeat();
+    entry.ping = setInterval(() => {
+      const ws = entry.ws;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      // Nothing has come back in two whole ping cycles: this socket is
+      // open in name only. Close it by hand so the 'close' handler runs
+      // and the retry ladder actually gets a chance to reconnect.
+      if (Date.now() - entry.lastSeen > SILENCE_MS) {
+        try { ws.close(); } catch { /* ignore */ }
+        return;
+      }
+      try { ws.send('ping'); } catch { /* the close handler will pick it up */ }
+    }, PING_MS);
+  }
 
   function scheduleRetry() {
     if (entry.closed) return;
@@ -464,10 +511,47 @@ function subscribe(sessionId, handler) {
     if (entry.handlers.size === 0) {
       entry.closed = true;
       clearTimeout(entry.timer);
+      clearInterval(entry.ping);
+      entry.ping = null;
       try { entry.ws?.close(); } catch { /* ignore */ }
       sockets.delete(sessionId);
     }
   };
+}
+
+/**
+ * Wake every live socket, now, without waiting for the backoff ladder.
+ *
+ * A phone that has been locked or backgrounded comes back with its timers
+ * throttled and, very often, with a socket the OS quietly tore down. The
+ * page has no way to know which, so on becoming visible it calls this: an
+ * already-healthy socket just gets an early keepalive, and a dead one is
+ * reconnected on the spot rather than in however many seconds the backoff
+ * had reached. Idempotent, so calling it on every wake is fine.
+ */
+export function reconnectSockets() {
+  sockets.forEach((entry) => {
+    if (entry.closed) return;
+    const ws = entry.ws;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      // "OPEN" after a suspend is a claim, not a fact. Ping it and give it
+      // three seconds to prove itself; if nothing comes back, close it so
+      // the reconnect happens now rather than at the next heartbeat.
+      const sentAt = Date.now();
+      try { ws.send('ping'); } catch { /* the timeout below handles it */ }
+      setTimeout(() => {
+        if (entry.closed || entry.ws !== ws) return;
+        if (entry.lastSeen < sentAt && ws.readyState === WebSocket.OPEN) {
+          try { ws.close(); } catch { /* ignore */ }
+        }
+      }, 3000);
+      return;
+    }
+    if (ws && ws.readyState === WebSocket.CONNECTING) return;
+    clearTimeout(entry.timer);
+    entry.retry = 0;
+    entry.connect?.();
+  });
 }
 
 /** Watch one session: how a phone follows the presenter. */

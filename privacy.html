@@ -60,14 +60,17 @@
     their phones. This page describes exactly what is recorded when they do,
     what is not, and who can see it.
   </p>
-  <p class="updated">Last updated 16 August 2026.</p>
+  <p class="updated">Last updated 17 August 2026.</p>
 
   <div class="callout todo">
     <p class="callout-title">Before sharing this page</p>
     <p>
-      Replace the two bracketed placeholders below — the operator's contact
-      address, and the institution name — then delete this box. A privacy page
-      with an unfilled placeholder in it undoes the point of having one.
+      Replace the three bracketed placeholders below — the operator's name, the
+      operator's contact address, and the institution name. Then go to
+      <em>Where this sits with your institution</em>, which offers two
+      alternative paragraphs: keep whichever one is true of your deployment and
+      delete the other. Then delete this box. A privacy page with an unfilled
+      placeholder in it undoes the point of having one.
     </p>
   </div>
 
@@ -84,13 +87,13 @@
   <h2>What a student's device sends</h2>
   <p>
     When a student joins a session, their device is given a random two-word
-    label — "Amber Falcon", "Teal Juniper". Their answers are filed under that
-    label. That is the entire record of who answered what.
+    nickname — “Amber Falcon”, “Teal Juniper”. Their answers are filed under
+    that nickname. That is the entire record of who answered what.
   </p>
-  <p>The label:</p>
+  <p>The nickname:</p>
   <ul>
     <li>is generated at random by the server, not derived from anything about the device or the person;</li>
-    <li>exists only inside one session — the same student in your next class gets an unrelated label;</li>
+    <li>exists only inside one session — the same student in your next class gets an unrelated nickname;</li>
     <li>cannot be joined across sessions, because no key exists that would connect them;</li>
     <li>is only shown to the student at all when the deck contains a scored quiz, so that a leaderboard can work.</li>
   </ul>
@@ -107,13 +110,23 @@
     </thead>
     <tbody>
       <tr>
-        <td>The question text an instructor wrote</td>
+        <td>The question text an instructor wrote, and the deck it sits in —
+            its title, its question types and options, its theme and
+            background choice</td>
         <td>It's their teaching material</td>
         <td>Until they delete it</td>
       </tr>
       <tr>
-        <td>Answers submitted, each tagged with a random session label</td>
+        <td>Answers submitted, each tagged with a random session nickname</td>
         <td>To show and export results</td>
+        <td>Until the instructor deletes the session</td>
+      </tr>
+      <tr>
+        <td>The nicknames already handed out in a session</td>
+        <td>So two phones in the same room can never be given the same one,
+            which is what makes a quiz leaderboard add up. The row holds the
+            nickname and the moment it was claimed, and nothing else — no
+            device identifier, and nothing that says whose phone took it</td>
         <td>Until the instructor deletes the session</td>
       </tr>
       <tr>
@@ -142,6 +155,20 @@
         <td>Until the account is deleted</td>
       </tr>
       <tr>
+        <td><strong>Instructor:</strong> whether the account is an admin</td>
+        <td>Admins can reset a colleague's password and read the feedback
+            inbox. The first account created becomes one</td>
+        <td>Until the account is deleted</td>
+      </tr>
+      <tr>
+        <td><strong>Instructor:</strong> when the account was created, and
+            when it was last used</td>
+        <td>So the operator can tell a live account from one nobody has
+            touched since the term it was made. Two timestamps, no page
+            history — nothing records what was done, only that something was</td>
+        <td>Until the account is deleted</td>
+      </tr>
+      <tr>
         <td><strong>Instructor:</strong> a count of recent failed sign-ins</td>
         <td>To slow down password guessing — each failure in a row makes the next attempt wait longer</td>
         <td>Cleared on a successful sign-in; forgotten after a day</td>
@@ -157,7 +184,14 @@
     </tbody>
   </table>
   </div>
-  <p>That is the complete list. There is no other table and no other file.</p>
+  <p>
+    That is the complete list. Every table in <code>worker/schema.sql</code> is
+    represented above, and there is no other file. Some of those rows are
+    housekeeping about instructor accounts rather than anything a student
+    sends — they are listed because a page whose whole authority rests on
+    being exhaustive has to actually be exhaustive, not because they change
+    anything said above.
+  </p>
 
   <h2>Who can see what</h2>
   <ul>
@@ -165,7 +199,7 @@
       <strong>An instructor</strong> sees only their own decks, sessions, and
       results. Instructors sharing this site cannot see each other's material —
       every request is filtered by account, and asking for a colleague's session
-      by its ID returns "not found".
+      by its ID returns “not found”.
     </li>
     <li>
       <strong>Students</strong> see the current question and, when the presenter
@@ -211,11 +245,13 @@
   <div class="callout caveat">
     <p class="callout-title">The hosting provider sees network traffic</p>
     <p>
-      This site runs on Cloudflare. Serving any web page necessarily means
-      Cloudflare's network handles the request, including the visitor's IP
-      address, and it applies its own security logging. SurveyAll neither
-      receives nor stores that. It is governed by Cloudflare's privacy terms,
-      not by this page.
+      SurveyAll is built to deploy on Cloudflare, so this site is served from
+      Cloudflare's network. Serving any web page necessarily means that
+      network handles the request, including the visitor's IP address, and it
+      applies its own security logging. SurveyAll neither receives nor stores
+      that. It is governed by the host's privacy terms, not by this page — and
+      if this deployment has been moved to another host, read that host's
+      terms in Cloudflare's place.
     </p>
   </div>
 
@@ -240,14 +276,31 @@
     </p>
   </div>
 
-  <h2>Not an official university service</h2>
+  <h2>Where this sits with your institution</h2>
   <p>
-    SurveyAll is an independent tool built and run by an instructor. It is
-    <strong>not</strong> operated, endorsed, hosted, or reviewed by
-    <strong>[INSTITUTION NAME]</strong>, and it is not covered by the
-    university's own agreements with vendors. It is offered to colleagues as-is.
-    Departments with a formal software review process should route it through
-    that process before adopting it for coursework.
+    SurveyAll is open source and meant to be forked, so this section depends
+    entirely on who is running the copy you are reading. Two paragraphs
+    follow: <strong>the operator keeps whichever one is true and deletes the
+    other.</strong> Leaving both in place says nothing.
+  </p>
+  <p>
+    <strong>If this deployment is independent —</strong> it is run by
+    <strong>[OPERATOR NAME]</strong> personally, and is <strong>not</strong>
+    operated, endorsed, hosted, or reviewed by
+    <strong>[INSTITUTION NAME]</strong>. It is not covered by that
+    institution's own agreements with vendors, and it is offered to colleagues
+    as-is. Departments with a formal software review process should route it
+    through that process before adopting it for coursework.
+  </p>
+  <p>
+    <strong>If this deployment has been adopted by an institution —</strong>
+    it is run by <strong>[OPERATOR NAME]</strong> for
+    <strong>[INSTITUTION NAME]</strong>, which has reviewed and approved it for
+    coursework. What that review covered, and which agreements it falls under,
+    are questions for the operator named at the foot of this page rather than
+    for this document. Everything above about what is stored is true either
+    way; being approved changes who stands behind the tool, not what it
+    records.
   </p>
 
   <h2>Deleting things</h2>
@@ -275,7 +328,7 @@
     <tbody>
       <tr>
         <td>No column anywhere can hold a student name, email, ID, or IP</td>
-        <td><code>worker/schema.sql</code> — the full database definition, about 200 lines</td>
+        <td><code>worker/schema.sql</code> — the full database definition, about 340 lines</td>
       </tr>
       <tr>
         <td>Quiz answer keys never reach a student's phone</td>
@@ -283,7 +336,7 @@
       </tr>
       <tr>
         <td>Instructors cannot read each other's data</td>
-        <td>The ownership helpers in <code>worker/index.js</code>, and the isolation tests in <code>tests/run-tests.mjs</code></td>
+        <td>The ownership helpers in <code>worker/index.js</code>, and the isolation tests in <code>tests/run-worker-tests.mjs</code> — they drive the real routes as a second instructor and check both halves, that the owner still can and the stranger cannot</td>
       </tr>
       <tr>
         <td>Students cannot read raw responses</td>
@@ -307,10 +360,11 @@
 
   <h2>Who runs this</h2>
   <p>
-    This deployment is operated by Brandon Ballard on a personal Cloudflare
-    account. The operator administers the database and is the person to contact
-    about anything on this page — a deletion request, an account problem, or a
-    question from a department reviewing the tool.
+    This deployment is operated by <strong>[OPERATOR NAME]</strong>, who
+    controls the hosting account it runs on. The operator administers the
+    database and is the person to contact about anything on this page — a
+    deletion request, an account problem, or a question from a department
+    reviewing the tool.
   </p>
   <p><strong>Contact: [OPERATOR EMAIL ADDRESS]</strong></p>
 

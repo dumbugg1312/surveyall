@@ -22,12 +22,34 @@
  * idle room costs no compute while students sit connected between
  * questions. Without it, a 50-minute class would bill duration for the
  * whole lesson rather than the moments something happens.
+ *
+ * KEEPALIVE, and why it is configured rather than handled: phones send a
+ * `ping` every 25 seconds, because a socket dropped by a carrier NAT or a
+ * campus proxy without a close frame looks open forever, and a student
+ * whose socket died silently stops receiving questions with nothing on
+ * screen to say so.
+ *
+ * Answering those pings in webSocketMessage() would undo hibernation
+ * exactly when it matters most. Sixty phones at one ping per 25s is 7,200
+ * inbound messages across a 50-minute class, and every one of them would
+ * WAKE this object to send four bytes back. setWebSocketAutoResponse hands
+ * the pair to the runtime instead, which replies without waking us at all:
+ * the room stays asleep between questions, as designed, and the pings cost
+ * no compute and no request. See docs/architecture.md §3.
  */
 
 export class SessionRoom {
   constructor(state, env) {
     this.state = state;
     this.env = env;
+
+    // Guarded because the API postdates the hibernation API itself; on a
+    // runtime without it the webSocketMessage fallback below still works,
+    // it just costs a wake per ping.
+    if (typeof WebSocketRequestResponsePair === 'function'
+        && typeof state.setWebSocketAutoResponse === 'function') {
+      state.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
+    }
   }
 
   async fetch(request) {
@@ -128,6 +150,11 @@ export class SessionRoom {
     // changes state goes through the Worker's HTTP API, where it can be
     // authenticated and validated. Accepting commands here would bypass
     // every rule the Worker enforces.
+    //
+    // In practice this rarely runs: the auto-response pair set in the
+    // constructor answers pings without waking this object. It stays as
+    // the fallback for a runtime that lacks that API, and as the place
+    // that silently drops anything else a client tries to send.
     if (raw === 'ping') {
       try { ws.send('pong'); } catch { /* closing */ }
     }

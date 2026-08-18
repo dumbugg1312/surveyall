@@ -61,6 +61,20 @@ async function boot() {
 
 // =====================================================================
 
+/**
+ * Human words for the stored session state.
+ *
+ * `lobby`, `live` and `ended` are the values in the database — readable
+ * enough that they escaped onto the screen unnoticed. "lobby" is the worst
+ * of them: it is internal vocabulary that appears in no other copy in the
+ * product. Kept in step with the same map in dashboard-page.js.
+ */
+const STATE_LABELS = { lobby: 'Not started', live: 'Live', ended: 'Ended' };
+
+function stateLabel(state) {
+  return STATE_LABELS[state] || 'Not started';
+}
+
 function renderSummary() {
   const host = $('summary');
   host.textContent = '';
@@ -74,7 +88,7 @@ function renderSummary() {
   h.textContent = session.label || `Session ${session.join_code}`;
   const chip = document.createElement('span');
   chip.className = `chip ${session.state === 'live' ? 'chip-live' : 'chip-ended'}`;
-  chip.textContent = session.state;
+  chip.textContent = stateLabel(session.state);
   head.append(h, chip);
 
   const people = new Set(allResponses.map((r) => r.pseudonym)).size;
@@ -87,7 +101,7 @@ function renderSummary() {
   stats.className = 'stat-row';
   stats.style.marginTop = '1rem';
   [
-    [people, 'Participants'],
+    [people, people === 1 ? 'Nickname' : 'Nicknames'],
     [allResponses.length, 'Responses'],
     [`${answered}/${askable}`, 'Questions used'],
     [new Date(session.created_at).toLocaleDateString(), 'Date'],
@@ -138,7 +152,7 @@ async function renderBlocks() {
     meta.className = 'muted';
     meta.style.fontSize = '.8rem';
     const people = new Set(rows.map((r) => r.pseudonym)).size;
-    meta.textContent = `${TYPE_LABELS[q.type] || q.type} · ${people} ${people === 1 ? 'person' : 'people'}`;
+    meta.textContent = `${TYPE_LABELS[q.type] || q.type} · ${people} ${people === 1 ? 'nickname' : 'nicknames'}`;
     head.append(title, meta);
     block.append(head);
 

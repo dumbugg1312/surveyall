@@ -21,6 +21,8 @@ const KEY = (sessionId) => `surveyall:pseudonym:${sessionId}`;
 const ANSWER_KEY = (sessionId, questionId, round) =>
   `surveyall:answered:${sessionId}:${questionId}:${round}`;
 const UPVOTE_KEY = (sessionId) => `surveyall:upvoted:${sessionId}`;
+const SLOT_KEY = (sessionId, questionId, round) =>
+  `surveyall:slot:${sessionId}:${questionId}:${round}`;
 
 /**
  * The stored value is `{ pseudonym, token }`. The token is the server's
@@ -86,6 +88,36 @@ export function forgetAnswer(sessionId, questionId, round) {
   try {
     window.sessionStorage.removeItem(ANSWER_KEY(sessionId, questionId, round));
   } catch { /* ignore */ }
+}
+
+/**
+ * How many answers this device has already sent to a multi-submit question.
+ *
+ * This has to live next to the pseudonym or it is worse than useless. The
+ * server's row key is (session, question, round, pseudonym, slot), and the
+ * pseudonym survives a reload because it is in sessionStorage. The slot
+ * counter used to live only in a page variable, so a word-cloud student who
+ * sent "curious" (slot 0) and "tired" (slot 1), then reloaded, was put back
+ * on slot 0 — and their third word silently overwrote their first. Nothing
+ * on screen said so; the word simply stopped being in the cloud.
+ *
+ * Keyed by question and round, which is also why nothing has to remember to
+ * reset it: moving to the next question is a different key, already at 0.
+ */
+export function rememberSlot(sessionId, questionId, round, slot) {
+  try {
+    window.sessionStorage.setItem(SLOT_KEY(sessionId, questionId, round), String(slot));
+  } catch { /* ignore */ }
+}
+
+export function recallSlot(sessionId, questionId, round) {
+  try {
+    const raw = window.sessionStorage.getItem(SLOT_KEY(sessionId, questionId, round));
+    const n = Number(raw);
+    return Number.isInteger(n) && n > 0 ? n : 0;
+  } catch {
+    return 0;
+  }
 }
 
 /** Local-only guard so one phone doesn't upvote the same question twice. */

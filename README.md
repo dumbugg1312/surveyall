@@ -22,7 +22,7 @@ One 60-student session blows past all three. The cheapest workable paid plans ru
 
 ## What it does
 
-**Ten question types** — multiple choice, word cloud, open ended, scales, ranking, quiz with leaderboard, Q&A, opinion spectrum, writing showdown, and passage heatmap — plus an **instructions slide** that projects your join steps beside a full-size QR code and join code.
+**Nineteen question types** — multiple choice, word cloud, open ended, scales, ranking, quiz with leaderboard, Q&A, opinion spectrum, writing showdown, passage heatmap, traffic light, mood check, this or that, budget split, probability slider, fill in the blank, matching pairs, timeline order, and exit ticket — plus an **instructions slide** that projects your join steps beside a full-size QR code and join code.
 
 **Presenter view** for the projector: advance with the arrow keys, results animate as answers land, hide/reveal results, close voting, countdown timers, and a QR code that stays in the corner all lesson.
 
@@ -30,7 +30,7 @@ Results are animated with real spring physics rather than CSS transitions, so a 
 
 **Participant view** built mobile-first: big tap targets, no scrolling to find the submit button, works on anything with a browser.
 
-**Deck customisation** — 8 designed themes, gradient/pattern/solid backgrounds, your own uploaded images with dim and blur, and per-question chart styles.
+**Deck customisation** — 20 designed themes, gradient/pattern/solid backgrounds, your own uploaded images with dim and blur, and per-question chart styles.
 
 ### Four things the commercial tools don't do
 
@@ -90,9 +90,10 @@ index.html          home page — what this is, and the two instructor doors
 account.html        instructor sign-in and sign-up (served at /login, /create)
 join.html           participant view (mobile), served at /join
 present.html        projector view
-dashboard.html      your decks and sessions
+dashboard.html      your decks and the session archive
 edit.html           deck editor — questions, themes, backgrounds
-results.html        session archive and CSV export
+results.html        one session's results, and its CSV export
+compare.html        the same question run over run, across sessions
 feedback.html       inbox for the quill button, admin only
 privacy.html        what is stored, and how to verify it
 
@@ -106,7 +107,7 @@ app/                ES modules, no build step
   db.js               the ONLY file that knows a backend exists
   charts.js           result rendering
   motion.js           spring-physics animation engine
-  themes.js           8 themes + background presets
+  themes.js           20 themes + background presets
   elements.js         slide elements: anchors, colour, the annotation marks
   elements-data.js    generated Lucide path data (ISC) — do not hand-edit
   elements-editor.js  the element picker and drag-to-place surface
@@ -119,11 +120,14 @@ worker/             the Cloudflare Worker
   auth.js             accounts, password hashing, signed tokens
   schema.sql          D1 tables (run once)
 
-styles/             base, charts, present, join, app, elements
-tools/              build-elements.mjs — rebuilds the icon catalog
+styles/             base, app, charts, present, join, home, elements,
+                    ambience, preview, fonts
+tools/              build-elements.mjs — rebuilds the icon catalogue;
+                    a11y-contrast.mjs — checks theme contrast ratios
 tests/              run-tests.mjs + run-worker-tests.mjs (node),
                     visual-check.html + elements-check.html (browser)
 docs/               architecture.md, DEPLOYMENT.md, HANDOFF.md, elements.md,
+                    accessibility.md, visual-craft.md, pedagogy-roadmap.md,
                     phase1 research
 wrangler.jsonc      deploy config — only `database_id` needs editing
 ```
@@ -136,13 +140,13 @@ wrangler.jsonc      deploy config — only `database_id` needs editing
 npm test
 ```
 
-**182 tests, no dependencies**, in two suites.
+**340 tests, no dependencies**, in two suites. (Counts are what the two suites reported when this was last written; run them yourself for today's number.)
 
-`tests/run-tests.mjs` — 135 logic tests covering the participant flow end to end (what a tap becomes, whether it's accepted, how it's counted and scored, what reaches the CSV, and that no code path can emit a student identifier) plus the animation engine: that quantitative springs never overshoot, that a spring retargeted mid-flight keeps its velocity instead of restarting, and that a throwing render can't leave a chart frozen half-drawn.
+`tests/run-tests.mjs` — 258 logic tests covering the participant flow end to end (what a tap becomes, whether it's accepted, how it's counted and scored, what reaches the CSV, and that no code path can emit a student identifier) plus the animation engine: that quantitative springs never overshoot, that a spring retargeted mid-flight keeps its velocity instead of restarting, and that a throwing render can't leave a chart frozen half-drawn.
 
-`tests/run-worker-tests.mjs` — 47 tests of the API itself, and they are not mocked: they build a real SQLite database from `worker/schema.sql`, wrap it in the slice of the D1 API the Worker uses, and drive the Worker's own `fetch` handler with real requests. They cover password hashing (including that a stolen database is useless without the Worker's secret), token rules, sign-up gating, throttling, and — the reason the suite exists — **cross-account isolation**: that a second instructor cannot read or write another's decks, questions, sessions, responses, Q&A, or backgrounds. Each isolation test checks both halves, that the owner still can and the stranger cannot, because a blanket 404 would otherwise pass.
+`tests/run-worker-tests.mjs` — 82 tests of the API itself, and they are not mocked: they build a real SQLite database from `worker/schema.sql`, wrap it in the slice of the D1 API the Worker uses, and drive the Worker's own `fetch` handler with real requests. They cover password hashing (including that a stolen database is useless without the Worker's secret), token rules, sign-up gating, throttling, and — the reason the suite exists — **cross-account isolation**: that a second instructor cannot read or write another's decks, questions, sessions, responses, Q&A, or backgrounds. Each isolation test checks both halves, that the owner still can and the stranger cannot, because a blanket 404 would otherwise pass.
 
-`tests/elements-check.html` covers slide elements: it mounts the real editor canvas, drag surface and picker against an invented deck, then self-audits that every placed element reaches all three surfaces (projector, canvas, rail), that the decor layer stays below the join card so a QR can never be covered, that art scales with the slide rather than with the local font-size, and that a decorated deck survives a round trip through the text format. It runs the audit against all twelve themes.
+`tests/elements-check.html` covers slide elements: it mounts the real editor canvas, drag surface and picker against an invented deck, then self-audits that every placed element reaches all three surfaces (projector, canvas, rail), that the decor layer stays below the join card so a QR can never be covered, that art scales with the slide rather than with the local font-size, and that a decorated deck survives a round trip through the text format. It re-runs the audit on every theme switch, so it covers all twenty themes in `app/themes.js`.
 
 For the rendering itself, open `tests/visual-check.html` in a browser. It draws every chart type with sample data and no database, simulates a live class so you can watch results animate in, and self-audits the word-cloud layout for overlaps. It also doubles as a way to check a theme is readable on your projector before class.
 

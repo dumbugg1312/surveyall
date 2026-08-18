@@ -51,7 +51,7 @@ function render() {
     empty.append(
       el('h3', null, notes.length ? 'Nothing left to read' : 'No feedback yet'),
       el('p', null, notes.length
-        ? 'Everything here is marked handled. Tick "Show handled" to read it again.'
+        ? 'Everything here is marked handled. Tick “Show handled” to read it again.'
         : 'Notes left through the quill button in the corner of the app land here.'),
     );
     area.append(empty);

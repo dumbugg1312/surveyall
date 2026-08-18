@@ -49,17 +49,19 @@ const PBKDF2_ITERATIONS = 25000;
  * what that costs, because it is the SIGNIN throttle below — not the
  * password — that carries the weight at this length.
  *
- * A 4-digit numeric password is 10,000 possibilities. At 8 attempts per
- * 15 minutes per account, exhausting that space takes on the order of a
- * fortnight of sustained, uninterrupted guessing against one username,
- * and the average hit lands around a week. That is real protection
- * against someone idly trying, and thin protection against someone
- * patient and motivated.
+ * A 4-digit numeric password is 10,000 possibilities. The first few
+ * misses cost nothing; after that each consecutive failure doubles the
+ * wait before the next attempt is even looked at, up to an hour. Grinding
+ * the whole space out against one username that way takes on the order of
+ * 420 days of sustained, uninterrupted guessing, and the average hit lands
+ * near seven months. That is what makes a PIN defensible here at all.
  *
- * So: do not raise SIGNIN_MAX_ATTEMPTS or lengthen SIGNIN_WINDOW_MS
- * without understanding that they are the control here. If accounts ever
- * hold something more sensitive than a term's poll results, raise this
- * minimum rather than trying to compensate elsewhere.
+ * So: do not raise SIGNIN_FREE_ATTEMPTS or flatten the escalation below
+ * without understanding that they are the control here — the arithmetic,
+ * and the denial-of-service cost it buys, are set out in full at
+ * SIGNIN_FREE_ATTEMPTS. If accounts ever hold something more sensitive
+ * than a term's poll results, raise this minimum rather than trying to
+ * compensate elsewhere.
  */
 const MIN_PASSWORD_LENGTH = 4;
 
@@ -427,6 +429,15 @@ async function clearLimit(env, key) {
  * Usernames are lowercased and restricted so that two accounts can never
  * differ only by case or by invisible whitespace. No email, no real-name
  * requirement — see the FERPA note in schema.sql.
+ *
+ * The first character has to be a letter or a digit, which is easy to miss
+ * when reading the pattern: `_jsmith` and `.jsmith` are rejected. A name
+ * that opens with punctuation reads as a flag or a hidden file wherever it
+ * is printed, and it is the kind of thing that gets mangled by whatever
+ * ends up handling it. Whatever this rule refuses, the copy has to say so:
+ * the error string below and the hint in account.html both spell out the
+ * leading-character rule, because an error that restates the rule the
+ * person appears to have followed is worse than no error at all.
  */
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{2,31}$/;
 
@@ -437,7 +448,7 @@ export function normaliseUsername(raw) {
 /** @returns an error string, or null when acceptable. */
 export function validateCredentials(username, password) {
   if (!USERNAME_RE.test(username)) {
-    return 'Username must be 3–32 characters: letters, numbers, dots, dashes or underscores.';
+    return 'Username must be 3–32 characters and start with a letter or a number. After that, letters, numbers, dots, dashes and underscores are all allowed.';
   }
   if (String(password || '').length < MIN_PASSWORD_LENGTH) {
     return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;

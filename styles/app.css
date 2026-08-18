@@ -355,14 +355,21 @@
   border-radius: 6px;
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: blur(6px);
-  opacity: 0;
+  /* Subdued until you approach, never invisible. Duplicate and delete
+     used to be opacity 0 until :hover, which on a touch screen means
+     there is no hover to give and the controls do not exist — and on a
+     desktop it hides the only way to remove a slide behind a gesture
+     nothing advertises. */
+  opacity: .5;
   transition: opacity .15s ease;
 }
 .rail-item:hover .rail-actions,
 .rail-item:focus-within .rail-actions { opacity: 1; }
 
 .rail-act {
-  width: 1.15rem; height: 1.15rem;
+  /* 24px floor — WCAG 2.2 Target Size (Minimum). These were 1.15rem
+     (18.4px), which is under it, and one of them deletes a slide. */
+  width: 1.5rem; height: 1.5rem;
   display: grid; place-items: center;
   border: none;
   border-radius: 4px;

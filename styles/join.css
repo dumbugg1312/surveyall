@@ -404,7 +404,29 @@ button.seg-body { cursor: pointer; transition: border-color .15s ease, backgroun
   cursor: pointer;
   transition: filter .15s ease, transform .08s ease;
 }
-.submit-btn:disabled { opacity: .4; cursor: not-allowed; }
+/* Disabled used to be opacity .4, which drops the label under AA on every
+   theme. That is fine for a button nobody is reading — but this one is how
+   a student is told voting has closed, so the label has to stay legible.
+   Flatten to a surface treatment with real ink instead of fading it. */
+.submit-btn:disabled {
+  background: color-mix(in srgb, var(--ink) 12%, var(--ground));
+  color: var(--ink-soft);
+  cursor: not-allowed;
+}
+
+/* The connection strip. Fixed to the body rather than inside #app, so a
+   repaint of the question cannot take it away while it is still true. */
+.offline-strip {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 50;
+  padding: .45rem .8rem;
+  text-align: center;
+  font-size: .8rem;
+  font-weight: 600;
+  background: var(--bad);
+  color: var(--on-bad);
+}
 .submit-btn:active:not(:disabled) { transform: translateY(1px); }
 .submit-btn.is-sent { background: var(--good); color: var(--on-good); }
 

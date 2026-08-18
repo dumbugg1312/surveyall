@@ -43,7 +43,7 @@ function mount() {
   dialog.className = 'fb-dialog';
   dialog.innerHTML = `
     <form method="dialog" class="fb-form" id="fbForm">
-      <h2 class="fb-title">Tell me what's wrong with it</h2>
+      <h2 class="fb-title">What's wrong with it?</h2>
       <p class="fb-note" id="fbNote">
         This goes to whoever runs this site. Nothing is recorded about you
         beyond your username, and only if you're signed in.
@@ -108,7 +108,8 @@ function mount() {
       dialog.close();
       thanks(button);
     } catch (err) {
-      error.textContent = err.message || 'That did not send.';
+      error.textContent = err.message
+        || 'That didn\'t send — check your connection and try again. Your text is still here.';
       error.hidden = false;
     } finally {
       send.disabled = false;

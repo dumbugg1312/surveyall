@@ -118,6 +118,7 @@ export function parseDeck(source) {
 
   let current = null;      // question under construction
   let sawTitle = false;
+  let sawQuestion = false; // any "##" header yet? after one, "#" is prose
 
   const pushCurrent = () => {
     if (!current) return;
@@ -139,7 +140,11 @@ export function parseDeck(source) {
     if (trimmed.startsWith('//')) return;
 
     // ---- deck title -------------------------------------------------
-    if (/^#(?!#)/.test(trimmed)) {
+    // Only in the header, before the first "##". Past that point a line
+    // opening with "#" is a prompt — "#MeToo — was it a turning point?"
+    // is a question somebody will really ask, and silently turning it
+    // into the deck's title loses both the title and the prompt.
+    if (!sawQuestion && /^#(?!#)/.test(trimmed)) {
       const title = trimmed.replace(/^#\s*/, '').replace(/^Deck:\s*/i, '').trim();
       if (title) { deck.title = title; sawTitle = true; }
       return;
@@ -148,6 +153,7 @@ export function parseDeck(source) {
     // ---- new question ----------------------------------------------
     if (/^##/.test(trimmed)) {
       pushCurrent();
+      sawQuestion = true;
       const header = trimmed.replace(/^##\s*/, '');
       const parsed = parseTypeHeader(header);
       if (!parsed.type) {
@@ -195,13 +201,18 @@ export function parseDeck(source) {
     }
 
     // ---- option / statement lines ----------------------------------
-    const optMatch = trimmed.match(/^[-*]\s+(.*)$/);
+    // A bare "-" is an option that has not been filled in yet. It must
+    // parse as an *empty option*, not fall through to the prompt: a
+    // brand-new slide starts life with blank options, and if saving it
+    // glued a stray "-" onto its prompt the editor would corrupt decks
+    // just by round-tripping them.
+    const optMatch = trimmed.match(/^[-*](?:\s+(.*))?$/);
     if (optMatch) {
-      let body = optMatch[1].trim();
+      let body = (optMatch[1] || '').trim();
       let correct = false;
       const check = body.match(/^\[([ xX])\]\s*(.*)$/);
       if (check) { correct = check[1].toLowerCase() === 'x'; body = check[2].trim(); }
-      if (body) current.options.push({ label: body, correct });
+      current.options.push({ label: body, correct });
       return;
     }
 
@@ -219,9 +230,10 @@ export function parseDeck(source) {
       return;
     }
 
-    const stmtMatch = trimmed.match(/^~\s+(.*)$/);
+    // as with "-", a bare "~" is a statement nobody has typed yet
+    const stmtMatch = trimmed.match(/^~(?:\s+(.*))?$/);
     if (stmtMatch) {
-      let body = stmtMatch[1].trim();
+      let body = (stmtMatch[1] || '').trim();
       // allow "~ statement | 1..7"
       const range = body.match(/^(.*?)\s*\|\s*(\d+)\s*\.\.\s*(\d+)\s*$/);
       if (range) {
@@ -229,17 +241,16 @@ export function parseDeck(source) {
         current.config.min = Number(range[2]);
         current.config.max = Number(range[3]);
       }
-      if (body) current.statements.push(body);
+      current.statements.push(body);
       return;
     }
 
     // ---- key: value -------------------------------------------------
+    // Only a *known* setting is a setting — before the prompt as much as
+    // after it. Prompts contain colons all the time ("Weber: what did he
+    // mean by rationalisation?"), and treating any "word: value" line as
+    // configuration swallowed the question whole.
     const kv = matchKeyValue(trimmed);
-    if (kv && !current.prompt) {
-      // a setting before the prompt is still a setting
-      applyQuestionSetting(current, kv.key, kv.value);
-      return;
-    }
     if (kv && isKnownSetting(kv.key)) {
       applyQuestionSetting(current, kv.key, kv.value);
       return;
@@ -250,6 +261,13 @@ export function parseDeck(source) {
   });
 
   pushCurrent();
+
+  // dim/blur only mean anything over a photo; a stray one must not reach
+  // the ambience engine, which reads bg.blur.
+  if (deck.background && deck.background.kind !== 'image') {
+    delete deck.background.dim;
+    delete deck.background.blur;
+  }
 
   if (!deck.questions.length) errors.push('No questions found. Start a question with "## multiple_choice".');
 
@@ -409,6 +427,32 @@ function matchKeyValue(line) {
   return { key: m[1].trim().toLowerCase().replace(/[\s-]+/g, '_'), value: m[2].trim() };
 }
 
+/**
+ * A comma-separated list where a comma can appear *inside* an item.
+ *
+ * Labels are written by hand ("Claim, unsupported") and a naive split
+ * turned one label into two every time the deck was saved and reopened.
+ * A backslash escapes the next character, which is the shortest rule a
+ * person can be told and the only one that survives a round-trip.
+ */
+function splitList(value) {
+  const s = String(value);
+  const out = [];
+  let cur = '';
+  for (let i = 0; i < s.length; i += 1) {
+    const ch = s[i];
+    if (ch === '\\' && i + 1 < s.length) { cur += s[i + 1]; i += 1; continue; }
+    if (ch === ',') { out.push(cur.trim()); cur = ''; continue; }
+    cur += ch;
+  }
+  out.push(cur.trim());
+  return out;
+}
+
+function joinList(items) {
+  return items.map((s) => String(s).replace(/([\\,])/g, '\\$1')).join(', ');
+}
+
 function coerce(value) {
   if (/^(true|yes|on)$/i.test(value)) return true;
   if (/^(false|no|off)$/i.test(value)) return false;
@@ -424,9 +468,26 @@ function coerce(value) {
 function applyDeckSetting(deck, key, value) {
   if (key === 'theme') deck.theme = String(value);
   else if (key === 'background') {
-    const motion = deck.background && deck.background.motion;
+    const prev = deck.background || {};
     deck.background = parseBackground(value);
-    if (motion) deck.background.motion = motion;
+    if (prev.motion) deck.background.motion = prev.motion;
+    // "dim:"/"blur:" may be written on either side of "background:"
+    if (prev.dim != null) deck.background.dim = prev.dim;
+    if (prev.blur != null) deck.background.blur = prev.blur;
+  } else if (key === 'dim' || key === 'blur') {
+    // How hard a photo backdrop is pushed behind the type. Without these
+    // two lines a deck read its own file back at the default darkness,
+    // which on a bright photo is the difference between readable and not.
+    const raw = String(value).trim();
+    const n = Number(raw.replace(/%$/, ''));
+    if (!Number.isFinite(n)) return;
+    deck.background = { ...(deck.background || { kind: 'theme' }) };
+    if (key === 'dim') {
+      const frac = /%$/.test(raw) || n > 1 ? n / 100 : n;
+      deck.background.dim = Math.min(1, Math.max(0, frac));
+    } else {
+      deck.background.blur = Math.max(0, n);
+    }
   } else if (key === 'ambience' || key === 'motion') {
     const v = String(value).trim().toLowerCase();
     deck.background = { ...(deck.background || { kind: 'theme' }) };
@@ -450,13 +511,19 @@ function applyQuestionSetting(q, key, value) {
   if (key === 'right') { q.config.right_label = String(value); return; }
   if (key === 'rationale') { q.config.allow_rationale = coerce(value) !== false; return; }
   if (key === 'labels') {
-    q.config.labels = String(value).split(',').map((s) => s.trim()).filter(Boolean);
+    q.config.labels = splitList(value).filter(Boolean);
     return;
   }
   if (key === 'anchors') {
-    q.config.anchors = String(value).split(',')
-      .map((s) => Number(s.trim()))
-      .map((n) => (Number.isFinite(n) ? n : null));
+    // An anchor the instructor has not set is written as an empty slot
+    // ("anchors: 1, , 5"). Number('') is 0, which is off the bottom of a
+    // 1..5 scale — an unset anchor must come back as null, not as a
+    // rating the instructor never gave.
+    q.config.anchors = splitList(value).map((s) => {
+      if (!s) return null;
+      const n = Number(s);
+      return Number.isFinite(n) ? n : null;
+    });
     return;
   }
   q.config[key] = coerce(value);
@@ -547,7 +614,7 @@ function finaliseQuestion(q, errors, number) {
       config.icons = q.options.map((o) => {
         const m = o.label.match(/^(\S+)\s*(.*)$/);
         return { emoji: m ? m[1] : o.label, label: m ? m[2].trim() : '' };
-      }).filter((m) => m.emoji);
+      });
       if (!config.icons.length) delete config.icons;
       break;
     }
@@ -557,7 +624,7 @@ function finaliseQuestion(q, errors, number) {
       config.pairs = q.options.map((o) => {
         const [left, right] = o.label.split('|');
         return { left: (left || '').trim(), right: (right || '').trim() };
-      }).filter((p) => p.left || p.right);
+      });
       if (config.pairs.length < (q.type === 'matching' ? 2 : 1)) {
         errors.push(`Question ${number}: needs pairs, written as "- this | or that".`);
       }
@@ -598,7 +665,7 @@ function finaliseQuestion(q, errors, number) {
       break;
     }
     case 'exit_ticket': {
-      const prompts = q.options.map((o) => o.label).filter(Boolean);
+      const prompts = q.options.map((o) => o.label);
       config.prompts = prompts.length ? prompts : [...DEFAULT_EXIT_PROMPTS];
       if (config.max_length == null) config.max_length = 200;
       break;
@@ -610,7 +677,12 @@ function finaliseQuestion(q, errors, number) {
       }
       config.passage = passage.replace(/\s*\|\s*/g, ' | ');
       config.segments = splitPassage(passage);
-      if (Array.isArray(config.labels) && config.labels.length) config.mode = 'classify';
+      // labels imply classify only when no mode was asked for: an
+      // instructor who keeps their categories but switches back to
+      // highlighting must not be switched to classify again on reload.
+      if (config.mode == null && Array.isArray(config.labels) && config.labels.length) {
+        config.mode = 'classify';
+      }
       if (config.max_picks == null) config.max_picks = 1;
       break;
     }
@@ -624,6 +696,17 @@ function finaliseQuestion(q, errors, number) {
 // Serialise back out — round-trips with parseDeck()
 // =====================================================================
 
+/**
+ * One list line. An item nobody has filled in yet is written as a bare
+ * "-" (never "- " with nothing after it): trailing whitespace does not
+ * survive a text editor, and the marker has to be readable on its own so
+ * a half-written slide reopens as the half-written slide it was.
+ */
+function bullet(label, mark = '-') {
+  const s = label == null ? '' : String(label);
+  return s ? `${mark} ${s}` : mark;
+}
+
 export function serialiseDeck(deck, questions) {
   const out = [];
   out.push(`# ${deck.title || 'Untitled deck'}`);
@@ -631,8 +714,13 @@ export function serialiseDeck(deck, questions) {
   const bg = deck.background;
   if (bg && bg.kind && bg.kind !== 'theme') {
     if (bg.kind === 'solid') out.push(`background: ${bg.color}`);
-    else if (bg.kind === 'image') out.push(`background: ${bg.url}`);
-    else if (bg.kind === 'preset') out.push(`background: ${bg.id}`);
+    else if (bg.kind === 'image') {
+      out.push(`background: ${bg.url}`);
+      // only when they differ from what parseBackground assumes, so a
+      // plain photo backdrop still reads as one line
+      if (bg.dim != null && Number(bg.dim) !== 0.45) out.push(`dim: ${Number(bg.dim)}`);
+      if (bg.blur) out.push(`blur: ${Number(bg.blur)}`);
+    } else if (bg.kind === 'preset') out.push(`background: ${bg.id}`);
   }
   // independent of the line above: a deck can keep the theme's own
   // backdrop and still ask it to move
@@ -654,28 +742,28 @@ export function serialiseDeck(deck, questions) {
     if (Array.isArray(cfg.options)) {
       cfg.options.forEach((opt, i) => {
         const label = typeof opt === 'string' ? opt : String(opt?.label ?? '');
-        out.push(correct.has(i) ? `- [x] ${label}` : `- ${label}`);
+        out.push(correct.has(i) ? bullet(label, '- [x]') : bullet(label));
       });
     }
     if (q.type === 'instructions' && Array.isArray(cfg.steps)) {
-      cfg.steps.forEach((s) => out.push(`- ${s}`));
+      cfg.steps.forEach((s) => out.push(bullet(s)));
       if (cfg.show_join === false) out.push('join: false');
       if (cfg.note) out.push(`note: ${cfg.note}`);
     }
-    if (Array.isArray(cfg.items)) cfg.items.forEach((it) => out.push(`- ${it}`));
-    if (Array.isArray(cfg.samples)) cfg.samples.forEach((s) => out.push(`- ${s}`));
-    if (Array.isArray(cfg.statements)) cfg.statements.forEach((s) => out.push(`~ ${s}`));
+    if (Array.isArray(cfg.items)) cfg.items.forEach((it) => out.push(bullet(it)));
+    if (Array.isArray(cfg.samples)) cfg.samples.forEach((s) => out.push(bullet(s)));
+    if (Array.isArray(cfg.statements)) cfg.statements.forEach((s) => out.push(bullet(s, '~')));
     if (q.type === 'traffic' && Array.isArray(cfg.labels)) {
-      cfg.labels.forEach((l) => out.push(`- ${l}`));
+      cfg.labels.forEach((l) => out.push(bullet(l)));
     }
     if (q.type === 'mood' && Array.isArray(cfg.icons)) {
-      cfg.icons.forEach((m) => out.push(`- ${m.emoji}${m.label ? ` ${m.label}` : ''}`));
+      cfg.icons.forEach((m) => out.push(bullet(`${m.emoji || ''}${m.label ? ` ${m.label}` : ''}`)));
     }
     if (Array.isArray(cfg.pairs)) {
-      cfg.pairs.forEach((p) => out.push(`- ${p.left || ''} | ${p.right || ''}`));
+      cfg.pairs.forEach((p) => out.push(bullet(`${p.left || ''} | ${p.right || ''}`.trim())));
     }
     if (q.type === 'exit_ticket' && Array.isArray(cfg.prompts)) {
-      cfg.prompts.forEach((p) => out.push(`- ${p}`));
+      cfg.prompts.forEach((p) => out.push(bullet(p)));
     }
     if (q.type === 'cloze' && cfg.text) out.push(`> ${cfg.text}`);
     // segments joined with ' | ' round-trip to the exact same segmentation
@@ -686,7 +774,7 @@ export function serialiseDeck(deck, questions) {
 
     if (cfg.left_label) out.push(`left: ${cfg.left_label}`);
     if (cfg.right_label) out.push(`right: ${cfg.right_label}`);
-    if (Array.isArray(cfg.labels) && cfg.labels.length) out.push(`labels: ${cfg.labels.join(', ')}`);
+    if (Array.isArray(cfg.labels) && cfg.labels.length) out.push(`labels: ${joinList(cfg.labels)}`);
     if (Array.isArray(cfg.anchors) && cfg.anchors.some((a) => a != null)) {
       out.push(`anchors: ${cfg.anchors.map((a) => (a == null ? '' : a)).join(', ')}`);
     }

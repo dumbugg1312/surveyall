@@ -978,13 +978,13 @@ export function auditTheme(theme) {
   text('--ink-soft', '--ground', 'Secondary text on the background');
   text('--ink-soft', '--surface', 'Secondary text on panels');
   text('--on-accent', '--accent', 'Button text on the accent');
-  text('--on-good', '--good', 'Text on the "correct" colour');
-  text('--on-bad', '--bad', 'Text on the "wrong" colour');
+  text('--on-good', '--good', 'Text on the “correct” colour');
+  text('--on-bad', '--bad', 'Text on the “wrong” colour');
   text('--accent-text', '--ground', 'Links and accent type');
   text('--accent-text', '--accent-soft', 'Accent type on its own chip');
   text('--accent-2-text', '--ground', 'Second accent as text');
-  text('--good-text', '--surface', 'The "correct" colour as text');
-  text('--bad-text', '--surface', 'The "wrong" colour as text');
+  text('--good-text', '--surface', 'The “correct” colour as text');
+  text('--bad-text', '--surface', 'The “wrong” colour as text');
 
   // ...and each of those on the tinted chip it is actually drawn on. A
   // surface-only matrix reports clean while the chips fail.
@@ -995,8 +995,8 @@ export function auditTheme(theme) {
   };
   onTint('--accent-text', '--accent', 'Accent type on an accent wash');
   onTint('--accent-2-text', '--accent-2', 'Second accent on its own wash');
-  onTint('--good-text', '--good', 'Status text on a "correct" wash');
-  onTint('--bad-text', '--bad', 'Status text on a "wrong" wash');
+  onTint('--good-text', '--good', 'Status text on a “correct” wash');
+  onTint('--bad-text', '--bad', 'Status text on a “wrong” wash');
   onTint('--ink-soft', '--ink', 'Secondary text on an ink wash');
   nontext('--edge-strong', '--surface', 'Input and button borders');
   nontext('--accent', '--ground', 'Accent bars and the focus ring');

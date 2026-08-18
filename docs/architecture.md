@@ -59,6 +59,7 @@ Worst realistic case: **60 students, a 20-question deck, plus a few re-asks.**
 |---|---|---|---|
 | Worker requests | ~1,500 (votes, question fetches, joins) | 100,000/day | **~65 sessions/day** |
 | Durable Object requests | ~1,300 (61 connections + inbound messages at 20:1) | 100,000/day | far beyond need |
+| — of which keepalive pings | **0** — answered by `setWebSocketAutoResponse`, see below | | |
 | D1 rows written | ~1,250 | 100,000/day | **~80 sessions/day** |
 | D1 rows read | a few thousand | 5,000,000/day | irrelevant |
 | D1 storage | ~250 KB of answers | 500 MB | ~2,000 sessions |
@@ -77,6 +78,7 @@ Three properties that matter more than the raw numbers:
 
 - **The 10 ms CPU limit per request is real** and shaped one design decision: it rules out proper password hashing (PBKDF2/bcrypt at a safe iteration count takes far longer), which is why the instructor password is a platform secret rather than a stored hash. See §5.
 - **Whether the 20:1 WebSocket ratio applies to the free daily cap** or only to paid billing is ambiguous in the docs. Even assuming the worst — every inbound message counting as a full request — a class session lands near 2,500 DO requests, still ~40 sessions/day.
+- **Keepalive pings are free, and that is deliberate.** Phones ping every 25 seconds, because a socket dropped by a carrier NAT or campus proxy without a close frame otherwise looks open forever and the student stops receiving questions with nothing on screen to say so. Sixty phones across a 50-minute class is ~7,200 inbound messages — which, handled in `webSocketMessage()`, would wake the Durable Object 7,200 times to reply with four bytes, undoing hibernation precisely during the lesson and (at the pessimistic 1:1 reading above) cutting the ceiling to roughly 11 sessions/day. `worker/session-room.js` registers the ping/pong pair with `setWebSocketAutoResponse` instead, so the runtime answers without waking the object: no compute, no request, and the room still sleeps between questions. If you ever move that handling back into `webSocketMessage()`, redo this arithmetic first.
 - **Durable Objects require the GitHub-connected build path.** If Cloudflare ever changed that, the deploy story would get harder for a non-developer, though the code would be unaffected.
 
 ---

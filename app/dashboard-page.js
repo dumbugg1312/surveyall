@@ -401,8 +401,8 @@ async function onStart(deck) {
   }
   const label = await askText({
     title: `Start a session of “${deck.title}”`,
-    blurb: 'The label is how you will find this run in the archive later, so name '
-      + 'the class, not the date — the date is recorded anyway.',
+    blurb: 'The label is how you will find this session in the archive later, so '
+      + 'name the class, not the date — the date is recorded anyway.',
     label: 'Session label',
     value: '',
     placeholder: 'e.g. Tue 9am section',
@@ -577,7 +577,7 @@ function sessionRow(s) {
   const stats = el('div', 'session-stats');
   if (answers) {
     stats.append(
-      stat(s.participant_count || 0, (s.participant_count === 1) ? 'person' : 'people'),
+      stat(s.participant_count || 0, (s.participant_count === 1) ? 'nickname' : 'nicknames'),
       stat(answers, answers === 1 ? 'answer' : 'answers'),
     );
   } else {
@@ -585,7 +585,7 @@ function sessionRow(s) {
   }
 
   const chip = el('span',
-    `chip ${live ? 'chip-live' : s.state === 'ended' ? 'chip-ended' : ''}`, s.state);
+    `chip ${live ? 'chip-live' : s.state === 'ended' ? 'chip-ended' : ''}`, stateLabel(s.state));
 
   const actions = el('div', 'session-actions');
   if (live) actions.append(linkBtn('Present', 'btn-sm btn-primary', `present.html?session=${s.id}`));
@@ -595,6 +595,20 @@ function sessionRow(s) {
 
   row.append(code, info, stats, chip, actions);
   return row;
+}
+
+/**
+ * The chip beside a session says what it is doing, in words a person uses.
+ *
+ * The stored values are `lobby`, `live` and `ended` — internal names that
+ * happen to be readable, which is exactly why they leaked onto the screen.
+ * "lobby" in particular appears nowhere else in the product, so a reader
+ * meets it once, here, with nothing to attach it to.
+ */
+const STATE_LABELS = { lobby: 'Not started', live: 'Live', ended: 'Ended' };
+
+function stateLabel(state) {
+  return STATE_LABELS[state] || 'Not started';
 }
 
 function stat(value, label) {

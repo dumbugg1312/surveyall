@@ -3,12 +3,14 @@
  *
  * The page is complete without this script: every claim, both call-to-
  * action pairs, the student link and the video's poster frame are plain
- * markup. All this adds is the three things only the running browser
- * knows — whether you're already signed in, whether sign-up is open, and
- * whether you have asked your system for less motion.
+ * markup. All this adds is the four things only the running browser
+ * knows — whether you're already signed in, whether sign-up is open, what
+ * address this particular deployment answers on, and whether you have
+ * asked your system for less motion.
  */
 
 import { currentUser, signUpEnabled } from './db.js';
+import { joinBase } from './config.js';
 
 init();
 
@@ -31,7 +33,29 @@ function init() {
     for (const el of document.querySelectorAll('[data-signup]')) el.hidden = true;
   });
 
+  joinAddress();
   video();
+}
+
+/**
+ * The address students type when they can't scan.
+ *
+ * Derived from the address bar rather than written into the markup,
+ * because this repo is meant to be forked: a literal domain in index.html
+ * would tell one deployment's students to visit another deployment. Same
+ * source of truth as the QR code and the projector's join card, which
+ * both go through joinBase().
+ *
+ * The markup ships with a sentence that is true on every deployment, so a
+ * visitor with no JavaScript is told something correct rather than
+ * nothing.
+ */
+function joinAddress() {
+  const el = document.getElementById('joinAddress');
+  if (!el) return;
+  const base = joinBase();
+  if (!base) return;
+  el.textContent = `${base.replace(/^https?:\/\//, '')}/join`;
 }
 
 /**

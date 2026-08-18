@@ -17,7 +17,7 @@
   <a class="wordmark" href="./">SurveyAll</a>
   <nav aria-label="Main">
     <a class="student-link" href="join">Student? Join a session</a>
-    <a class="btn" href="login">Log in</a>
+    <a class="btn" href="login">Sign in</a>
     <a class="btn btn-primary" href="create" data-signup>Sign up</a>
   </nav>
 </header>
@@ -33,10 +33,15 @@
       </p>
       <div class="cta-row">
         <a class="btn btn-primary btn-lg" href="create" data-signup>Create an instructor account</a>
-        <a class="btn btn-lg" href="login">Log in</a>
+        <a class="btn btn-lg" href="login">Sign in</a>
       </div>
+      <!-- The address is filled in by app/home-page.js from the address
+           bar, never hardcoded: this repo is meant to be forked, and a
+           literal domain here would send another deployment's students to
+           somebody else's site. The fallback text is true everywhere. -->
       <p class="fine">
-        Students never make an account. They go to <code>surveyall.org/join</code>,
+        Students never make an account. They go to
+        <code id="joinAddress">the /join page on this site</code>,
         or scan the code on the screen.
       </p>
     </div>
@@ -64,15 +69,18 @@
       <h2>There is no student data.</h2>
       <p>
         Not a promise to handle it carefully — there is nothing to handle.
-        No student signs in, no name or email field exists in the database,
-        and the join code is a room number rather than a key.
+        No student signs in, no field exists to hold a student's name or
+        email, and the join code is a room number rather than a key.
+        Instructors do have accounts, so the database holds a username and
+        a password hash for each one — staff records, and the whole of the
+        personal data in this system.
         <a href="privacy.html">What is stored, and how to check</a>.
       </p>
     </div>
   </section>
 
   <section class="section wrap">
-    <h2>Ten question types, and no tier above this one.</h2>
+    <h2>More question types all the time, and no tier above this one.</h2>
     <ul class="types">
       <li>Multiple choice</li>
       <li>Word cloud</li>
@@ -84,6 +92,15 @@
       <li>Opinion spectrum</li>
       <li>Writing showdown</li>
       <li>Passage heatmap</li>
+      <li>Traffic light</li>
+      <li>Mood check</li>
+      <li>This or that</li>
+      <li>Budget split</li>
+      <li>Probability slider</li>
+      <li>Fill in the blank</li>
+      <li>Matching pairs</li>
+      <li>Timeline order</li>
+      <li>Exit ticket</li>
     </ul>
 
     <dl class="spec">
@@ -121,7 +138,7 @@
       </p>
       <div class="cta-row">
         <a class="btn btn-primary btn-lg" href="create" data-signup>Sign up</a>
-        <a class="btn btn-lg" href="login">Log in</a>
+        <a class="btn btn-lg" href="login">Sign in</a>
       </div>
     </div>
   </section>
