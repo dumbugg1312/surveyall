@@ -82,13 +82,38 @@ body.home {
 
 /* ---------------------------------------------------------------- hero */
 
-/* Words first, at full measure — the video below is 1280x720 of app
-   detail, and squeezing it into half a hero row made it unreadable,
-   which defeats the only reason it is on the page. */
-.hero { padding-block: clamp(2.5rem, 7vw, 5rem) clamp(1.5rem, 4vw, 2.5rem); }
+/* The headline runs the full width; the argument and the loop share the
+   row beneath it, with the loop taking the larger column. Sizing is set
+   by what the master can carry: at ~670px the 1600-wide encode is still
+   being scaled DOWN on a 2x display, so the loop stays crisp instead of
+   the browser inventing pixels the way the full-bleed version did. */
+.hero { padding-block: clamp(2rem, 6vw, 3.5rem) clamp(2.5rem, 6vw, 4rem); }
+
+.hero-row {
+  display: grid;
+  /* The copy column's floor is set by the call-to-action pair: any
+     narrower and the two buttons break onto separate lines, which reads
+     as two decisions rather than one choice with a fallback. Everything
+     left over goes to the loop, which is the thing worth looking at. */
+  grid-template-columns: minmax(21rem, 0.5fr) minmax(0, 1fr);
+  gap: clamp(1.5rem, 4vw, 3rem);
+  align-items: center;
+  margin-top: var(--sp-5);
+}
+
+@media (max-width: 56rem) {
+  .hero-row {
+    grid-template-columns: 1fr;
+    gap: var(--sp-5);
+    margin-top: var(--sp-4);
+  }
+}
 
 .hero h1 {
-  font-size: clamp(2.4rem, 6.2vw, 4rem);
+  /* Full width now, so it can carry a larger size without wrapping into
+     a narrow three-line column. */
+  font-size: clamp(2.4rem, 6.6vw, 4.4rem);
+  max-width: 20ch;
   font-weight: 650;
   letter-spacing: -.02em;
   margin-bottom: var(--sp-4);
@@ -97,7 +122,7 @@ body.home {
 .lede {
   font-size: clamp(1.02rem, 1.6vw, 1.18rem);
   line-height: 1.55;
-  max-width: 46ch;
+  max-width: 42ch;
   color: var(--ink-soft);
   text-wrap: pretty;
 }
@@ -106,7 +131,7 @@ body.home {
   display: flex;
   flex-wrap: wrap;
   gap: var(--sp-3);
-  margin-top: var(--sp-5);
+  margin-top: var(--sp-4);
 }
 
 .fine {
@@ -128,21 +153,10 @@ body.home {
 /* ---------------------------------------------------------- the video
 
    A 61-second silent loop of the app being used, in place of the mock
-   this hero used to draw by hand. It carries the same weight as the
-   headline beside it, so it gets a real frame — border, shadow, and the
+   this hero used to draw by hand. It sits beside the headline and takes
+   the larger half of the row, with a real frame — border, shadow, the
    page's own corner radius — rather than floating unbounded.
    ------------------------------------------------------------------- */
-
-/* Capped below the column width on purpose. The master is 1280 wide, so
-   at the full 1088px column a 2x display asks the browser to invent 2176
-   pixels from 1280 and the whole thing goes soft — which reads as a
-   cheap video rather than as a compression setting. 900px keeps the
-   upscale mild while still showing the editor and the phone clearly.
-   Raise this the day the loop is re-mastered at 1920x1080. */
-.showcase {
-  padding-bottom: clamp(2.5rem, 6vw, 4.5rem);
-  max-width: calc(900px + 2 * clamp(1rem, 4vw, 2.5rem));
-}
 
 .scene { position: relative; margin: 0; }
 

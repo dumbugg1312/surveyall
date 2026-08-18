@@ -24,3 +24,9 @@ scratch/
 
 # local editor/agent settings
 .claude/
+
+# Video masters. The site serves the compressed encode (media/home-loop.mp4);
+# the full-resolution exports these come from live in media/source/ and are
+# kept out of git — a 40 MB file committed once stays in history forever.
+# .assetsignore already keeps this folder off the published site.
+media/source/

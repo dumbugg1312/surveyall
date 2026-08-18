@@ -24,30 +24,34 @@
 
 <main id="main">
 
+  <!-- Headline across the full width, then the argument and the loop side
+       by side beneath it. The loop takes the larger column: it is a tour
+       of the actual product, and at half a hero row it was too small to
+       read. -->
   <section class="hero wrap">
-    <div>
-      <h1>Live polling that never runs out.</h1>
-      <p class="lede">
-        No participant caps, no paywall in front of your own results.
-        Students answer in one tap — no app, no account, no name.
-      </p>
-      <div class="cta-row">
-        <a class="btn btn-primary btn-lg" href="create" data-signup>Create an instructor account</a>
-        <a class="btn btn-lg" href="login">Sign in</a>
-      </div>
-      <!-- The address is filled in by app/home-page.js from the address
-           bar, never hardcoded: this repo is meant to be forked, and a
-           literal domain here would send another deployment's students to
-           somebody else's site. The fallback text is true everywhere. -->
-      <p class="fine">
-        Students never make an account. They go to
-        <code id="joinAddress">the /join page on this site</code>,
-        or scan the code on the screen.
-      </p>
-    </div>
-  </section>
+    <h1>Live polling that never runs out.</h1>
 
-  <section class="showcase wrap">
+    <div class="hero-row">
+      <div class="hero-copy">
+        <p class="lede">
+          No participant caps, no paywall in front of your own results.
+          Students answer in one tap — no app, no account, no name.
+        </p>
+        <div class="cta-row">
+          <a class="btn btn-primary btn-lg" href="create" data-signup>Create an account</a>
+          <a class="btn btn-lg" href="login">Sign in</a>
+        </div>
+        <!-- The address is filled in by app/home-page.js from the address
+             bar, never hardcoded: this repo is meant to be forked, and a
+             literal domain here would send another deployment's students to
+             somebody else's site. The fallback text is true everywhere. -->
+        <p class="fine">
+          Students never make an account. They go to
+          <code id="joinAddress">the /join page on this site</code>,
+          or scan the code on the screen.
+        </p>
+      </div>
+
     <!-- The loop shows the real thing: the deck editor, a theme being
          picked, and the same question on a phone. `autoplay` is set by
          app/home-page.js rather than here, so that anyone who has asked
@@ -62,6 +66,7 @@
       </video>
       <button class="video-toggle" id="videoToggle" type="button" hidden></button>
     </figure>
+    </div>
   </section>
 
   <section class="band">
