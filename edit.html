@@ -110,6 +110,17 @@
           <input type="checkbox" id="showSlideLabel" checked>
           Show “Word cloud · Question 1 of 8” above each question
         </label>
+
+        <!-- One movement for the whole deck. A room reading a different
+             transition on every slide is a room being shown the software
+             rather than the material — the same argument that moved
+             Question size to a deck setting. Any single slide can still
+             opt out or opt into something else from its own settings. -->
+        <div class="field">
+          <label class="field-label" for="deckTransition">Slide transition</label>
+          <select id="deckTransition" aria-describedby="deckTransitionHint"></select>
+          <p class="field-hint" id="deckTransitionHint"></p>
+        </div>
       </div>
     </details>
 

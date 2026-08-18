@@ -39,6 +39,9 @@ import {
 import { ambiencePlan, ambienceLevel } from './ambience.js';
 import { prefersReducedMotion } from './motion.js';
 import { parseDeck, serialiseDeck } from './deck-format.js';
+import {
+  SLIDE_TRANSITIONS, normalizeTransition, DEFAULT_TRANSITION,
+} from './transitions.js';
 import { renderSlide } from './slide-preview.js';
 import { openPreview } from './preview-panel.js';
 import {
@@ -1690,6 +1693,71 @@ function settingsFor(q) {
     renderStage();
   }));
 
+  /**
+   * How this slide arrives on the projector.
+   *
+   * The first setting in this file that applies to every slide type, so
+   * it is built before the per-type switch rather than inside it.
+   *
+   * Deliberately NOT the `choose` helper above: `choose` calls
+   * renderStage() on change, which tears down and rebuilds the whole
+   * slide form — including this <select>, mid-interaction, dropping
+   * focus to the body while the menu the instructor just used vanishes.
+   * Chart style gets away with it because iconRow only repaints the
+   * canvas. Nothing on this screen renders a transition, so this one
+   * repaints nothing at all.
+   */
+  const transitionField = () => {
+    const deckId = normalizeTransition(deck.settings?.transition) || DEFAULT_TRANSITION;
+    const deckLabel = SLIDE_TRANSITIONS.find((t) => t.id === deckId)?.label || 'None';
+
+    const s = document.createElement('select');
+    s.id = 'slideTransition';
+    s.setAttribute('aria-describedby', 'slideTransitionHint');
+    const inherit = document.createElement('option');
+    inherit.value = '';
+    inherit.textContent = `Deck default — ${deckLabel}`;
+    s.append(inherit);
+    for (const t of SLIDE_TRANSITIONS) {
+      const o = document.createElement('option');
+      o.value = t.id;
+      o.textContent = t.label;
+      s.append(o);
+    }
+    s.value = normalizeTransition(cfg.transition) || '';
+
+    const hint = document.createElement('p');
+    hint.id = 'slideTransitionHint';
+    hint.className = 'field-hint';
+    const describe = () => {
+      const id = s.value || deckId;
+      const spec = SLIDE_TRANSITIONS.find((t) => t.id === id);
+      hint.textContent = s.value
+        ? (spec?.hint || '')
+        : `Follows the deck. ${spec?.hint || ''}`.trim();
+    };
+    describe();
+
+    s.addEventListener('change', () => {
+      // "Deck default" has to be the ABSENCE of the key, not an empty
+      // string stored in its place: resolveTransition() falls back only
+      // on a value it does not recognise, and leaving debris in config
+      // means every deck ever opened in this build serialises a setting
+      // nobody chose.
+      if (s.value) cfg.transition = s.value;
+      else delete cfg.transition;
+      save(q, { config: cfg });
+      describe();
+    });
+
+    const wrap = field('Transition', s);
+    wrap.classList.add('field-wide');
+    wrap.querySelector('label').htmlFor = s.id;
+    wrap.append(hint);
+    grid.append(wrap);
+  };
+  transitionField();
+
   switch (q.type) {
     case 'instructions':
       bool2('show_join', 'Show the QR code and join code', true);
@@ -2038,6 +2106,29 @@ function wireSlideSettings() {
   label.checked = showSlideLabel(deck);
   label.addEventListener('change',
     guard(() => setDeckSetting('showSlideLabel', label.checked)));
+
+  const trans = $('deckTransition');
+  const hint = $('deckTransitionHint');
+  for (const t of SLIDE_TRANSITIONS) {
+    const o = document.createElement('option');
+    o.value = t.id;
+    o.textContent = t.label;
+    trans.append(o);
+  }
+  const describe = () => {
+    hint.textContent = SLIDE_TRANSITIONS.find((t) => t.id === trans.value)?.hint || '';
+  };
+  trans.value = normalizeTransition(deck.settings?.transition) || DEFAULT_TRANSITION;
+  describe();
+  trans.addEventListener('change', guard(async () => {
+    await setDeckSetting('transition', trans.value);
+    describe();
+    // The per-slide picker's first option reads "Deck default — Push", so
+    // it is now printing the wrong word. It only exists on the open
+    // slide, and rebuilding the form is safe here because the control the
+    // pointer is on is this one, in the other pane.
+    renderStage();
+  }));
 }
 
 async function setDeckSetting(key, value) {
@@ -2683,6 +2774,11 @@ async function openTextView() {
 
   await updateDeck(deck.id, {
     title: parsed.title, theme: parsed.theme, background: parsed.background,
+    // Merged, not replaced: deck.settings also holds the custom theme the
+    // instructor built and the question-size choice, and neither of those
+    // is expressible in the text format. Assigning parsed.settings here
+    // would delete a theme by way of editing a prompt.
+    settings: { ...(deck.settings || {}), ...(parsed.settings || {}) },
   });
   questions = await replaceQuestions(deck.id, parsed.questions);
   deck = await getDeck(deck.id);

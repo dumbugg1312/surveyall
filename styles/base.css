@@ -38,8 +38,18 @@
      the same as the outlined one beside it. Rust is the one element that
      asks to be clicked, so it stays fixed rather than following a deck
      theme: it marks instructor actions, not deck content.
-     Contrast: 7.2:1 for --on-cta on the fill. */
-  --cta: #c2410c;
+
+     Burnt sienna rather than the orange it started as. The olive accent
+     is deliberately low-chroma, and the old #c2410c carried twice its
+     chroma at a lighter tone, so the one saturated thing on the page
+     read as a different palette rather than the loud member of this one.
+     This sits at roughly 1.5x the accent's chroma and a shade darker —
+     still unmistakably the thing to click, no longer a traffic cone.
+     Contrast: 6.6:1 for --on-cta on the fill, 6.3:1 as text on the
+     cream. (The previous note here claimed 7.2:1; the orange actually
+     measured 4.92:1, which is AA but not the AAA the comment implied.)
+     Keep favicon.svg's middle bar in step with this. */
+  --cta: #983e1b;
   --on-cta: #fff8f2;
   --accent-2: #b45309;
   --good: #15803d;

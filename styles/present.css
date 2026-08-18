@@ -63,6 +63,135 @@
 .stage > .stage-body,
 .stage > .stage-foot { position: relative; z-index: 2; }
 
+/* ------------------------------------------------- slide transitions
+   The frozen photograph of the outgoing slide (app/transitions.js).
+
+   z-index 5 is the whole design: above the front decor layer (3) so a
+   slide leaves as one piece, below the join card (6) and the controls
+   (7) so the QR the room is scanning never flickers and the instructor
+   can always press Next — including during a transition.
+
+   No background. The ghost carries content and nothing else, so the
+   ambience backdrop shows through and holds still while the slide turns
+   over on top of it. Painting a ground here would make every transition
+   look like a page load. */
+.stage-ghost {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+  /* Its own compositor layer for the length of the animation: the whole
+     outgoing slide is one texture being moved, which is the cheapest
+     thing a GPU can be asked to do and the difference between a clean
+     transition and a torn one on classroom hardware. */
+  will-change: transform, opacity, clip-path;
+  contain: layout paint;
+}
+
+/* Mirror of the overlay-lift rule above, for the clones. Inside the
+   ghost the `.stage >` selectors no longer match, so without this the
+   back decor layer (z-index 1, positioned) would paint on top of the
+   heading and chart (static, z-index auto) and every transition would
+   show the watermark jumping in front of the text. */
+.stage-ghost > .stage-head,
+.stage-ghost > .stage-body,
+.stage-ghost > .stage-foot { position: relative; z-index: 2; }
+
+/* THE RULE THAT MAKES A FREEZE-FRAME FROZEN.
+   cloneNode copies class names, and a CSS animation on a freshly
+   inserted node starts from frame 0 — so without this the photograph of
+   the outgoing slide comes to life the instant it is mounted: the decor
+   replays its entrance (elements.css `decor-in`), an urgent timer starts
+   blinking again (`timer-tick`), and the awaiting-sweep restarts across
+   every empty bar. The ghost would be the liveliest thing on screen,
+   which is the exact opposite of its job.
+   Pseudo-elements are named explicitly because `*` does not reach them,
+   and the sweeps live on ::after. */
+.stage-ghost,
+.stage-ghost *,
+.stage-ghost *::before,
+.stage-ghost *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* The lit edge of a wipe — a sibling of the ghost, not a child, because
+   the ghost is clipped away along this very line (see transitions.js).
+   Positioned by JS in pixels because it has to track that clip exactly,
+   and the clip is a percentage of the stage while this is a fixed width.
+   z-index 5 like the ghost, and later in the DOM, so it rides over both
+   slides while still passing under the QR card at 6. */
+.stage-wipe-edge {
+  position: absolute;
+  top: 0; bottom: 0; left: 0;
+  width: 2.4em;
+  margin-left: -1.2em;
+  z-index: 5;
+  pointer-events: none;
+  background: linear-gradient(90deg,
+    transparent,
+    color-mix(in srgb, var(--accent) 42%, transparent) 45%,
+    color-mix(in srgb, var(--accent) 75%, white 25%) 50%,
+    color-mix(in srgb, var(--accent) 42%, transparent) 55%,
+    transparent);
+}
+
+/* --------------------------------------------------- entrance cascade
+   A slide assembles rather than appearing as a slab: kicker, then
+   prompt, then chart, then the footer, ~55ms apart.
+
+   This deliberately targets the CONTENTS of the three stage blocks and
+   never the blocks themselves, because a transition is animating those
+   same blocks with the Web Animations API at the same moment — and a
+   WAAPI animation outranks a CSS one on the same property, so a cascade
+   written on .stage-head would simply be discarded whenever a transition
+   was configured. Two layers, two sets of nodes, no collision.
+
+   --enter-lead is written by present-page.js: zero for a plain cut, and
+   about the incoming transition's delay when one is playing, so the
+   contents start assembling just after the slide itself has committed to
+   arriving. */
+@keyframes slide-enter {
+  from { opacity: 0; transform: translate3d(0, .38em, 0); }
+  to   { opacity: 1; transform: none; }
+}
+
+.stage.is-entering .stage-kicker,
+.stage.is-entering .stage-prompt,
+.stage.is-entering > .stage-body > .chart,
+.stage.is-entering > .stage-foot > :not(.spacer):not(.sr-only) {
+  animation: slide-enter .44s var(--ease-decel, cubic-bezier(.16, 1, .3, 1)) backwards;
+  animation-delay: var(--enter-lead, 0ms);
+}
+.stage.is-entering .stage-prompt {
+  animation-delay: calc(var(--enter-lead, 0ms) + 55ms);
+}
+.stage.is-entering > .stage-body > .chart {
+  animation-delay: calc(var(--enter-lead, 0ms) + 120ms);
+}
+.stage.is-entering > .stage-foot > :not(.spacer):not(.sr-only) {
+  animation-delay: calc(var(--enter-lead, 0ms) + 170ms);
+}
+
+/* The room is mid-transition: hold the timer host still. It is the one
+   thing in the heading that encodes a live quantity, and sliding a
+   running countdown across the screen reads as a glitch. */
+.stage.is-transitioning #timerHost { opacity: .001; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* captureSlide() already refuses to build a ghost, so this is the
+     belt to that pair of braces — the preference can flip mid-session
+     and a stranded overlay would cover the class's slide. */
+  .stage-ghost { display: none; }
+  .stage.is-entering .stage-kicker,
+  .stage.is-entering .stage-prompt,
+  .stage.is-entering > .stage-body > .chart,
+  .stage.is-entering > .stage-foot > :not(.spacer):not(.sr-only) { animation: none; }
+  .stage.is-transitioning #timerHost { opacity: 1; }
+}
+
 /* ---------------------------------------------------------------- head */
 
 .stage-head {

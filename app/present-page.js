@@ -29,6 +29,10 @@ import {
   celebrate, pulseCount, CLOUD_MAX_WORDS,
 } from './charts.js';
 import { countTo, delay } from './motion.js';
+import {
+  captureSlide, playSlideTransition, clearSlideTransition,
+  resolveTransition, transitionDirection,
+} from './transitions.js';
 import { renderQR, qrSVG, qrInk } from './qr.js';
 import { joinBase } from './config.js';
 import { renderDecor } from './elements.js';
@@ -81,6 +85,8 @@ const state = {
   shownPeople: null,
   lastPeople: null,
   countTween: null,
+  // cancels the pending removal of .is-entering (the entrance cascade)
+  enterTimer: null,
 };
 
 /**
@@ -273,6 +279,19 @@ async function render() {
 
   const q = state.questions.find((x) => x.id === s.current_question_id);
   const changed = state.question?.id !== q?.id || state.question?.__round !== s.current_round;
+
+  // Photograph the outgoing slide BEFORE a single character of the new
+  // one is written. Everything below this point mutates the stage in
+  // place, so this is the last moment the old slide still exists.
+  //
+  // Only for a real slide change: a re-ask is the same question asked
+  // again, and sliding an unchanged prompt off the screen and back on
+  // would tell the room something moved when nothing did.
+  const from = state.question;
+  const slideChanged = changed && !!from && !!q && from.id !== q.id;
+  const trans = slideChanged ? resolveTransition(q, state.deck) : 'none';
+  const ghost = slideChanged ? captureSlide(ui.stage, trans) : null;
+
   state.question = q ? { ...q, __round: s.current_round } : null;
   if (!q) return;
 
@@ -323,11 +342,54 @@ async function render() {
         + (s.accepting ? 'Voting is open.' : 'Voting is closed.'));
   }
 
+  // The new slide is fully written. Turn the old one over on top of it,
+  // and let the heading and chart assemble a beat behind the slide's own
+  // arrival. Deliberately NOT awaited: loadRows() below must start its
+  // fetch now, not half a second from now, or a room that is already
+  // answering watches an empty chart for the length of the animation.
+  if (slideChanged) startSlideChange(ghost, trans, from, q);
+
   // Nothing is submitted against a content slide, so there is nothing to
   // fetch, count, or subscribe to — draw it and stop.
   if (content) { paintContentSlide(q); return; }
 
   await loadRows();
+}
+
+/**
+ * How long the entrance cascade waits before starting, per transition.
+ *
+ * Roughly the incoming animation's own delay plus a few frames: the
+ * slide should have visibly committed to arriving before its contents
+ * begin assembling, or the two motions read as one muddle. A plain cut
+ * has nothing to wait for.
+ */
+const ENTER_LEAD = { none: 0, fade: 190, push: 130, rise: 120, zoom: 120, wipe: 200 };
+
+/**
+ * Play the slide change: the photograph of the old slide animating away,
+ * the new slide animating in, and the new slide's contents cascading.
+ *
+ * Fire-and-forget by design — see the call site. Nothing downstream may
+ * wait on a transition, because votes keep arriving during one.
+ */
+function startSlideChange(ghost, trans, from, to) {
+  const dir = transitionDirection(from, to);
+
+  ui.stage.style.setProperty('--enter-lead', `${ENTER_LEAD[trans] ?? 0}ms`);
+  // Restart the CSS animations. Removing the class, forcing a reflow and
+  // re-adding is the only way to replay a CSS animation on nodes that
+  // never left the DOM — and these nodes deliberately never leave it.
+  ui.stage.classList.remove('is-entering');
+  void ui.stage.offsetWidth;
+  ui.stage.classList.add('is-entering');
+  state.enterTimer?.();
+  state.enterTimer = delay(1.2, () => {
+    ui.stage.classList.remove('is-entering');
+    state.enterTimer = null;
+  });
+
+  if (ghost) playSlideTransition(ui.stage, ghost, { id: trans, direction: dir });
 }
 
 /** An instructions slide's steps, with %CODE% / %URL% filled in. */
@@ -1526,4 +1588,17 @@ function flash(text) {
 
 window.addEventListener('beforeunload', () => {
   state.unsubs.forEach((fn) => { try { fn(); } catch { /* ignore */ } });
+});
+
+/**
+ * Coming back from a hidden tab, or from a laptop that was asleep in a
+ * bag between classes: sweep away any transition that was in flight when
+ * the machine stopped painting.
+ *
+ * A stranded ghost is a full-slide overlay of the WRONG question sitting
+ * in front of the room, and the only recovery an instructor would find
+ * on their own is reloading the page mid-lecture. Cheap insurance.
+ */
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') clearSlideTransition();
 });

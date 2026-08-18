@@ -856,6 +856,39 @@ describe('students still cannot reach anything', () => {
     ok(!JSON.stringify(seen).includes('correct'), 'no correctness marker may reach a phone');
   });
 
+  it('keeps projector-only styling out of the phone payload', async () => {
+    // Not a security boundary — a transition name leaks nothing. It is
+    // here because the participant payload is the one thing in this app
+    // that gets audited line by line when a department asks what
+    // students can see, and every key that has no reason to be in it is
+    // a key someone has to reason about.
+    const env = freshEnv();
+    const token = await account(env, 'alice');
+    const deck = (await call(env, 'POST', '/api/decks', { token, body: { title: 'Deck' } })).data;
+    const q = (await call(env, 'POST', `/api/decks/${deck.id}/questions`, {
+      token,
+      body: {
+        type: 'word_cloud',
+        prompt: 'One word?',
+        config: { max_words: 3, transition: 'push' },
+      },
+    })).data;
+    const session = (await call(env, 'POST', '/api/sessions',
+      { token, body: { deckId: deck.id } })).data;
+    await call(env, 'PATCH', `/api/sessions/${session.id}`,
+      { token, body: { state: 'live', current_question_id: q.id, accepting: true } });
+
+    const seen = (await call(env, 'GET', `/api/join/${session.join_code}/question`)).data;
+    eq(seen.config.transition, undefined);
+    // The settings a phone actually needs are untouched by the strip.
+    eq(seen.config.max_words, 3);
+
+    // ...and the instructor's own read still has it, or the projector
+    // would have nothing to play.
+    const own = (await call(env, 'GET', `/api/decks/${deck.id}/questions`, { token })).data;
+    eq(own[0].config.transition, 'push');
+  });
+
   it('refuses a participant label the server did not sign', async () => {
     const { env, session, question } = await twoInstructors();
     const res = await call(env, 'POST', `/api/join/${session.join_code}/respond`, {

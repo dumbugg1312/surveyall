@@ -234,6 +234,10 @@ async function sanitiseQuestion(env, question) {
   // calibration anchors (the instructor's own rubric rating) would bias
   // the student ratings they exist to be compared against
   delete config.anchors;
+  // Projector-only styling. Not a leak, just noise a phone never reads —
+  // and the smaller the payload a phone is handed, the less there is to
+  // audit the next time someone asks what students can see.
+  delete config.transition;
 
   // options may themselves carry a per-option correctness flag
   if (Array.isArray(config.options)) {

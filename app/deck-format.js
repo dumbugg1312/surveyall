@@ -13,6 +13,7 @@
  *   # Intro to Sociology — Week 3
  *   theme: chalkboard
  *   background: gradient-dusk
+ *   transition: push
  *
  *   ## instructions
  *   Join in before we start
@@ -49,9 +50,15 @@
  *
  *   ## open_ended
  *   What should I re-explain next class?
+ *   transition: none
  *
  *   ## qa
  *   Open floor
+ *
+ * `transition:` in the header is the deck's default (none, fade, push,
+ * rise, zoom, wipe); on a question it overrides that default for one
+ * slide, and `transition: none` is how a single slide opts back out of a
+ * deck that otherwise moves.
  *
  * A "+" line places an element on the slide:
  *
@@ -77,6 +84,7 @@ import {
   DEFAULT_ANCHOR, DEFAULT_SIZE, DEFAULT_STROKE, DEFAULT_FILL, DEFAULT_WEIGHT,
   DEFAULT_LAYER,
 } from './elements.js';
+import { normalizeTransition } from './transitions.js';
 
 const TYPE_ALIASES = {
   instructions: 'instructions', instruction: 'instructions', intro: 'instructions',
@@ -417,6 +425,9 @@ const KNOWN_SETTINGS = new Set([
   'rationale', 'corners', 'anchors',
   'join', 'show_join', 'note',
   'total', 'truth', 'case_sensitive',
+  // how this slide arrives on the projector; also legal in the header,
+  // where it sets the default for the whole deck
+  'transition',
 ]);
 
 function isKnownSetting(key) { return KNOWN_SETTINGS.has(key); }
@@ -467,6 +478,13 @@ function coerce(value) {
  */
 function applyDeckSetting(deck, key, value) {
   if (key === 'theme') deck.theme = String(value);
+  else if (key === 'transition') {
+    // Deck-wide default. Merged rather than assigned because deck.settings
+    // also carries the instructor's custom theme, and a deck file that
+    // mentions a transition must not be a way to delete a theme they built.
+    const id = normalizeTransition(value);
+    if (id) deck.settings = { ...(deck.settings || {}), transition: id };
+  }
   else if (key === 'background') {
     const prev = deck.background || {};
     deck.background = parseBackground(value);
@@ -510,6 +528,17 @@ function applyQuestionSetting(q, key, value) {
   if (key === 'left') { q.config.left_label = String(value); return; }
   if (key === 'right') { q.config.right_label = String(value); return; }
   if (key === 'rationale') { q.config.allow_rationale = coerce(value) !== false; return; }
+  if (key === 'transition') {
+    // Never through coerce(). "transition: off" would come back as the
+    // boolean false and "transition: 0" as a number, and both would then
+    // fall through resolveTransition() to the deck default — silently
+    // doing the opposite of what the line says. An unrecognised name is
+    // dropped rather than guessed at: a deck naming a transition this
+    // build has not got should still present.
+    const id = normalizeTransition(value);
+    if (id) q.config.transition = id;
+    return;
+  }
   if (key === 'labels') {
     q.config.labels = splitList(value).filter(Boolean);
     return;
@@ -725,6 +754,10 @@ export function serialiseDeck(deck, questions) {
   // independent of the line above: a deck can keep the theme's own
   // backdrop and still ask it to move
   if (bg && bg.motion && bg.motion !== 'off') out.push(`ambience: ${bg.motion}`);
+  // 'none' is the absence of a setting, not a setting — writing it would
+  // add a line to every exported deck that has never been touched.
+  const deckTrans = normalizeTransition(deck.settings?.transition);
+  if (deckTrans && deckTrans !== 'none') out.push(`transition: ${deckTrans}`);
   out.push('');
 
   for (const q of questions || []) {
@@ -808,7 +841,12 @@ export function serialiseDeck(deck, questions) {
     if (q.type === 'probability' && cfg.truth != null) out.push(`truth: ${cfg.truth}`);
     if (q.type === 'cloze' && cfg.case_sensitive) out.push('case_sensitive: true');
     // newer settings: only serialised when meaningfully set
-    for (const key of ['mode', 'confidence', 'hold', 'max_picks', 'corners']) {
+    // 'transition' rides in this list rather than the one above because
+    // it is the only key here whose 'none' is meaningful: it is how a
+    // single slide opts OUT of a deck-wide transition, so it has to be
+    // written even though it looks like a default.
+    for (const key of ['mode', 'confidence', 'hold', 'max_picks', 'corners',
+                       'transition']) {
       if (cfg[key] != null && cfg[key] !== '' && cfg[key] !== false) {
         out.push(`${key}: ${cfg[key]}`);
       }

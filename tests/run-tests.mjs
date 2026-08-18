@@ -21,6 +21,10 @@ import {
 } from '../app/logic.js';
 import { readFileSync, statSync } from 'node:fs';
 import { parseDeck, serialiseDeck, SAMPLE_DECK } from '../app/deck-format.js';
+import {
+  SLIDE_TRANSITIONS, TRANSITION_IDS, DEFAULT_TRANSITION,
+  normalizeTransition, resolveTransition, transitionDirection,
+} from '../app/transitions.js';
 import { TEMPLATES } from '../app/templates.js';
 import { ambiencePlan, ambienceLevel } from '../app/ambience.js';
 import {
@@ -762,6 +766,136 @@ Ask away`);
       eq(again.questions[i].config.statements, q.config.statements, `statements of question ${i + 1}`);
       eq(again.questions[i].config.steps, q.config.steps, `steps of question ${i + 1}`);
     });
+  });
+});
+
+// =====================================================================
+// Slide transitions.
+//
+// The runner itself is WAAPI over cloned DOM and cannot run here. What
+// CAN be tested is everything that decides WHICH transition plays and
+// whether it survives a trip through the text format — which is where
+// the whole feature can silently break, because `transition` is a
+// free-form string riding in a config blob that a hand-edited deck file
+// can put anything into.
+// =====================================================================
+
+describe('slide transitions', () => {
+  it('offers a stable, unique vocabulary with none as the default', () => {
+    eq(TRANSITION_IDS.length, new Set(TRANSITION_IDS).size, 'ids are unique');
+    ok(TRANSITION_IDS.includes(DEFAULT_TRANSITION));
+    eq(DEFAULT_TRANSITION, 'none');
+    // Every entry needs a label and a hint: both are printed in the
+    // editor, and a blank one reads as a broken build rather than as a
+    // transition with nothing to say about itself.
+    for (const t of SLIDE_TRANSITIONS) {
+      ok(t.label, `${t.id} has a label`);
+      ok(t.hint, `${t.id} has a hint`);
+    }
+  });
+
+  it('normalises names and refuses ones it does not know', () => {
+    eq(normalizeTransition('push'), 'push');
+    eq(normalizeTransition('  PUSH '), 'push');
+    eq(normalizeTransition('Fade'), 'fade');
+    eq(normalizeTransition('swirl'), null);
+    eq(normalizeTransition(''), null);
+    eq(normalizeTransition(null), null);
+    eq(normalizeTransition(undefined), null);
+    // A deck file can put anything here, including things that are not
+    // strings once JSON has been through them.
+    eq(normalizeTransition(false), null);
+    eq(normalizeTransition(0), null);
+  });
+
+  it('lets a slide override the deck, and falls back when it does not', () => {
+    const deck = { settings: { transition: 'push' } };
+    eq(resolveTransition({ config: { transition: 'zoom' } }, deck), 'zoom');
+    eq(resolveTransition({ config: {} }, deck), 'push');
+    eq(resolveTransition({}, deck), 'push');
+    eq(resolveTransition({ config: {} }, {}), 'none');
+    eq(resolveTransition(null, null), 'none');
+    // An explicit per-slide 'none' is an opt-OUT of the deck default, not
+    // an absent value — a section break that should cut hard while the
+    // rest of the deck pushes.
+    eq(resolveTransition({ config: { transition: 'none' } }, deck), 'none');
+    // Garbage at either level falls through rather than throwing.
+    eq(resolveTransition({ config: { transition: 'swirl' } }, deck), 'push');
+    eq(resolveTransition({ config: {} }, { settings: { transition: 'swirl' } }), 'none');
+  });
+
+  it('reads direction from deck position, not from the key that was pressed', () => {
+    eq(transitionDirection({ position: 0 }, { position: 1 }), 1);
+    eq(transitionDirection({ position: 4 }, { position: 3 }), -1);
+    // Jumping several slides is still just forward or back.
+    eq(transitionDirection({ position: 1 }, { position: 7 }), 1);
+    // No usable positions: forward, so a transition still plays.
+    eq(transitionDirection({ position: 2 }, { position: 2 }), 1);
+    eq(transitionDirection(null, { position: 2 }), 1);
+    eq(transitionDirection({}, {}), 1);
+  });
+
+  it('round-trips a per-slide transition through the text format', () => {
+    const src = '## multiple_choice\nPick one\ntransition: zoom\n- a\n- b\n';
+    eq(parseDeck(src).questions[0].config.transition, 'zoom');
+    const again = parseDeck(serialiseDeck({ title: 'D' }, parseDeck(src).questions));
+    eq(again.questions[0].config.transition, 'zoom');
+    eq(again.questions[0].prompt, 'Pick one');
+  });
+
+  it('round-trips an explicit per-slide "none"', () => {
+    // The value that looks like a default but is not one. If the
+    // serialiser skipped it as "unset", a slide told to cut hard would
+    // come back inheriting the deck's push.
+    const src = '# D\ntransition: push\n\n## open_ended\nWhy?\ntransition: none\n';
+    const parsed = parseDeck(src);
+    eq(parsed.questions[0].config.transition, 'none');
+    const again = parseDeck(serialiseDeck(
+      { title: parsed.title, settings: parsed.settings }, parsed.questions));
+    eq(again.questions[0].config.transition, 'none');
+    eq(resolveTransition(again.questions[0], again), 'none');
+  });
+
+  it('round-trips the deck-wide default through the header', () => {
+    const parsed = parseDeck('# D\ntransition: rise\n\n## open_ended\nWhy?\n');
+    eq(parsed.settings?.transition, 'rise');
+    eq(resolveTransition(parsed.questions[0], parsed), 'rise');
+    const text = serialiseDeck(
+      { title: parsed.title, settings: parsed.settings }, parsed.questions);
+    ok(/^transition: rise$/m.test(text), 'header line is written');
+    eq(parseDeck(text).settings?.transition, 'rise');
+  });
+
+  it('never writes a deck-wide default nobody chose', () => {
+    const text = serialiseDeck({ title: 'D' }, [{ type: 'qa', prompt: 'Ask', config: {} }]);
+    notOk(/transition:/.test(text), 'no transition line on an untouched deck');
+    eq(serialiseDeck({ title: 'D', settings: { transition: 'none' } },
+      [{ type: 'qa', prompt: 'Ask', config: {} }]).includes('transition:'), false);
+  });
+
+  it('drops an unknown transition without eating the prompt', () => {
+    // The failure this guards against is specific and nasty: an
+    // unrecognised "key: value" line is appended to the prompt (see
+    // isKnownSetting), so before `transition` joined KNOWN_SETTINGS a
+    // deck written by a NEWER build would come back with
+    // "Why? transition: dissolve" projected as the question.
+    const deck = parseDeck('## open_ended\nWhy?\ntransition: dissolve\n');
+    eq(deck.questions[0].prompt, 'Why?');
+    eq(deck.questions[0].config.transition, undefined);
+    eq(resolveTransition(deck.questions[0], deck), 'none');
+  });
+
+  it('does not let coerce() turn a transition name into a boolean', () => {
+    // coerce() maps off/no/false to the boolean false and digits to
+    // numbers. Any of those reaching config.transition would resolve to
+    // the deck default — silently the opposite of what the line says.
+    for (const raw of ['off', 'no', 'false', '0', 'true']) {
+      const q = parseDeck(`## open_ended\nWhy?\ntransition: ${raw}\n`).questions[0];
+      eq(q.config.transition, undefined, `"${raw}" is not a transition`);
+    }
+    // ...while the one that merely looks like "no" still works.
+    eq(parseDeck('## open_ended\nWhy?\ntransition: none\n')
+      .questions[0].config.transition, 'none');
   });
 });
 

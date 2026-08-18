@@ -2,11 +2,21 @@
   <!-- Three answer bars on the app's cream, in the app's own accent and
        call-to-action colours. A letterform would be illegible at 16px and
        would collide with every other S-for-something tab; bars of unequal
-       length read as "poll results" even at favicon size. -->
+       length read as "poll results" even at favicon size.
+
+       Every colour here is a copy of a token in styles/base.css, so the
+       two have to be changed together:
+         bar 1  --accent   #4a5d23
+         bar 2  --cta      #983e1b   (burnt sienna, see the note on --cta)
+         bar 3  a lighter tint of the accent, not a token
+       Bar 3 used to be #8b8f6b, which sat at 3.07:1 on the cream — the
+       shortest bar and the faintest, so it was the first thing to mush
+       out at 16px. It is the quiet one by design; it still has to be
+       visible. -->
   <rect width="64" height="64" rx="14" fill="#f7f4ee"/>
   <g>
     <rect x="12" y="17" width="34" height="9" rx="4.5" fill="#4a5d23"/>
-    <rect x="12" y="30" width="22" height="9" rx="4.5" fill="#c2410c"/>
-    <rect x="12" y="43" width="13" height="9" rx="4.5" fill="#8b8f6b"/>
+    <rect x="12" y="30" width="22" height="9" rx="4.5" fill="#983e1b"/>
+    <rect x="12" y="43" width="13" height="9" rx="4.5" fill="#677551"/>
   </g>
 </svg>

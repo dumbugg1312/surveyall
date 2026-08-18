@@ -1,10 +1,14 @@
 # Visual & motion craft notes
 
-What changed in the August 2026 graphics pass, and why. Scope was purely
-visual/motion: no backend, schema, or API changes. `node tests/run-tests.mjs`
-stays at 104 passing; `tests/visual-check.html` `__audit()` stays `ok: true`
-(zero word-cloud overlaps, zero out-of-bounds), verified across all 8 themes
-and after simulated live-class runs.
+What changed in the August 2026 graphics passes, and why. `npm test` stays
+green; `tests/visual-check.html` `__audit()` stays `ok: true` (zero
+word-cloud overlaps, zero out-of-bounds), verified across all 8 themes and
+after simulated live-class runs.
+
+Sections 1–7 are the first pass, which was purely visual/motion: no
+backend, schema, or API changes. Section 8 (slide transitions) is the
+second, and does touch persistence — a new key in two existing JSON
+columns, no migration.
 
 ## 1. The waiting state — "the room is listening"
 
@@ -172,6 +176,93 @@ render it from any machine (the join payload carries sanitised tokens via
   FLIP-animated instead of teleporting, and the submit button gives one
   physical beat on success.
 
+## 8. Slide transitions — turning the page
+
+Until now, advancing a slide was an instant swap: `render()` overwrote the
+kicker, the prompt and the chart in place, and the only thing that moved
+was whatever the new slide's own entrance choreography did. That in-place
+design is load-bearing — it is why sixty phones answering at once cost one
+repaint — so transitions had to be added *without* giving it up.
+
+**The outgoing slide is photographed, not moved.** On a real slide change,
+`captureSlide()` (`app/transitions.js`) deep-clones the slide's content —
+`#decorBack`, `#head`, `#body`, `#foot`, `#decorFront` — into an inert
+`.stage-ghost` overlay at z-index 5. `render()` then rebuilds the real
+slide underneath exactly as it always has, and the two are animated as a
+pair. Charts never learn that a transition happened.
+
+Three things make the clone actually behave like a photograph:
+
+- **It is frozen.** `cloneNode` copies class names, and a CSS animation on
+  a freshly inserted node restarts from frame 0 — so without an explicit
+  `animation: none !important` over the ghost subtree (pseudo-elements
+  included, because the awaiting sweeps live on `::after`) the photograph
+  comes alive the instant it mounts: decor replays its entrance, an urgent
+  timer starts blinking again. The ghost would be the liveliest thing on
+  screen.
+- **It carries no identity.** Ids are stripped recursively, and
+  `aria-live`/`role="status"` with them, so the room does not acquire a
+  second screen-reader announcer for the slide it just left.
+- **It is a photograph of the slide, not of the page.** Cloning `#stage`
+  wholesale would copy the ambience backdrop (`.amb-stack` is a *child* of
+  `.stage-backdrop`, not a sibling), the QR corner and the control bar.
+  The backdrop holding still through the cut is what makes this read as
+  one deck turning a page rather than a browser loading a document, and
+  the QR holding still is a promise to the student trying to scan it.
+
+**Six transitions**: none (default), fade, push, rise, zoom, wipe. Every
+displacement is under 10% — a full-width shove reads cheap on a projector
+because at thirty feet the eye tracks the whole wall moving and loses the
+content. Push, rise and wipe are direction-aware, read from the two
+slides' `position` rather than from the arrow key, so a slide change
+arriving over the WebSocket from a second window mirrors correctly too.
+Zoom is deliberately direction-blind: depth has no left and right.
+
+**Each move is two animations, not one.** Transform wants an accelerating
+exit and a decelerating arrival; opacity wants the opposite emphasis.
+Both slides put their heading in the same place, so fading them on
+symmetrical curves sums the pair to ~2 through the middle of the move and
+the room reads two headings stacked on each other. Front-loading the exit
+and back-loading the arrival keeps the sum at or under 1 — measured, the
+push peaks at 0.58. WAAPI eases per keyframe interval rather than per
+property, so one animation cannot carry both curves; two compose for free.
+
+**Wipe clips both sides.** The incoming slide has no background of its own,
+so revealing it over the old one does not hide the old one. The ghost is
+clipped to exactly the complement of the incoming slide's clip, so every
+pixel belongs to one slide at every instant. The lit edge is a sibling of
+the ghost rather than a child, because the ghost is being clipped away
+along that very line.
+
+**The contents assemble a beat behind the slide.** `.stage.is-entering`
+cascades kicker → prompt → chart → footer about 55ms apart, starting after
+`--enter-lead` (roughly the incoming transition's own delay). This is what
+turns a slide that slides in as a slab into one that arrives and composes
+itself. It deliberately targets the *contents* of the three stage blocks
+and never the blocks themselves, because the transition is animating those
+same blocks with WAAPI at the same moment — and a WAAPI animation outranks
+a CSS one on the same property, so a cascade written on `.stage-head`
+would simply be discarded whenever a transition was configured.
+
+**Storage**: `config.transition` per slide, `settings.transition` per deck,
+per-slide winning. Both ride in existing JSON columns, so there is no
+migration. `transition` had to join `KNOWN_SETTINGS` in the text format,
+because an unrecognised `key: value` line is appended to the prompt — a
+deck written by a newer build would otherwise come back with
+"Why? transition: dissolve" projected as the question. It also needs its
+own parse branch rather than the generic `coerce()`, which maps `off`/`no`
+to the boolean `false`. The worker strips it from the participant payload:
+not a leak, but the phone payload is the one thing here that gets audited
+line by line, and every key with no reason to be in it is a key someone
+has to reason about.
+
+Considered and rejected: the View Transitions API, which does this
+natively and handles canvas. `render()` is async and does network work
+inside the update, Firefox has no support, and a classroom projector is
+the worst place to discover a browser-specific fallback path. The clone
+works identically everywhere, and charts here are SVG and DOM, never
+canvas.
+
 ## Infrastructure
 
 `qrcode-generator` is vendored (`app/vendor/`, MIT) instead of imported from
@@ -195,6 +286,30 @@ high at a glance. Charts reuse DOM between renders.
 any student identity. `prefersReducedMotion()` is respected by every new
 animation (and the emulated-reduce pass verifies: no sweeps, no dots, no
 confetti, instant reveal, snapped springs).
+
+Added by the transitions pass, and equally load-bearing:
+
+- **The ghost is never alive.** Any change to `.stage-ghost` keeps the
+  `animation: none !important` / `transition: none !important` blanket over
+  its whole subtree including pseudo-elements. A ghost that animates is not
+  a photograph.
+- **`prefersReducedMotion()` is checked at the gate, every time.** Not once
+  at module load, and not by leaning on `SpringGroup` — a group snapshots
+  the preference at construction, so it cannot honour a later
+  `setMotionStill(true)`. The print/export path depends on that check
+  existing separately.
+- **Nothing downstream awaits a transition.** `startSlideChange()` is
+  deliberately not awaited, so `loadRows()` fires its fetch immediately; a
+  room that is already answering must not watch an empty chart for the
+  length of an animation.
+- **Only one transition is ever in flight.** A held arrow key aborts the
+  previous one rather than queueing, and `visibilitychange` sweeps any
+  ghost stranded by a sleeping laptop. A stuck ghost is a full-slide
+  overlay of the wrong question in front of a class, whose only obvious
+  recovery is reloading mid-lecture.
+- **z-index 5 is not arbitrary.** Above the front decor layer (3) so a
+  slide leaves as one piece; below the join card (6) and the controls (7)
+  so the QR never flickers and Next always works, including mid-transition.
 
 ### The `.stage` children rule, restated
 
