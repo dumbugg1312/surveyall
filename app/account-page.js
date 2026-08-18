@@ -29,6 +29,7 @@ async function init() {
 
   $('authForm').addEventListener('submit', onSignIn);
   $('signUpForm').addEventListener('submit', onSignUp);
+  wirePasswordToggles();
 
   // Only offer the sign-up door when the server actually has a code
   // configured — otherwise every attempt would fail at submit with a
@@ -47,6 +48,27 @@ async function init() {
     if (res.ok) return;
     show('setup');
     $('setupDetail').textContent = res.error || 'The API is not responding.';
+  });
+}
+
+/**
+ * Show/hide for the password fields. A short PIN is explicitly encouraged
+ * here, and a four-character typo is invisible behind four identical dots
+ * — with no reset email, getting it wrong at sign-up costs an admin.
+ */
+function wirePasswordToggles() {
+  document.querySelectorAll('.pw-toggle').forEach((btn) => {
+    const input = $(btn.dataset.pwFor);
+    if (!input) return;
+    btn.addEventListener('click', () => {
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      btn.textContent = show ? 'Hide' : 'Show';
+      btn.setAttribute('aria-pressed', String(show));
+      btn.setAttribute('aria-label',
+        show ? 'Hide password' : 'Show password');
+      input.focus();
+    });
   });
 }
 

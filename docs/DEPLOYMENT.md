@@ -173,6 +173,20 @@ Two things run the rule, so a fork that drops either one still behaves:
 - a **Cron Trigger** (`wrangler.jsonc`, nightly at 04:10 UTC), and
 - an opportunistic sweep whenever the editor lists uploads.
 
+### The per-account quota
+
+There is also a **25 MB cap on uploaded images per account**
+(`BACKGROUND_QUOTA_BYTES`), which is roughly 60–100 backdrops at the size
+the client downscales to. It exists so one enthusiastic uploader cannot
+consume a shared 500 MB database.
+
+It is deliberately **not announced in the interface**. Almost nobody will
+approach it, and a limit stated up front reads as a restriction on a tool
+whose whole pitch is that it has none. The editor stays silent until 80%
+of the cap is used, and the figure is otherwise named only in the error
+you get when a specific upload will not fit. Expired-but-not-yet-swept
+images do not count against it.
+
 To change the window, edit `BACKGROUND_RETENTION_DAYS` in
 `worker/index.js`. A database that predates this needs the column:
 
@@ -241,7 +255,13 @@ Everyone else gets a 403 from the API, not just a hidden link.
 
 **After class**
 
-**Decks → Recent sessions → Results.** Everything is kept permanently, and **Download CSV** gives you the raw data. Free, always.
+**Decks → Recent sessions → Results.** Everything is kept permanently, and the three **Export** buttons get it out of the app. Free, always.
+
+- **CSV** — every answer, one row each, for a spreadsheet or a gradebook.
+- **PDF** — the deck as the room saw it, one 16:9 page per result. This opens your browser's print dialog; choose *Save as PDF* as the destination. (It is the browser's own print engine on purpose — it knows the deck's real fonts and colours better than anything this app could write.)
+- **PowerPoint** — the same slides as a `.pptx` of real text boxes and shapes, not screenshots, so you can edit a bar's colour or drop two slides straight into your own lecture deck. Slides carry the exact counts in their speaker notes.
+
+The PDF and PowerPoint print the deck's own theme, minus the backdrop image — a photo behind a bar chart is scene-setting on a projector and a legibility problem on paper.
 
 ---
 
@@ -374,7 +394,7 @@ The summary, if anyone asks whether this is FERPA-compliant:
 - **The only per-response label is a random nickname** like "Amber Falcon", assigned by the server for that single session and never reused. Two sessions cannot be linked to reconstruct one student's history.
 - **No cookies, no analytics, no third-party trackers.** The nickname lives in the browser tab and disappears when it closes.
 - **Quiz leaderboards work without identity** — they rank nicknames.
-- **CSV exports contain nothing to redact.**
+- **Exports contain nothing to redact.** The CSV's `respondent` column holds a session-only nickname; the PDF and PowerPoint carry charts and counts and name nobody at all, apart from those same nicknames on a quiz leaderboard. The PowerPoint also writes no author into its document properties, so your name is not attached to a file you forward.
 - **Instructors sharing a site cannot see each other's classes.** Every query is filtered by account; `tests/run-worker-tests.mjs` proves it against the real routes.
 
 **Say "no student data", not "no data".** Instructor accounts store a username and a password hash — staff data, not student data, and FERPA governs student education records. Claiming the system stores nothing at all is the kind of overstatement a reviewer disproves in one question, and it would cost you the rest of the argument.

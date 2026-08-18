@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Instructor sign-in — SurveyAll</title>
+<title>Instructor sign-in · SurveyAll</title>
 <!-- Tab icon. The SVG is what modern browsers use; the PNGs are for
      Safari's older raster paths and for a phone home screen. Paths are
      root-relative so they resolve the same from /join and /create as
@@ -25,7 +25,7 @@
   <section class="join-state" id="auth">
     <h1 class="state-title">Instructor sign-in</h1>
     <p class="state-text">
-      Instructors only. Students never sign in — they just scan the code.
+      Instructors only. Students never sign in; they just scan the code.
     </p>
 
     <form class="code-form" id="authForm">
@@ -36,19 +36,23 @@
       </div>
       <div class="field">
         <label for="password">Password</label>
-        <input type="password" id="password" autocomplete="current-password" required>
+        <div class="pw-wrap">
+          <input type="password" id="password" autocomplete="current-password" required>
+          <button type="button" class="pw-toggle" data-pw-for="password"
+                  aria-pressed="false">Show</button>
+        </div>
       </div>
-      <div class="field-error" id="authError"></div>
+      <div class="field-error" id="authError" role="alert" aria-live="assertive"></div>
       <button class="submit-btn" type="submit" id="authSubmit">Sign in</button>
     </form>
 
-    <p class="state-text" style="font-size:.78rem" id="toSignUpWrap" hidden>
+    <p class="state-text text-xs" id="toSignUpWrap" hidden>
       No account yet?
       <button class="btn btn-ghost btn-sm" id="showSignUp" type="button">Create one</button>
     </p>
-    <p class="state-text" style="font-size:.78rem">
-      Forgot your password? There is no reset email — this app stores no
-      email addresses. Ask whoever runs this site to set you a new one.
+    <p class="state-text text-xs">
+      Forgot your password? There is no reset email, because this app stores
+      no email addresses. Ask whoever runs this site to set you a new one.
     </p>
     <a class="btn btn-ghost btn-sm" href="./">← Back to the home page</a>
   </section>
@@ -68,7 +72,9 @@
       <div class="field">
         <label for="suUsername">Username</label>
         <input type="text" id="suUsername" autocomplete="username" required
-               autocapitalize="none" autocorrect="off" spellcheck="false">
+               autocapitalize="none" autocorrect="off" spellcheck="false"
+               pattern="[a-z0-9][a-z0-9._\-]{2,31}"
+               title="3–32 characters: lower-case letters, numbers, dots, dashes and underscores, starting with a letter or number.">
         <p class="field-hint">
           3–32 characters, starting with a letter or a number. After that,
           letters, numbers, dots, dashes and underscores are all fine.
@@ -77,18 +83,22 @@
       </div>
       <div class="field">
         <label for="suPassword">Password</label>
-        <input type="password" id="suPassword" autocomplete="new-password" required minlength="4">
+        <div class="pw-wrap">
+          <input type="password" id="suPassword" autocomplete="new-password" required minlength="4">
+          <button type="button" class="pw-toggle" data-pw-for="suPassword"
+                  aria-pressed="false">Show</button>
+        </div>
         <p class="field-hint">
-          At least 4 characters — a short PIN is fine. There is no reset
+          At least 4 characters, so a short PIN is fine. There is no reset
           email, so pick something you'll remember; only an admin can set
           you a new one.
         </p>
       </div>
-      <div class="field-error" id="signUpError"></div>
+      <div class="field-error" id="signUpError" role="alert" aria-live="assertive"></div>
       <button class="submit-btn" type="submit" id="signUpSubmit">Create account</button>
     </form>
 
-    <p class="state-text" style="font-size:.78rem">
+    <p class="state-text text-xs">
       We store your username and a hashed password. No email, no name, no
       tracking. <a href="privacy.html">What we store and why</a>.
     </p>
@@ -105,7 +115,7 @@
       Usually this means the D1 database hasn't been created and bound, or
       <code>worker/schema.sql</code> hasn't been run yet.
       The fix is in <code>docs/DEPLOYMENT.md</code>, in the repository this
-      site was deployed from — <code>docs/</code> is deliberately not
+      site was deployed from. <code>docs/</code> is deliberately not
       published as part of the site, so there is no link to follow here.
     </p>
   </section>

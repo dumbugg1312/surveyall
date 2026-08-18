@@ -1,0 +1,258 @@
+/* =====================================================================
+   SurveyAll — the printed deck.
+
+   "Export as PDF" is this stylesheet plus the browser's own print engine.
+   That is a deliberate choice over generating a PDF in JavaScript: every
+   browser already contains a typesetter that knows about the deck's real
+   fonts, its OKLab bar colours, its emoji and its text-wrap balancing,
+   and no hand-rolled PDF writer is going to match it. The cost is one
+   trip through the print dialog; the gain is that the page comes out
+   looking like the room saw it.
+
+   The slides are built by app/export-print.js into #printDeck, which is
+   laid out at full size but parked off-screen so the charts can measure
+   themselves. Printing brings it back.
+   ===================================================================== */
+
+/* Off-screen but REAL. `display: none` would give every chart a zero
+   width to measure against, and charts.js reads offsetWidth to place
+   bars — a hidden deck prints as a stack of empty tracks. */
+#printDeck {
+  position: absolute;
+  top: 0;
+  left: -300vw;
+  width: 13.333in;
+  /* Contain the off-screen block so it cannot extend the page's own
+     scroll width the way the parked Q&A drawer once did. Deliberately
+     NOT `size`: the charts inside measure their own boxes to place bars
+     and word-cloud spirals, and size containment is exactly the kind of
+     thing that would hand them a plausible-looking zero. */
+  contain: layout style;
+  height: 0;
+  overflow: hidden;
+}
+
+.print-slide {
+  position: relative;
+  box-sizing: border-box;
+  width: 13.333in;
+  height: 7.5in;
+  padding: 0.62in;
+  display: flex;
+  flex-direction: column;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--body);
+  overflow: hidden;
+
+  /* THE PAGE IS THE PROJECTOR AT 720p. 13.333in × 7.5in is exactly
+     1280 × 720 CSS pixels, so present.css's own type scale can be used
+     here — with its viewport units evaluated once, at that size, instead
+     of left to resolve against the browser window.
+
+     `clamp(16px, 1.3vw + 9.5px, 33px)` at 1280 wide is 26.1px. Leaving
+     the vw in would size the printed page from whatever window happened
+     to be open, and vh is worse: the deck is built off-screen inside a
+     normal page, so 4.8vh on a tall monitor sets a chart far too large
+     for a 7.5in slide and the last rows print clipped. */
+  font-size: 26.1px;
+}
+
+.print-head { flex: 0 0 auto; }
+
+.print-kicker {
+  font-size: 0.52em;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin: 0 0 0.35em;
+}
+
+.print-prompt {
+  font-family: var(--display);
+  font-size: calc(1.45em * var(--prompt-scale, 1));
+  font-weight: 600;
+  line-height: 1.12;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+  margin: 0;
+}
+
+.print-rule {
+  height: 1px;
+  background: var(--edge);
+  margin: 0.7em 0 0;
+  flex: 0 0 auto;
+}
+
+.print-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  padding: 0.5em 0 0.3em;
+  overflow: hidden;
+}
+
+.print-body > .chart {
+  width: 100%;
+  /* .stage-body's `min(1.5em, 4.8vh)`, with the vh resolved against the
+     page rather than the window: 4.8% of 720px. */
+  font-size: min(1.5em, 34.5px);
+  max-height: 100%;
+}
+
+.print-body > [data-chart="cloud"],
+.print-body > [data-chart="cards"] { height: 100%; }
+
+.print-foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 1em;
+  font-size: 0.5em;
+  color: var(--ink-soft);
+}
+
+.print-foot .spacer { flex: 1; }
+
+/* ---------------------------------------------------------------- cover */
+
+.print-slide.is-cover { justify-content: center; }
+
+.print-slide.is-cover .print-prompt { font-size: 2.3em; }
+
+.print-cover-sub {
+  font-size: 0.8em;
+  color: var(--ink-soft);
+  margin: 0.5em 0 0;
+}
+
+.print-stats {
+  display: flex;
+  gap: 2.4em;
+  margin: 1.6em 0 0;
+}
+
+.print-stat { display: flex; flex-direction: column; gap: 0.2em; }
+
+.print-stat-value {
+  font-family: var(--display);
+  font-size: 2.1em;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.print-stat-label {
+  font-size: 0.5em;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.print-note {
+  font-size: 0.48em;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  max-width: 46em;
+  margin: 2.2em 0 0;
+}
+
+/* ------------------------------------------------------------ text lists */
+
+.print-list { margin: 0; padding: 0 0 0 1.1em; width: 100%; }
+
+.print-list li {
+  margin: 0 0 0.45em;
+  line-height: 1.35;
+  break-inside: avoid;
+}
+
+.print-list .print-list-note {
+  color: var(--ink-soft);
+  font-size: 0.85em;
+  margin-left: 0.5em;
+  white-space: nowrap;
+}
+
+.print-columns {
+  display: flex;
+  gap: 1.6em;
+  width: 100%;
+  align-items: flex-start;
+}
+
+.print-column { flex: 1 1 0; min-width: 0; }
+
+.print-column h4 {
+  font-size: 0.52em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 0.6em;
+}
+
+/* =====================================================================
+   Print
+   ===================================================================== */
+
+@page {
+  /* 16:9 at PowerPoint's own widescreen dimensions, so a PDF and a PPTX
+     of the same session are the same shape. Zero margin because each
+     slide paints its own ground to the edge. */
+  size: 13.333in 7.5in;
+  margin: 0;
+}
+
+@media print {
+  /* Everything that is chrome rather than content. The feedback button
+     already hides itself (base.css); the rest is this page's furniture. */
+  .appbar,
+  .page,
+  .toast,
+  .fb-button,
+  .fb-dialog { display: none !important; }
+
+  html, body {
+    background: var(--ground);
+    margin: 0;
+    padding: 0;
+    width: auto;
+    height: auto;
+    overflow: visible;
+  }
+
+  #printDeck {
+    position: static;
+    left: 0;
+    height: auto;
+    overflow: visible;
+    contain: none;
+  }
+
+  .print-slide {
+    break-after: page;
+    break-inside: avoid;
+    /* Without this a bar chart prints as an outline: browsers drop
+       background colours by default, and in this app the bar IS the
+       background colour. */
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .print-slide:last-child { break-after: auto; }
+
+  /* Springs are already forced still before printing (see
+     setMotionStill), but a transition mid-dialog would still repaint a
+     half-drawn bar onto the page. */
+  .print-slide *,
+  .print-slide *::before,
+  .print-slide *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

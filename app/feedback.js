@@ -109,7 +109,7 @@ function mount() {
       thanks(button);
     } catch (err) {
       error.textContent = err.message
-        || 'That didn\'t send — check your connection and try again. Your text is still here.';
+        || 'That didn\'t send. Check your connection and try again; your text is still here.';
       error.hidden = false;
     } finally {
       send.disabled = false;
@@ -129,7 +129,7 @@ function thanks(button) {
   const toast = document.createElement('div');
   toast.className = 'fb-toast';
   toast.setAttribute('role', 'status');
-  toast.textContent = 'Sent — thank you.';
+  toast.textContent = 'Sent. Thank you.';
   document.body.append(toast);
   setTimeout(() => toast.remove(), 4000);
   button.classList.add('is-sent');

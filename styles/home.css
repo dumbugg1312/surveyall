@@ -74,10 +74,22 @@ body.home {
 }
 .student-link:hover { color: var(--ink); }
 
+/* A button label must never break mid-phrase. On a 375px screen the two
+   buttons and the student link shared one row and "Sign in" came apart
+   into two stacked words inside its own pill. */
+.masthead .btn { white-space: nowrap; }
+
 @media (max-width: 34rem) {
   .masthead { flex-wrap: wrap; row-gap: var(--sp-2); }
-  .masthead nav { width: 100%; margin-left: 0; justify-content: space-between; }
-  .student-link { order: -1; }
+  .masthead nav {
+    width: 100%; margin-left: 0;
+    /* The student link takes the row above; the two instructor buttons
+       sit together on the row below, which is also the order of
+       importance for whoever landed here. */
+    flex-wrap: wrap; justify-content: flex-end; gap: var(--sp-2);
+  }
+  .student-link { order: -1; width: 100%; }
+  .masthead .btn { padding-inline: var(--sp-4); }
 }
 
 /* ---------------------------------------------------------------- hero */
@@ -120,8 +132,12 @@ body.home {
      against the column width (minus a scrollbar), which is why they look
      oddly specific.
      No `max-width` here: a ch cap is what forced the wrap in the first
-     place. */
-  font-size: clamp(2.4rem, 6vw, 4.3rem);
+     place.
+     The floor is min(2.4rem, 7.4vw) rather than a bare rem so that the
+     locked line below cannot overflow: a reader browsing at 150% text
+     size scales the rem but not the vw, and a nowrap headline with
+     nowhere to go takes the whole page into horizontal scroll. */
+  font-size: clamp(min(2.4rem, 7.4vw), 6vw, 4.3rem);
   font-weight: 650;
   letter-spacing: -.02em;
   margin-bottom: var(--sp-4);
@@ -206,7 +222,9 @@ body.home {
   cursor: pointer;
   box-shadow: var(--shadow);
   opacity: .9;
-  transition: opacity .15s ease, color .15s ease, border-color .15s ease;
+  transition: opacity var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out),
+              border-color var(--duration-fast) var(--ease-out);
 }
 .video-toggle:hover,
 .video-toggle:focus-visible { opacity: 1; border-color: var(--cta); color: var(--cta); }
@@ -290,10 +308,15 @@ body.home {
 .band {
   background: var(--accent);
   color: var(--on-accent);
-  padding-block: clamp(2.5rem, 6vw, 4rem);
+  padding-block: clamp(2.25rem, 5vw, 3.25rem);
 }
 .band h2 { font-size: clamp(1.8rem, 4vw, 2.7rem); font-weight: 650; letter-spacing: -.02em; }
-.band p { max-width: 60ch; margin-top: var(--sp-4); text-wrap: pretty; }
+/* Full width, like every other section. The 60ch measure that used to
+   be here is the right rule for a long read and the wrong one here: it
+   is three sentences, and holding them to half the column left a bare
+   half-band of green and made the whole thing twice as tall as it needed
+   to be. At the 68rem column this lands in two lines. */
+.band p { max-width: none; margin-top: var(--sp-4); text-wrap: pretty; }
 .band a { color: inherit; text-underline-offset: 3px; }
 
 /* ----------------------------------------------------------- close CTA */

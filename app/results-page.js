@@ -1,10 +1,12 @@
 /**
  * SurveyAll — session archive.
  *
- * Every session stays here permanently and exports to CSV for free.
+ * Every session stays here permanently and exports for free — as a CSV
+ * of every answer, as a PDF of the deck, and as an editable PowerPoint.
  * That is a deliberate answer to the research: all three commercial
- * tools paywall the export, and instructors lose their archive entirely
- * when a campus licence lapses.
+ * tools paywall the export (Mentimeter puts PDF and PowerPoint on a paid
+ * tier specifically), and instructors lose their archive entirely when a
+ * campus licence lapses.
  */
 
 import {
@@ -16,7 +18,9 @@ import {
   sessionToCSVRows, buildCSV, CSV_HEADERS, TYPE_LABELS, isContentSlide,
 } from './logic.js';
 import { applyTheme, resolveTheme } from './themes.js';
-import { renderAggregate, renderLeaderboard, renderDelta } from './charts.js';
+import { renderAggregate, renderLeaderboard, renderDelta, archiveOpts } from './charts.js';
+import { buildExportSlides, exportStem } from './export-model.js';
+import { printDeck } from './export-print.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -24,6 +28,7 @@ let session = null;
 let deck = null;
 let questions = [];
 let allResponses = [];
+let audience = [];
 
 boot().catch((e) => {
   console.error(e);
@@ -49,11 +54,17 @@ async function boot() {
   deck = await getDeck(session.deck_id);
   questions = sortedQuestions(await listQuestions(deck.id));
   allResponses = await fetchResponses(session.id);
+  // Fetched once here rather than inside qaList(), because the deck and
+  // slide exports need it too and a deck with no Q&A slide still costs
+  // one cheap empty query.
+  try { audience = await listAudienceQuestions(session.id); } catch { audience = []; }
 
   applyTheme(document.documentElement, resolveTheme(session.theme || deck.theme, deck));
 
   $('crumb').textContent = `${deck.title} · ${session.label || session.join_code}`;
-  $('downloadCSV').addEventListener('click', onDownload);
+  $('downloadCSV').addEventListener('click', onDownloadCSV);
+  $('downloadPDF').addEventListener('click', onDownloadPDF);
+  $('downloadPPTX').addEventListener('click', onDownloadPPTX);
 
   renderSummary();
   await renderBlocks();
@@ -175,12 +186,8 @@ async function renderBlocks() {
       const chart = document.createElement('div');
       chart.className = 'chart';
       block.append(chart);
-      renderAggregate(chart, q.type, aggregate(q.type, q.config, roundRows), {
-        awaiting: false, // archived data: zero responses is a fact, not a wait
-        style: q.config?.chart || 'bars',
-        // the session is over: every key this deck has is safe to show
-        revealCorrect: true,
-      });
+      renderAggregate(chart, q.type, aggregate(q.type, q.config, roundRows),
+        archiveOpts(q));
     }
 
     // Re-ask comparison (proposal P1) shown automatically when it exists
@@ -225,8 +232,7 @@ async function renderBlocks() {
 async function qaList() {
   const wrap = document.createElement('div');
   wrap.className = 'stack-sm';
-  let rows = [];
-  try { rows = await listAudienceQuestions(session.id); } catch { /* ignore */ }
+  const rows = audience;
 
   if (!rows.length) {
     const p = document.createElement('p');
@@ -253,24 +259,82 @@ async function qaList() {
 
 // =====================================================================
 
-function onDownload() {
+function onDownloadCSV() {
   const rows = sessionToCSVRows(session, questions, allResponses);
   if (!rows.length) { toast('Nothing to export yet'); return; }
 
   const csv = buildCSV(rows, CSV_HEADERS);
   // BOM so Excel opens accented characters correctly
   const blob = new Blob(['﻿', csv], { type: 'text/csv;charset=utf-8' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `${slug(deck.title)}-${slug(session.label || session.join_code)}.csv`;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  save(blob, `${exportStem(deck, session)}.csv`);
   toast(`Exported ${rows.length} responses`);
 }
 
-function slug(s) {
-  return String(s || 'session').toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'session';
+/**
+ * The deck as slides.
+ *
+ * Shared by both deck exports, so a PDF and a PowerPoint of the same
+ * session can never disagree about which questions made the cut.
+ */
+function deckSlides() {
+  return buildExportSlides({
+    deck, session, questions, responses: allResponses, audience,
+  });
+}
+
+async function onDownloadPDF() {
+  const slides = deckSlides();
+  if (slides.length < 2) { toast('Nothing to export yet'); return; }
+
+  const btn = $('downloadPDF');
+  btn.setAttribute('aria-busy', 'true');
+  try {
+    // Every browser offers document.title as the default filename in its
+    // Save-as-PDF sheet, so the deck arrives named like its siblings
+    // instead of "results".
+    await printDeck(slides, deck, { title: exportStem(deck, session) });
+  } catch (e) {
+    console.error(e);
+    toast('Could not build the PDF');
+  } finally {
+    btn.removeAttribute('aria-busy');
+  }
+}
+
+async function onDownloadPPTX() {
+  const slides = deckSlides();
+  if (slides.length < 2) { toast('Nothing to export yet'); return; }
+
+  const btn = $('downloadPPTX');
+  btn.setAttribute('aria-busy', 'true');
+  try {
+    // Loaded on demand: the OOXML writer is dead weight on a page whose
+    // usual visit is "look at what the room said", and this app ships
+    // its modules unbundled.
+    const { buildPPTX } = await import('./pptx.js');
+    const blob = await buildPPTX(slides, {
+      title: deck.title,
+      subject: session.label || `Session ${session.join_code}`,
+      themeId: resolveTheme(session.theme || deck.theme, deck),
+    });
+    save(blob, `${exportStem(deck, session)}.pptx`);
+    toast(`Exported ${slides.length} slides`);
+  } catch (e) {
+    console.error(e);
+    toast('Could not build the PowerPoint');
+  } finally {
+    btn.removeAttribute('aria-busy');
+  }
+}
+
+function save(blob, filename) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  // Deferred: Safari has revoked the URL out from under its own download
+  // when this ran synchronously after click().
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
 
 let toastTimer = null;

@@ -32,6 +32,7 @@ import { countTo, delay } from './motion.js';
 import { renderQR, qrSVG, qrInk } from './qr.js';
 import { joinBase } from './config.js';
 import { renderDecor } from './elements.js';
+import { askConfirm } from './ui.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -56,6 +57,9 @@ const state = {
   questions: [],
   question: null,
   rows: [],
+  // audience questions, kept here as well as in the drawer so a Q&A slide
+  // can put the approved ones on the projector
+  qaRows: [],
   view: 'results',       // 'results' | 'delta' | 'leaderboard'
   showCorner: true,
   timer: null,
@@ -482,6 +486,11 @@ function resetChart() {
 const KEYED_TYPES = new Set(['quiz', 'cloze', 'matching', 'timeline']);
 
 function formatCount(q, nRows, nPeople) {
+  // A Q&A slide collects questions, not answers; counting responses there
+  // reported "0 responses" under a wall of visible questions.
+  if (q.type === 'qa') {
+    return `${nRows} ${nRows === 1 ? 'question' : 'questions'}`;
+  }
   // Both halves pluralise. A seminar of six, and every demo, opens on
   // exactly the case that used to read "1 response · 1 people".
   return q.type === 'open_ended' || q.type === 'word_cloud'
@@ -494,8 +503,11 @@ function paintChart() {
   const q = state.question;
   if (!q) return;
 
-  const respondents = new Set(state.rows.map((r) => r.pseudonym)).size;
-  const nRows = state.rows.length;
+  const qaShown = q.type === 'qa'
+    ? state.qaRows.filter((r) => r.approved).length : 0;
+  const respondents = q.type === 'qa'
+    ? qaShown : new Set(state.rows.map((r) => r.pseudonym)).size;
+  const nRows = q.type === 'qa' ? qaShown : state.rows.length;
 
   // The count pill is peripheral vision's chart: the number rolls to its
   // new value (a tween, not a spring — counters must never overshoot) and
@@ -568,6 +580,9 @@ function paintChart() {
     revealCorrect: revealKey,
     revealStyle: q.type === 'quiz' ? 'correct' : 'best',
     showPercent: q.config?.show_counts !== true,
+    // the bin control is presenter-only; no other surface can act on it
+    allowDelete: q.type === 'open_ended',
+    questions: q.type === 'qa' ? state.qaRows : undefined,
     // voting closed on zero answers is "no responses", not "waiting"
     awaiting: !!s.accepting,
     leftLabel: q.config?.left_label,
@@ -678,7 +693,7 @@ function paintHoldStrip(q) {
   strip.textContent = '';
   if (!pending.length) {
     strip.append(Object.assign(document.createElement('span'),
-      { className: 'hold-note', textContent: 'Hold is on — new answers wait here.' }));
+      { className: 'hold-note', textContent: 'Hold is on. New answers wait here.' }));
     return;
   }
   const note = document.createElement('span');
@@ -724,7 +739,15 @@ function paintCloudCuration(q, agg) {
     chip.className = 'curate-chip';
     chip.title = 'Curation is visible: click to undo all merges and hides';
     chip.addEventListener('click', ctrl(async () => {
-      if (!window.confirm('Undo all merges and un-hide all words?')) return;
+      const ok = await askConfirm({
+        title: 'Undo all curation?',
+        blurb: 'Every word you merged goes back to standing on its own, and '
+          + 'every word you hid comes back onto the cloud. No answer is '
+          + 'deleted either way.',
+        confirmLabel: 'Undo curation',
+        danger: false,
+      });
+      if (!ok) return;
       const config = { ...state.question.config };
       delete config.word_merges;
       delete config.word_hidden;
@@ -931,7 +954,7 @@ async function endPairPhase(advance) {
   await patch({ current_round: next, accepting: true, reveal: false });
   setCtrlLabel('btnDiscuss', 'Reveal');
   flash('Vote again');
-  announce('Round two. Vote again — did the discussion move you?');
+  announce('Round two. Vote again: did the discussion move you?');
 }
 
 // -------------------------------------- compare picker (time travel)
@@ -1158,14 +1181,32 @@ async function reask() {
 }
 
 async function endSession() {
-  if (!window.confirm('End this session? Students will see a thank-you screen. Results are kept.')) return;
+  const people = new Set(state.rows.map((r) => r.pseudonym)).size;
+  const ok = await askConfirm({
+    title: 'End this session?',
+    blurb: 'Every phone still on it sees a thank-you screen and can no longer '
+      + 'answer. Everything collected is kept and stays in the archive — this '
+      + 'closes the room, it does not delete anything.'
+      + (people ? ` ${people} ${people === 1 ? 'person is' : 'people are'} on it now.` : ''),
+    confirmLabel: 'End session',
+  });
+  if (!ok) return;
   await patch({ state: 'ended', accepting: false, ended_at: new Date().toISOString() });
 }
 
 async function resetQuestion() {
   const q = state.question;
   if (!q || isContentSlide(q.type)) return;
-  if (!window.confirm('Delete every response to this question for this round?')) return;
+  const n = state.rows.length;
+  const ok = await askConfirm({
+    title: 'Delete the answers to this question?',
+    blurb: `${n === 0 ? 'Nothing has been collected for this round yet.'
+      : `All ${n} answer${n === 1 ? '' : 's'} collected for this question in this `
+        + 'round are deleted, for everyone.'} `
+      + 'Earlier rounds are untouched. This cannot be undone.',
+    confirmLabel: 'Delete answers',
+  });
+  if (!ok) return;
   await clearResponses(state.session.id, q.id, state.session.current_round);
   state.rows = [];
   paintChart();
@@ -1225,6 +1266,10 @@ function toggleTimer() {
 async function loadQA() {
   let rows = [];
   try { rows = await listAudienceQuestions(state.session.id); } catch { return; }
+  state.qaRows = rows;
+  // a Q&A slide on the wall is made of these rows, so moderating one
+  // has to repaint the stage, not just the drawer
+  if (state.question?.type === 'qa') queuePaintChart();
 
   // the body is rebuilt wholesale; keep the instructor's place in a
   // long question list across live refreshes
@@ -1312,13 +1357,13 @@ function ctrl(fn) {
       if (out && typeof out.then === 'function') {
         out.catch((e) => {
           console.error(e);
-          flash(e?.message || 'That didn\'t go through — check your connection');
+          flash(e?.message || 'That didn\'t go through. Check your connection');
         });
       }
       return out;
     } catch (e) {
       console.error(e);
-      flash(e?.message || 'That didn\'t go through — check your connection');
+      flash(e?.message || 'That didn\'t go through. Check your connection');
       return undefined;
     }
   };
@@ -1327,6 +1372,7 @@ function ctrl(fn) {
 function wireControls() {
   $('btnPrev').addEventListener('click', ctrl(() => go(-1)));
   $('btnNext').addEventListener('click', ctrl(() => go(1)));
+  hintControlsOnce();
 
   // Only Previous and Next are on the projector by default. The rest of
   // the teaching controls, and the keyboard crib sheet, open on a click
@@ -1359,6 +1405,7 @@ function wireControls() {
   $('btnQA').addEventListener('click', () => {
     const open = ui.qaPanel.classList.toggle('is-open');
     $('btnQA').setAttribute('aria-expanded', open ? 'true' : 'false');
+    setQAInert(!open);
     if (open) {
       loadQA();
       ui.qaClose.focus();
@@ -1367,12 +1414,45 @@ function wireControls() {
     }
   });
   ui.qaClose.addEventListener('click', closeQAPanel);
+  setQAInert(true);
+}
+
+/**
+ * Show the control bar at full strength for a few seconds when a
+ * presenter first opens this page, then let it fade to its resting 20%.
+ *
+ * The bar is deliberately near-invisible: it is projected in front of a
+ * room, and the room is not there to look at it. But ← and → are the
+ * whole navigation, and somebody presenting for the first time has no
+ * other sign that anything down there is clickable. Once per browser is
+ * enough — after that it is muscle memory, and a hint that keeps firing
+ * is just a flash on the wall at the start of every class.
+ */
+function hintControlsOnce() {
+  const KEY = 'surveyall:controlsSeen';
+  try {
+    if (window.localStorage.getItem(KEY)) return;
+    window.localStorage.setItem(KEY, '1');
+  } catch { /* private mode: show it, once per load, and move on */ }
+  ui.stage.classList.add('is-controls-hint');
+  setTimeout(() => ui.stage.classList.remove('is-controls-hint'), 4000);
+}
+
+/**
+ * The drawer closes by sliding off the right edge, not by hiding — so
+ * every moderation button in it stayed in the tab order, off-screen,
+ * where a keyboard user would land on controls they cannot see.
+ */
+function setQAInert(closed) {
+  ui.qaPanel.inert = closed;
+  ui.qaPanel.setAttribute('aria-hidden', closed ? 'true' : 'false');
 }
 
 function closeQAPanel() {
   if (!ui.qaPanel.classList.contains('is-open')) return;
   ui.qaPanel.classList.remove('is-open');
   $('btnQA').setAttribute('aria-expanded', 'false');
+  setQAInert(true);
   // hand focus back to where the drawer came from. btnQA lives in the
   // collapsible ⋯ tray; a display:none element silently refuses focus,
   // which would strand it on the now-hidden close button.

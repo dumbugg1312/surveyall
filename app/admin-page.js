@@ -17,6 +17,9 @@ import {
   listFeedback, markFeedback, deleteFeedback,
   listUsers, adminSummary, resetUserPassword,
 } from './db.js';
+import {
+  el, chip, toast, emptyState, askConfirm, askPassword, fmt as num,
+} from './ui.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -60,8 +63,16 @@ async function loadSummary() {
   $('statStorage').textContent = mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.round(s.background_bytes / 1000)} KB`;
   // The label carries the two facts the number needs to mean anything:
   // how many images that is, and what the ceiling is.
+  const pct = Math.round((mb / 500) * 100);
   $('statStorageNote').textContent =
-    `${num(s.backgrounds)} backdrop${s.backgrounds === 1 ? '' : 's'} · of 500 MB`;
+    `${num(s.backgrounds)} backdrop${s.backgrounds === 1 ? '' : 's'} · of 500 MB`
+    + (pct >= 60 ? ` · ${pct}% full` : '');
+  // A number on its own does not tell anyone they are nearly out of room.
+  // Past 80% the tile says so in the palette's caution colour; the
+  // uploads themselves expire after 30 days, so this is a warning rather
+  // than an emergency.
+  const tile = $('statStorage').closest('.stat');
+  tile?.classList.toggle('is-warn', pct >= 80);
 }
 
 // ----------------------------------------------------------- feedback
@@ -81,7 +92,7 @@ function renderFeedback() {
 
   area.textContent = '';
   if (!visible.length) {
-    area.append(empty(
+    area.append(emptyState(
       notes.length ? 'Nothing left to read' : 'No feedback yet',
       notes.length
         ? 'Everything here is marked handled. Tick “Show handled” to read it again.'
@@ -117,7 +128,13 @@ function noteCard(note) {
   const remove = button('Delete', 'btn btn-sm btn-danger', async () => {
     // The only irreversible thing on this page, and the note is the only
     // copy — nothing was emailed anywhere.
-    if (!window.confirm('Delete this note? There is no other copy of it.')) return;
+    const ok = await askConfirm({
+      title: 'Delete this note?',
+      blurb: 'This is the only copy — feedback is not emailed anywhere, so '
+        + 'once it is gone there is nothing to recover it from.',
+      confirmLabel: 'Delete note',
+    });
+    if (!ok) return;
     await deleteFeedback(note.id);
     notes = notes.filter((n) => n.id !== note.id);
     renderFeedback();
@@ -143,7 +160,7 @@ function renderUsers() {
 
   area.textContent = '';
   if (!users.length) {
-    area.append(empty('No accounts yet', 'The first account created becomes the admin.'));
+    area.append(emptyState('No accounts yet', 'The first account created becomes the admin.'));
     return;
   }
   for (const u of users) area.append(userCard(u));
@@ -175,20 +192,24 @@ function userCard(u) {
 /**
  * Reset a colleague's password.
  *
- * A prompt() rather than a designed form, deliberately: this runs a
- * handful of times a year, it must not be the thing that goes wrong, and
- * the value is typed once and then spoken out loud to the person
- * standing there. The server enforces the length rule; this only avoids
- * a pointless round trip on an empty box.
+ * This was a window.prompt, on the reasoning that it runs a handful of
+ * times a year and must not be the thing that goes wrong. The dialog now
+ * used is the same shell the rest of the app asks with: it can be
+ * labelled, it announces itself, it masks the field, and it does not
+ * offer the browser's own "prevent this page from creating additional
+ * dialogs" — which, on the one page whose job is fixing somebody's
+ * access, is a worse failure than any form.
  */
 async function resetFlow(u) {
-  const next = window.prompt(
-    `New password for ${u.username}.\n\n`
-    + 'Tell it to them in person — it is not emailed anywhere, and you '
-    + 'cannot read it back off this page afterwards.',
-  );
+  const next = await askPassword({
+    title: `New password for ${u.username}`,
+    blurb: 'Tell it to them in person. It is not emailed anywhere, and you '
+      + 'cannot read it back off this page afterwards. Four characters is '
+      + 'enough — the sign-in lockout is what makes a short one safe.',
+    label: 'New password',
+  });
   if (next == null) return;
-  if (!next.trim()) { toast('No password entered — nothing changed.'); return; }
+  if (!next.trim()) { toast('No password entered, so nothing changed.'); return; }
 
   try {
     await resetUserPassword(u.username, next);
@@ -200,12 +221,11 @@ async function resetFlow(u) {
 
 // ------------------------------------------------------------- pieces
 
-function empty(title, text) {
-  const wrap = el('div', 'empty-state');
-  wrap.append(el('h3', null, title), el('p', null, text));
-  return wrap;
-}
-
+/**
+ * Local to this page on purpose: it disables itself for the duration of
+ * the await, so a double-click cannot fire the same admin action twice.
+ * Takes its class list raw rather than prepending `btn`.
+ */
 function button(label, cls, fn) {
   const b = el('button', cls, label);
   b.type = 'button';
@@ -214,28 +234,6 @@ function button(label, cls, fn) {
     try { await fn(); } finally { b.disabled = false; }
   });
   return b;
-}
-
-function chip(text, cls = '') {
-  return el('span', `chip ${cls}`.trim(), text);
-}
-
-function el(tag, cls, text) {
-  const node = document.createElement(tag);
-  if (cls) node.className = cls;
-  if (text != null) node.textContent = text;
-  return node;
-}
-
-const num = (n) => Number(n || 0).toLocaleString();
-
-let toastTimer = null;
-function toast(msg) {
-  const t = $('toast');
-  t.textContent = msg;
-  t.classList.add('is-visible');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('is-visible'), 3200);
 }
 
 function showFatal(err) {

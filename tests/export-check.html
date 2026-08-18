@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Export check — SurveyAll</title>
+<link rel="stylesheet" href="../styles/fonts.css">
+<link rel="stylesheet" href="../styles/base.css">
+<link rel="stylesheet" href="../styles/charts.css">
+<link rel="stylesheet" href="../styles/app.css">
+<link rel="stylesheet" href="../styles/print.css">
+<style>
+  /* On screen the deck is parked off-page (print.css) so charts can
+     measure themselves. Here we want to LOOK at it, so bring it back —
+     at TRUE SIZE, deliberately. 13.333in x 7.5in is exactly 1280 x 720
+     CSS pixels, so a 1280-wide window shows a page at 1:1 and the check
+     is honest.
+
+     No zoom, no transform: scale. Both lie to the thing being checked.
+     getBoundingClientRect() reports zoomed pixels while offsetWidth and
+     inline transforms stay in layout pixels, so a chart that measures
+     itself under a zoom lays out in the wrong unit — the word cloud
+     packs into a corner of its own box — and the fit-to-page pass reads
+     a page height that is not the page's. */
+  #printDeck {
+    position: static;
+    left: 0;
+    height: auto;
+    overflow: visible;
+    contain: none;
+    width: 13.333in;
+  }
+  .print-slide {
+    outline: 1px solid var(--edge);
+    margin-bottom: .35in;
+    box-shadow: 0 10px 40px rgba(0,0,0,.10);
+  }
+  .status { padding: .85rem 1.1rem; border-radius: 10px; font-weight: 600; font-size: .9rem; }
+  .status.ok  { background: color-mix(in srgb, var(--good) 14%, transparent); color: var(--good); }
+  .status.bad { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
+  .controls { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
+</style>
+</head>
+<body>
+
+<header class="appbar">
+  <span class="brand">SurveyAll — export check</span>
+  <span class="spacer"></span>
+  <label class="label" for="themeSel">Theme</label>
+  <select id="themeSel"></select>
+</header>
+
+<main class="page">
+  <p class="muted">
+    The PDF and PowerPoint exports with sample data and no database. Every question
+    type is represented, so a change to a chart renderer or to the export model shows
+    up here before it shows up in someone's deck. The pages below are exactly what
+    "Export → PDF" prints, at true size — a 1280-wide window shows one at 1:1.
+  </p>
+
+  <div class="controls">
+    <button class="btn btn-primary" id="pdf" type="button">Print (PDF)</button>
+    <button class="btn" id="pptx" type="button">Download PowerPoint</button>
+  </div>
+
+  <div id="status" class="status">Building…</div>
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script type="module">
+import { buildExportSlides, exportStem } from '../app/export-model.js';
+import { buildPrintDeck, printDeck } from '../app/export-print.js';
+import { THEMES, applyTheme } from '../app/themes.js';
+
+// Theme before render: series colours are captured at render time, the
+// same reason visual-check.html reloads on a theme change.
+const storedTheme = sessionStorage.getItem('xc-theme');
+if (storedTheme && THEMES[storedTheme]) applyTheme(document.documentElement, storedTheme);
+
+const sel = document.getElementById('themeSel');
+Object.entries(THEMES).forEach(([id, t]) => {
+  const o = document.createElement('option');
+  o.value = id; o.textContent = t.name;
+  sel.append(o);
+});
+sel.value = storedTheme && THEMES[storedTheme] ? storedTheme : 'lecture-hall';
+sel.addEventListener('change', () => {
+  sessionStorage.setItem('xc-theme', sel.value);
+  window.location.reload();
+});
+
+// ------------------------------------------------------------- fixture
+let qid = 0;
+const q = (type, config, prompt) => ({ id: `q${qid += 1}`, position: qid - 1, type, prompt, config });
+const P = ['Amber Fox', 'Blue Heron', 'Copper Wren', 'Dusk Moth', 'Ember Hare', 'Fern Owl'];
+
+const questions = [
+  q('instructions', { steps: ['Go to surveyall.org'], show_join: true }, 'Join the session'),
+  q('multiple_choice', { options: ['Photosynthesis', 'Respiration', 'Fermentation', 'Glycolysis'], chart: 'bars' },
+    'Which process converts light energy into chemical energy?'),
+  q('quiz', { options: ['1789', '1791', '1804', '1815'], correct: [0], time: 20, chart: 'bars' },
+    'In what year did the French Revolution begin?'),
+  q('word_cloud', { max_words: 3, max_length: 25 }, 'One word for how the reading landed'),
+  q('open_ended', { max_length: 200 }, 'What is still unclear about the second law?'),
+  q('scales', { statements: ['I can define entropy', 'I can apply it to a closed system', 'I could teach it'], min: 1, max: 5 },
+    'Rate your confidence'),
+  q('ranking', { items: ['Cost', 'Speed', 'Accuracy', 'Reversibility'] }, 'Rank these by what matters most'),
+  q('spectrum', { left_label: 'Purely structural', right_label: 'Purely individual' }, 'Where does the cause sit?'),
+  q('sample_vote', { samples: ['The author argues X because Y.', 'X happens, and also Y.'], allow_rationale: true },
+    'Which thesis statement is stronger?'),
+  q('heatmap', { segments: ['the tide was out', 'and the gulls stood still', 'over the wet sand'], mode: 'highlight', max_picks: 2 },
+    'Highlight the strongest image'),
+  q('traffic', { labels: ["I'm with you", 'Losing the thread', 'Lost'] }, 'How is the pace?'),
+  q('mood', { icons: [{ emoji: '☀️', label: 'Clear' }, { emoji: '⛅', label: 'Alright' }, { emoji: '🌫️', label: 'Foggy' }] },
+    'How is the room today?'),
+  q('this_or_that', { pairs: [{ left: 'Free will', right: 'Determinism' }, { left: 'Nature', right: 'Nurture' }] }, 'Pick a side'),
+  q('budget', { options: ['Housing', 'Transit', 'Parks', 'Schools'], total: 100 }, 'Spend the city budget'),
+  q('probability', { truth: 34 }, 'What share of the class do you think agrees?'),
+  q('cloze', { text: 'The mitochondrion is the [powerhouse] of the [cell].' }, 'Fill in the blanks'),
+  q('matching', { pairs: [{ left: 'Mitochondrion', right: 'ATP' }, { left: 'Ribosome', right: 'Protein' }, { left: 'Nucleus', right: 'DNA' }] },
+    'Match the organelle to its product'),
+  q('timeline', { items: ['Boston Tea Party', 'Declaration', 'Yorktown', 'Constitution'] }, 'Put these in order'),
+  q('exit_ticket', { prompts: ['One thing you learned', 'A question you still have', 'The muddiest point'] }, 'Before you go'),
+  q('qa', {}, 'Questions from the room'),
+];
+
+const byType = Object.fromEntries(questions.map((x) => [x.type, x]));
+const responses = [];
+let rid = 0;
+const add = (question, p, payload, round = 1) => responses.push({
+  id: `r${rid += 1}`, question_id: question.id, pseudonym: p, payload, round,
+  created_at: 1755000000000 + rid * 1000,
+});
+const each = (question, fn, round) => P.forEach((p, i) => add(question, p, fn(i), round));
+
+each(byType.multiple_choice, (i) => ({ choices: [i % 4] }), 1);
+each(byType.multiple_choice, (i) => ({ choices: [i < 4 ? 0 : 2] }), 2);
+each(byType.quiz, (i) => ({ choice: i % 4, ms: 3000 + i * 900, conf: (i % 3) + 1 }));
+['tired', 'curious', 'tired', 'lost', 'curious', 'tired'].forEach((w, i) =>
+  add(byType.word_cloud, P[i], { words: [w, i % 2 ? 'ready' : 'unsure'] }));
+[
+  'I do not see why entropy always increases.',
+  'The closed-system part is the bit I keep losing.',
+  'Is the arrow of time the same claim?',
+].forEach((t, i) => add(byType.open_ended, P[i], { text: t }));
+each(byType.scales, (i) => ({ values: [3 + (i % 3), 2 + (i % 4), 1 + (i % 3)] }));
+each(byType.ranking, (i) => ({ order: [i % 4, (i + 1) % 4, (i + 2) % 4, (i + 3) % 4] }));
+each(byType.spectrum, (i) => ({ pos: [8, 22, 47, 61, 88, 95][i] }));
+each(byType.sample_vote, (i) => ({ choice: i % 2, rationale: i % 2 ? 'It names the mechanism.' : 'It states a claim you could argue with.' }));
+each(byType.heatmap, (i) => ({ picks: [i % 3, (i + 1) % 3] }));
+each(byType.traffic, (i) => ({ choice: i < 3 ? 0 : i < 5 ? 1 : 2 }));
+each(byType.mood, (i) => ({ choice: i % 3 }));
+each(byType.this_or_that, (i) => ({ picks: [i % 2, i < 4 ? 0 : 1] }));
+each(byType.budget, (i) => ({ alloc: [40 + i, 30, 20 - i, 10] }));
+each(byType.probability, (i) => ({ pct: [15, 28, 33, 35, 52, 70][i] }));
+each(byType.cloze, (i) => ({ blanks: [i % 3 ? 'powerhouse' : 'engine', i % 2 ? 'cell' : 'body'] }));
+each(byType.matching, (i) => ({ matches: i % 3 ? [0, 1, 2] : [1, 0, 2] }));
+each(byType.timeline, (i) => ({ order: i % 2 ? [0, 1, 2, 3] : [1, 0, 3, 2] }));
+each(byType.exit_ticket, (i) => ({
+  answers: [`Entropy is about counting states (${i + 1})`, 'Why is it not reversible?', 'The closed-system caveat'],
+}));
+
+const audience = [
+  { id: 'a1', body: 'Will the second law be on the exam?', upvotes: 11, answered: true },
+  { id: 'a2', body: 'Can you redo the closed-system example?', upvotes: 7, answered: false },
+  { id: 'a3', body: 'Is there a reading that covers the arrow of time?', upvotes: 3, answered: false },
+];
+
+const deck = { id: 'd1', title: 'Thermodynamics — week 4', theme: sel.value };
+const session = {
+  id: 's1', deck_id: 'd1', label: 'Tuesday 9am', join_code: 'HJ4K2P',
+  state: 'ended', created_at: 1755000000000,
+};
+
+// --------------------------------------------------------------- render
+const status = document.getElementById('status');
+let slides = [];
+try {
+  slides = buildExportSlides({ deck, session, questions, responses, audience });
+  const forms = [...new Set(slides.map((s) => s.body.form))].sort();
+  const missing = questions
+    .filter((x) => x.type !== 'instructions')
+    .filter((x) => !slides.some((s) => s.raw?.question?.id === x.id || s.title === x.prompt))
+    .map((x) => x.type);
+  status.className = missing.length ? 'status bad' : 'status ok';
+  status.textContent = missing.length
+    ? `${slides.length} slides — MISSING: ${missing.join(', ')}`
+    : `${slides.length} slides · every question type represented · forms: ${forms.join(', ')}`;
+} catch (err) {
+  status.className = 'status bad';
+  status.textContent = `build failed: ${err.message}`;
+  console.error(err);
+}
+
+// The same pages the PDF prints, on screen instead of in a dialog.
+await buildPrintDeck(slides, deck);
+
+// The check that matters: did anything end up taller than its own page?
+// print.css clips overflow, so a slide that does not fit prints silently
+// truncated. fitChart() in export-print.js exists to prevent exactly
+// this, and this line is how you find out it stopped working.
+const spills = [...document.querySelectorAll('.print-body')]
+  .map((b, i) => (b.firstElementChild?.scrollHeight > b.clientHeight + 2
+    ? `slide ${i + 2}` : null))
+  .filter(Boolean);
+if (spills.length) {
+  status.className = 'status bad';
+  status.textContent = `${status.textContent} — OVERFLOWING: ${spills.join(', ')}`;
+}
+
+document.getElementById('pdf').addEventListener('click', () =>
+  printDeck(slides, deck, { title: exportStem(deck, session) }));
+
+document.getElementById('pptx').addEventListener('click', async () => {
+  const { buildPPTX } = await import('../app/pptx.js');
+  const blob = await buildPPTX(slides, {
+    title: deck.title, subject: session.label, themeId: sel.value,
+  });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${exportStem(deck, session)}.pptx`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+});
+</script>
+</body>
+</html>

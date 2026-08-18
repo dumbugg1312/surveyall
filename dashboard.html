@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Decks — SurveyAll</title>
+<title>Decks · SurveyAll</title>
 <!-- Tab icon. The SVG is what modern browsers use; the PNGs are for
      Safari's older raster paths and for a phone home screen. Paths are
      root-relative so they resolve the same from /join and /create as
@@ -20,7 +20,13 @@
 <header class="appbar">
   <a class="brand" href="dashboard.html">SurveyAll</a>
   <span class="spacer"></span>
-  <span class="muted" id="who" style="font-size:.82rem"></span>
+  <!-- The account button. There is no account PAGE in this app and does
+       not need to be: a username, a password and nothing else fits in a
+       dialog. Before this, changePassword() existed in db.js with no way
+       to reach it — the only route to a new password was asking an
+       admin. -->
+  <button class="btn btn-sm btn-ghost" id="who" type="button"
+          aria-label="Your account"></button>
   <!-- Admin only — shown by app/dashboard-page.js once the account is known. -->
   <a class="btn btn-sm btn-ghost" id="adminLink" href="admin.html" hidden>Admin</a>
   <button class="btn btn-sm btn-ghost" id="signOut" type="button">Sign out</button>
@@ -73,16 +79,17 @@
     <div id="sessionArea"></div>
   </section>
 
+  <!-- One line, not three. The full version is a page, and it is linked;
+       three sentences of body text below the archive was a paragraph
+       nobody read occupying the end of the most-used screen in the app. -->
   <p class="privacy-note">
-    Sessions store answers only. No student names, emails, IDs, or IP addresses
-    are recorded anywhere in this system. Counts here are counts of anonymous
-    nicknames. Your decks and sessions are visible only to you.
+    Sessions store answers only — no names, emails, IDs or IP addresses.
     <a href="privacy.html">What's stored, and who can see it</a>.
   </p>
 
 </main>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 <p class="sr-only" id="srStatus" role="status" aria-live="polite"></p>
 
 <script type="module" src="app/dashboard-page.js"></script>

@@ -37,7 +37,7 @@ Results are animated with real spring physics rather than CSS transitions, so a 
 - **Re-ask with a delta view.** Ask a question, hide the results, let the room argue, press `R` to ask again, press `D` to see exactly what moved. Peer instruction as a first-class feature rather than a duplicated slide.
 - **Anonymous *and* competitive.** Each device gets a random per-session nickname ("Amber Falcon"), so leaderboards and per-respondent CSV rows work with zero identity collected. Slido, by contrast, forces every quiz participant to enter a name.
 - **Decks are plain text.** Your whole deck round-trips through a readable text format — version it, email it, diff it between semesters, keep it after this project is gone.
-- **Your data is never hostage.** Every session is archived permanently and exports to CSV, free. There is no tier that could take that away.
+- **Your data is never hostage.** Every session is archived permanently and exports three ways, free: a CSV of every answer, a **PDF of the deck** as the room saw it, and an **editable PowerPoint** built from real text boxes and shapes rather than screenshots. Those last two are the exports Mentimeter puts behind a paid tier. There is no tier here that could take any of them away.
 
 ---
 
@@ -92,7 +92,7 @@ join.html           participant view (mobile), served at /join
 present.html        projector view
 dashboard.html      your decks and the session archive
 edit.html           deck editor — questions, themes, backgrounds
-results.html        one session's results, and its CSV export
+results.html        one session's results, and its CSV/PDF/PowerPoint exports
 compare.html        the same question run over run, across sessions
 admin.html          feedback inbox, accounts, password resets, usage
 privacy.html        what is stored, and how to verify it
@@ -107,6 +107,10 @@ app/                ES modules, no build step
   db.js               the ONLY file that knows a backend exists
   charts.js           result rendering
   motion.js           spring-physics animation engine
+  export-model.js     a session as slides — the shape both deck exports read
+  export-print.js     the PDF: real charts on a 16:9 page, then window.print()
+  pptx.js             the PowerPoint: OOXML, native shapes, no dependencies
+  zip.js              a ZIP writer, because a .pptx is a ZIP
   themes.js           20 themes + background presets
   elements.js         slide elements: anchors, colour, the annotation marks
   elements-data.js    generated Lucide path data (ISC) — do not hand-edit
@@ -121,11 +125,12 @@ worker/             the Cloudflare Worker
   schema.sql          D1 tables (run once)
 
 styles/             base, app, charts, present, join, home, elements,
-                    ambience, preview, fonts
+                    ambience, preview, print, fonts
 tools/              build-elements.mjs — rebuilds the icon catalogue;
                     a11y-contrast.mjs — checks theme contrast ratios
 tests/              run-tests.mjs + run-worker-tests.mjs (node),
-                    visual-check.html + elements-check.html (browser)
+                    visual-check.html, elements-check.html,
+                    export-check.html (browser)
 docs/               architecture.md, DEPLOYMENT.md, HANDOFF.md, elements.md,
                     accessibility.md, visual-craft.md, pedagogy-roadmap.md,
                     phase1 research
@@ -140,11 +145,11 @@ wrangler.jsonc      deploy config — only `database_id` needs editing
 npm test
 ```
 
-**340 tests, no dependencies**, in two suites. (Counts are what the two suites reported when this was last written; run them yourself for today's number.)
+**393 tests, no dependencies**, in two suites. (Counts are what the two suites reported when this was last written; run them yourself for today's number.)
 
-`tests/run-tests.mjs` — 258 logic tests covering the participant flow end to end (what a tap becomes, whether it's accepted, how it's counted and scored, what reaches the CSV, and that no code path can emit a student identifier) plus the animation engine: that quantitative springs never overshoot, that a spring retargeted mid-flight keeps its velocity instead of restarting, and that a throwing render can't leave a chart frozen half-drawn.
+`tests/run-tests.mjs` — 296 logic tests covering the participant flow end to end (what a tap becomes, whether it's accepted, how it's counted and scored, what reaches the CSV, and that no code path can emit a student identifier), the deck exports (that every question type survives into a slide, that the ZIP's central directory agrees with its entries, that the .pptx declares and resolves every part it references, and that no nickname reaches any slide but the leaderboard), plus the animation engine: that quantitative springs never overshoot, that a spring retargeted mid-flight keeps its velocity instead of restarting, and that a throwing render can't leave a chart frozen half-drawn.
 
-`tests/run-worker-tests.mjs` — 82 tests of the API itself, and they are not mocked: they build a real SQLite database from `worker/schema.sql`, wrap it in the slice of the D1 API the Worker uses, and drive the Worker's own `fetch` handler with real requests. They cover password hashing (including that a stolen database is useless without the Worker's secret), token rules, sign-up gating, throttling, and — the reason the suite exists — **cross-account isolation**: that a second instructor cannot read or write another's decks, questions, sessions, responses, Q&A, or backgrounds. Each isolation test checks both halves, that the owner still can and the stranger cannot, because a blanket 404 would otherwise pass.
+`tests/run-worker-tests.mjs` — 97 tests of the API itself, and they are not mocked: they build a real SQLite database from `worker/schema.sql`, wrap it in the slice of the D1 API the Worker uses, and drive the Worker's own `fetch` handler with real requests. They cover password hashing (including that a stolen database is useless without the Worker's secret), token rules, sign-up gating, throttling, and — the reason the suite exists — **cross-account isolation**: that a second instructor cannot read or write another's decks, questions, sessions, responses, Q&A, or backgrounds. Each isolation test checks both halves, that the owner still can and the stranger cannot, because a blanket 404 would otherwise pass.
 
 `tests/elements-check.html` covers slide elements: it mounts the real editor canvas, drag surface and picker against an invented deck, then self-audits that every placed element reaches all three surfaces (projector, canvas, rail), that the decor layer stays below the join card so a QR can never be covered, that art scales with the slide rather than with the local font-size, and that a decorated deck survives a round trip through the text format. It re-runs the audit on every theme switch, so it covers all twenty themes in `app/themes.js`.
 

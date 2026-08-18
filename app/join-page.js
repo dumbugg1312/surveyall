@@ -253,7 +253,7 @@ function setOnline(ok) {
   }
 
   if (!offlineStrip) {
-    offlineStrip = div('offline-strip', 'Offline — this screen may be out of date');
+    offlineStrip = div('offline-strip', 'Offline. This screen may be out of date');
     document.body.append(offlineStrip);
   }
   announce('Connection lost. This screen may be out of date.');
@@ -423,7 +423,7 @@ function renderContentSlide(q) {
   }
 
   if (q.config?.note) wrap.append(div('instr-smallprint', q.config.note));
-  wrap.append(div('state-text', 'Nothing to answer here — keep this page open '
+  wrap.append(div('state-text', 'Nothing to answer here. Keep this page open '
     + 'and the first question will appear by itself.'));
 
   app.append(wrap);
@@ -583,7 +583,7 @@ function renderQuestion(q, isNew) {
       }
 
       btn.classList.add('is-sent');
-      btn.textContent = multi ? 'Sent — add another' : 'Answer sent ✓';
+      btn.textContent = multi ? 'Sent. Add another' : 'Answer sent ✓';
       announce(multi ? 'Sent. You can add another.' : 'Answer sent.');
       // one small physical beat on success — the green text alone is
       // easy to miss mid-lecture with the phone at arm's length
@@ -726,13 +726,13 @@ function hintFor(q) {
       return n > 1 ? `Up to ${n} words` : 'One word';
     }
     case 'scales':
-      return cfg.allow_skip ? 'Rate each one — skip any you\'d rather not answer' : 'Rate each one';
+      return cfg.allow_skip ? 'Rate each one, or skip any you\'d rather not answer' : 'Rate each one';
     case 'ranking':
       return 'Tap to add to your ranking, then reorder';
     case 'quiz':
-      return 'Answer fast — quicker correct answers score more';
+      return 'Answer fast: quicker correct answers score more';
     case 'spectrum':
-      return 'Slide to where you stand — there\'s no wrong position';
+      return 'Slide to where you stand. There\'s no wrong position';
     case 'sample_vote':
       return 'Read all of them, then pick the strongest';
     case 'heatmap':
@@ -740,15 +740,15 @@ function hintFor(q) {
         ? 'Label the parts you can identify'
         : '';
     case 'traffic':
-      return 'However you\'re doing is fine — nobody sees who said what';
+      return 'However you\'re doing is fine. Nobody sees who said what';
     case 'mood':
       return 'Pick the one that fits today';
     case 'this_or_that':
-      return cfg.allow_skip ? 'Go with your gut — skip any you can\'t call' : 'Go with your gut';
+      return cfg.allow_skip ? 'Go with your gut, and skip any you can\'t call' : 'Go with your gut';
     case 'budget':
       return `Spend all ${budgetTotal(cfg)} points`;
     case 'probability':
-      return 'Commit to a number — you can change it after we talk';
+      return 'Commit to a number. You can change it after we talk';
     case 'cloze':
       return 'Fill in what\'s missing';
     case 'matching':
@@ -756,7 +756,7 @@ function hintFor(q) {
     case 'timeline':
       return 'Tap them in the order they happened';
     case 'exit_ticket':
-      return 'A sentence each is plenty — any one of them is enough to send';
+      return 'A sentence each is plenty. Any one of them is enough to send';
     default:
       return '';
   }
@@ -1062,7 +1062,7 @@ function textControl(q, prior) {
   area.maxLength = limit;
   // The placeholder actively discourages the one FERPA risk we cannot
   // structurally prevent: a student typing their own name.
-  area.placeholder = 'Your answer — no need to include your name';
+  area.placeholder = 'Your answer. No need to include your name';
   area.value = prior?.text || '';
 
   const counter = div('char-count');
@@ -1670,7 +1670,7 @@ async function renderQAPage(q) {
   const area = document.createElement('textarea');
   area.className = 'text-input';
   area.maxLength = 500;
-  area.placeholder = 'Type your question — no need to include your name';
+  area.placeholder = 'Type your question. No need to include your name';
   const err = div('field-error');
   err.setAttribute('role', 'alert');
   const send = document.createElement('button');
@@ -1688,7 +1688,7 @@ async function renderQAPage(q) {
       area.value = '';
       err.textContent = '';
       send.classList.add('is-sent');
-      send.textContent = s.qa_moderated ? 'Sent — awaiting review ✓' : 'Sent ✓';
+      send.textContent = s.qa_moderated ? 'Sent, awaiting review ✓' : 'Sent ✓';
       setTimeout(() => {
         send.classList.remove('is-sent');
         send.textContent = 'Send question';
@@ -1728,7 +1728,14 @@ async function renderQAPage(q) {
       const vote = document.createElement('button');
       vote.type = 'button';
       vote.className = `qa-vote${voted.has(row.id) ? ' is-voted' : ''}`;
-      vote.innerHTML = `<span aria-hidden="true">▲</span><span>${row.upvotes}</span>`;
+      // Elements, not an innerHTML string: the count is the only thing
+      // that changes and it is the one value here that came off the wire.
+      const arrow = document.createElement('span');
+      arrow.textContent = '▲';
+      arrow.setAttribute('aria-hidden', 'true');
+      const tally = document.createElement('span');
+      tally.textContent = String(row.upvotes);
+      vote.append(arrow, tally);
       vote.disabled = voted.has(row.id);
       vote.setAttribute('aria-label', `Upvote. ${row.upvotes} votes.`);
       vote.addEventListener('click', async () => {
@@ -1738,7 +1745,8 @@ async function renderQAPage(q) {
           markUpvoted(s.id, row.id);
           voted.add(row.id);
           vote.classList.add('is-voted');
-          vote.innerHTML = `<span aria-hidden="true">▲</span><span>${n}</span>`;
+          tally.textContent = String(n);
+          vote.setAttribute('aria-label', `Upvoted. ${n} votes.`);
         } catch { vote.disabled = false; }
       });
       card.append(vote);
@@ -1760,7 +1768,13 @@ function showState(icon, title, text, waiting = false) {
   state.view = null;
   app.textContent = '';
   const wrap = div('join-state');
-  if (icon) wrap.append(div('state-icon', icon));
+  if (icon) {
+    // The glyph restates the heading it sits above; read aloud it becomes
+    // "warning sign" before the sentence that says what is actually wrong.
+    const node = div('state-icon', icon);
+    node.setAttribute('aria-hidden', 'true');
+    wrap.append(node);
+  }
   if (waiting) {
     const dots = div('pulse-wait');
     dots.setAttribute('aria-hidden', 'true');

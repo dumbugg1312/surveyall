@@ -12,6 +12,26 @@
  * downloading a 2 MB photo.
  */
 
+/**
+ * House rules for the palettes below. They exist because the first pass
+ * authored each theme on its own and the set read like twenty different
+ * products: complementary accents at full chroma, a novelty face here and
+ * there, and nine different corner radii.
+ *
+ * ONE ACCENT PER THEME. `--accent-2` is an analogous neighbour or a
+ *   desaturated counterpoint (chroma at most ~60% of the accent), never a
+ *   second saturated colour arguing with the first. This is not only
+ *   taste: charts.js walks accent → accent-2 in OKLab, so a tonal pair
+ *   yields a clean series ramp while a complementary pair crosses grey.
+ * NEUTRALS CARRY THE ACCENT'S HUE. Grounds, surfaces and edges are tinted
+ *   a few per cent toward the accent rather than sitting on pure grey.
+ * THREE RADII, NOT NINE. 0px for the editorial themes, 6px for the
+ *   product ones, 999px for the soft ones. Nothing in between.
+ * TYPE PERSONALITY COMES FROM CSS, NOT FROM A NOVELTY FACE. Weight,
+ *   tracking and optical size per theme live in styles/present.css under
+ *   [data-theme-id]; the faces themselves stay within the eight we ship.
+ * BLURBS state what the room looks like in one sentence. No jokes.
+ */
 export const THEMES = {
   'lecture-hall': {
     name: 'Lecture Hall',
@@ -37,29 +57,29 @@ export const THEMES = {
 
   chalkboard: {
     name: 'Chalkboard',
-    blurb: 'Deep slate green with chalk-white type. Reads well in a dim room.',
+    blurb: 'Deep slate green, chalk gold, a warm serif.',
     dark: true,
     tokens: {
-      '--ink': '#f2f5ef',
-      '--ink-soft': '#b9c6b4',
-      '--ground': '#1e2a24',
-      '--surface': '#26332c',
-      '--edge': '#3b4c42',
-      '--accent': '#ffd76e',
-      '--accent-soft': '#4a4326',
-      '--accent-2': '#7fd1a3',
+      '--ink': '#f1f4ee',
+      '--ink-soft': '#b6c3b1',
+      '--ground': '#1b2620',
+      '--surface': '#243029',
+      '--edge': '#38473e',
+      '--accent': '#f2cd80',
+      '--accent-soft': '#453f28',
+      '--accent-2': '#8ec9a8',
       '--good': '#7fd1a3',
       '--bad': '#ff9b8a',
-      '--display': "'Caveat','Bradley Hand','Segoe Print','Comic Sans MS',cursive",
+      '--display': "'Fraunces','Hoefler Text','Baskerville',Georgia,serif",
       '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
-      '--bar-radius': '4px',
+      '--bar-radius': '6px',
     },
     background: { kind: 'preset', id: 'slate' },
   },
 
   'clean-slate': {
     name: 'Clean Slate',
-    blurb: 'Crisp white, single blue accent. Maximum clarity, zero personality.',
+    blurb: 'White, one blue, nothing else.',
     dark: false,
     tokens: {
       '--ink': '#0f172a',
@@ -69,12 +89,12 @@ export const THEMES = {
       '--edge': '#e2e8f0',
       '--accent': '#0284c7',
       '--accent-soft': '#e0f2fe',
-      '--accent-2': '#7c3aed',
+      '--accent-2': '#5265d4',
       '--good': '#059669',
       '--bad': '#dc2626',
       '--display': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
       '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
-      '--bar-radius': '4px',
+      '--bar-radius': '6px',
     },
     background: { kind: 'preset', id: 'none' },
   },
@@ -91,29 +111,29 @@ export const THEMES = {
       '--edge': '#1e3048',
       '--accent': '#22d3ee',
       '--accent-soft': '#0e3b47',
-      '--accent-2': '#f472b6',
+      '--accent-2': '#a78bfa',
       '--good': '#4ade80',
       '--bad': '#fb7185',
       '--display': "'Oswald','Avenir Next Condensed','Helvetica Neue',Impact,sans-serif",
       '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
-      '--bar-radius': '2px',
+      '--bar-radius': '0px',
     },
     background: { kind: 'preset', id: 'grid-glow' },
   },
 
   botanical: {
     name: 'Botanical',
-    blurb: 'Forest green and cream, generous spacing. Calm discussion prompts.',
+    blurb: 'Forest green on cream, set with room to breathe.',
     dark: false,
     tokens: {
       '--ink': '#1a2b21',
       '--ink-soft': '#526b5c',
       '--ground': '#f2f6ee',
       '--surface': '#ffffff',
-      '--edge': '#d5e0cf',
+      '--edge': '#d3ded0',
       '--accent': '#2f6d4f',
       '--accent-soft': '#d9ebdf',
-      '--accent-2': '#a8632c',
+      '--accent-2': '#8a6a2f',
       '--good': '#2f6d4f',
       '--bad': '#b4472e',
       '--display': "'Faustina','Optima','Gill Sans MT',Georgia,serif",
@@ -125,7 +145,7 @@ export const THEMES = {
 
   letterpress: {
     name: 'Letterpress',
-    blurb: 'Cream stock, oxblood accent, hairline rules. Humanities seminar.',
+    blurb: 'Cream stock, oxblood accent, hairline rules.',
     dark: false,
     tokens: {
       '--ink': '#241f1c',
@@ -135,7 +155,7 @@ export const THEMES = {
       '--edge': '#d6cabb',
       '--accent': '#8c2f28',
       '--accent-soft': '#efd9d5',
-      '--accent-2': '#2f5d7c',
+      '--accent-2': '#44586c',
       '--good': '#3f6b3a',
       '--bad': '#8c2f28',
       '--display': "'Fraunces','Hoefler Text','Baskerville','Times New Roman',serif",
@@ -147,7 +167,7 @@ export const THEMES = {
 
   midnight: {
     name: 'Midnight',
-    blurb: 'Deep indigo, amber accent. Evening classes and dark rooms.',
+    blurb: 'Deep indigo with an amber accent. Built for dark rooms.',
     dark: true,
     tokens: {
       '--ink': '#eceafd',
@@ -160,16 +180,16 @@ export const THEMES = {
       '--accent-2': '#818cf8',
       '--good': '#34d399',
       '--bad': '#fb7185',
-      '--display': "'Oswald','Futura','Century Gothic','Avenir Next',sans-serif",
+      '--display': "'Inter','Inter var','Avenir Next','Helvetica Neue',sans-serif",
       '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
-      '--bar-radius': '8px',
+      '--bar-radius': '6px',
     },
     background: { kind: 'preset', id: 'aurora' },
   },
 
   'high-contrast': {
     name: 'High Contrast',
-    blurb: 'Pure black on white, yellow accent, heavy weights. Back-row legibility.',
+    blurb: 'Pure black on white, heavy weights. Back-row legibility.',
     dark: false,
     highContrast: true,
     tokens: {
@@ -192,7 +212,7 @@ export const THEMES = {
 
   'citrus-studio': {
     name: 'Citrus Studio',
-    blurb: 'Tangerine and lime on warm white. Loud enough to wake an 8am section.',
+    blurb: 'Persimmon and amber on warm white. Morning energy.',
     dark: false,
     tokens: {
       '--ink': '#2b2118',
@@ -200,21 +220,21 @@ export const THEMES = {
       '--ground': '#fff8ef',
       '--surface': '#ffffff',
       '--edge': '#f0e2cd',
-      '--accent': '#e8590c',
-      '--accent-soft': '#ffe8d9',
-      '--accent-2': '#74b816',
+      '--accent': '#d9480f',
+      '--accent-soft': '#ffe3d3',
+      '--accent-2': '#b0762a',
       '--good': '#2f9e44',
-      '--bad': '#d6336c',
-      '--display': "'Oswald','Avenir Next Condensed','Helvetica Neue',sans-serif",
+      '--bad': '#c92a2a',
+      '--display': "'Fraunces','Iowan Old Style',Palatino,Georgia,serif",
       '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
-      '--bar-radius': '10px',
+      '--bar-radius': '6px',
     },
     background: { kind: 'preset', id: 'gradient-sunrise' },
   },
 
   riviera: {
     name: 'Riviera',
-    blurb: 'Sea teal and coral, an elegant serif. Sunny without being silly.',
+    blurb: 'Sea teal and muted coral under a warm serif.',
     dark: false,
     tokens: {
       '--ink': '#0f3433',
@@ -224,19 +244,19 @@ export const THEMES = {
       '--edge': '#d3e7e4',
       '--accent': '#0c8599',
       '--accent-soft': '#d2f0f2',
-      '--accent-2': '#f76707',
+      '--accent-2': '#c25e3f',
       '--good': '#2f9e44',
       '--bad': '#e03131',
       '--display': "'Fraunces','Iowan Old Style',Palatino,Georgia,serif",
       '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
-      '--bar-radius': '8px',
+      '--bar-radius': '6px',
     },
     background: { kind: 'preset', id: 'gradient-dusk' },
   },
 
   sorbet: {
     name: 'Sorbet',
-    blurb: 'Raspberry and apricot with a hand-written headline. Fun, still readable.',
+    blurb: 'Rose and raspberry, softly rounded.',
     dark: false,
     tokens: {
       '--ink': '#3d1f33',
@@ -246,19 +266,19 @@ export const THEMES = {
       '--edge': '#f3d9e5',
       '--accent': '#c2255c',
       '--accent-soft': '#ffdeeb',
-      '--accent-2': '#f08c00',
+      '--accent-2': '#a8557f',
       '--good': '#099268',
       '--bad': '#c92a2a',
-      '--display': "'Caveat','Bradley Hand','Segoe Print',cursive",
+      '--display': "'Fraunces','Iowan Old Style',Palatino,Georgia,serif",
       '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
-      '--bar-radius': '12px',
+      '--bar-radius': '999px',
     },
-    background: { kind: 'preset', id: 'confetti' },
+    background: { kind: 'preset', id: 'paper-warm' },
   },
 
   arcade: {
     name: 'Arcade',
-    blurb: 'Deep violet with lime and magenta. Quiz night energy, dark-room friendly.',
+    blurb: 'Violet dark, magenta pulse. Quiz night.',
     dark: true,
     tokens: {
       '--ink': '#f2eeff',
@@ -266,20 +286,20 @@ export const THEMES = {
       '--ground': '#12101f',
       '--surface': '#1c1930',
       '--edge': '#322c52',
-      '--accent': '#82c91e',
-      '--accent-soft': '#2b3a12',
-      '--accent-2': '#e64980',
+      '--accent': '#f06595',
+      '--accent-soft': '#3d1b2c',
+      '--accent-2': '#9775fa',
       '--good': '#51cf66',
       '--bad': '#ff6b6b',
-      '--display': "'Oswald','Avenir Next Condensed','Helvetica Neue',sans-serif",
+      '--display': "'Inter','Inter var','Avenir Next','Helvetica Neue',sans-serif",
       '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
-      '--bar-radius': '4px',
+      '--bar-radius': '6px',
     },
     background: { kind: 'preset', id: 'grid-glow' },
   },
   observatory: {
     name: 'Observatory',
-    blurb: 'Ink-black sky, brass instruments, a scatter of stars. Planetarium calm.',
+    blurb: 'Ink-black sky, brass instruments, a scatter of stars.',
     dark: true,
     tokens: {
       '--ink': '#f4f1e8',
@@ -301,7 +321,7 @@ export const THEMES = {
 
   kiln: {
     name: 'Kiln',
-    blurb: 'Terracotta, sand and glaze-blue. Sun-baked and unhurried.',
+    blurb: 'Terracotta and sand under a cool glaze.',
     dark: false,
     tokens: {
       '--ink': '#3a241a',
@@ -311,7 +331,7 @@ export const THEMES = {
       '--edge': '#e0cdb8',
       '--accent': '#b8502e',
       '--accent-soft': '#f2d9cd',
-      '--accent-2': '#3e6f8a',
+      '--accent-2': '#4c6b7d',
       '--good': '#5a7d3f',
       '--bad': '#a33a2a',
       '--display': "'Fraunces','Iowan Old Style',Palatino,Georgia,serif",
@@ -323,7 +343,7 @@ export const THEMES = {
 
   blueprint: {
     name: 'Blueprint',
-    blurb: 'Drafting-table cyanotype: deep engineer blue, white line-work.',
+    blurb: 'Engineer blue and white line-work. Drafting table.',
     dark: true,
     tokens: {
       '--ink': '#eef5fb',
@@ -333,10 +353,10 @@ export const THEMES = {
       '--edge': '#2f5b8c',
       '--accent': '#ffd166',
       '--accent-soft': '#4a4226',
-      '--accent-2': '#7fd8f5',
+      '--accent-2': '#c9dff0',
       '--good': '#7fd8a8',
       '--bad': '#ff9d8a',
-      '--display': "'Oswald','Avenir Next Condensed','Helvetica Neue',sans-serif",
+      '--display': "'Inter','Inter var','Avenir Next','Helvetica Neue',sans-serif",
       '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
       '--bar-radius': '0px',
     },
@@ -345,7 +365,7 @@ export const THEMES = {
 
   gallery: {
     name: 'Gallery',
-    blurb: 'Museum white, near-black ink, one vermilion stroke. Let the work breathe.',
+    blurb: 'Museum white, near-black ink, one vermilion stroke.',
     dark: false,
     tokens: {
       '--ink': '#161513',
@@ -358,7 +378,7 @@ export const THEMES = {
       '--accent-2': '#8a8377',
       '--good': '#4a7c59',
       '--bad': '#b0342a',
-      '--display': "'Cinzel','Optima','Gill Sans MT',Georgia,serif",
+      '--display': "'Fraunces','Hoefler Text','Baskerville',Georgia,serif",
       '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
       '--bar-radius': '0px',
     },
@@ -367,7 +387,7 @@ export const THEMES = {
 
   broadsheet: {
     name: 'Broadsheet',
-    blurb: 'Newsprint grey, headline black, one red stamp. Stop the presses.',
+    blurb: 'Newsprint grey, headline black, one red stamp.',
     dark: false,
     tokens: {
       '--ink': '#191817',
@@ -377,7 +397,7 @@ export const THEMES = {
       '--edge': '#c9c6bd',
       '--accent': '#c0201e',
       '--accent-soft': '#f0d6d3',
-      '--accent-2': '#28527a',
+      '--accent-2': '#33475c',
       '--good': '#2e6b45',
       '--bad': '#c0201e',
       '--display': "'Oswald','Avenir Next Condensed','Franklin Gothic Medium','Helvetica Neue',sans-serif",
@@ -389,14 +409,14 @@ export const THEMES = {
 
   velvet: {
     name: 'Velvet',
-    blurb: 'Theatre burgundy and champagne gold. Curtain up.',
+    blurb: 'Theatre burgundy and champagne gold.',
     dark: true,
     tokens: {
       '--ink': '#f7ecdf',
       '--ink-soft': '#bfa294',
-      '--ground': '#2a1015',
-      '--surface': '#3a1a21',
-      '--edge': '#5a2e35',
+      '--ground': '#241014',
+      '--surface': '#341920',
+      '--edge': '#563036',
       '--accent': '#e4bb6f',
       '--accent-soft': '#4a3626',
       '--accent-2': '#d98a9e',
@@ -404,14 +424,14 @@ export const THEMES = {
       '--bad': '#f08f7d',
       '--display': "'Playfair Display','Didot','Bodoni MT',Georgia,serif",
       '--body': "'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
-      '--bar-radius': '3px',
+      '--bar-radius': '0px',
     },
     background: { kind: 'preset', id: 'vignette' },
   },
 
   fjord: {
     name: 'Fjord',
-    blurb: 'Glacier blues and cold granite. Nordic quiet, sharp air.',
+    blurb: 'Glacier blue and cold granite. Nordic quiet.',
     dark: false,
     tokens: {
       '--ink': '#1d2b33',
@@ -421,7 +441,7 @@ export const THEMES = {
       '--edge': '#cddade',
       '--accent': '#1f6f8b',
       '--accent-soft': '#d5e8ee',
-      '--accent-2': '#c76b4a',
+      '--accent-2': '#b56a4e',
       '--good': '#3d8168',
       '--bad': '#bb4430',
       '--display': "'Inter','Inter var','Avenir Next','Helvetica Neue',sans-serif",
@@ -433,7 +453,7 @@ export const THEMES = {
 
   'rice-paper': {
     name: 'Rice Paper',
-    blurb: 'Sumi ink on washi, a vermilion seal. Wave-pattern calm.',
+    blurb: 'Sumi ink on washi, one vermilion seal.',
     dark: false,
     tokens: {
       '--ink': '#26221e',
@@ -448,7 +468,7 @@ export const THEMES = {
       '--bad': '#b03427',
       '--display': "'Fraunces','Hiragino Mincho ProN','Yu Mincho',Georgia,serif",
       '--body': "'Inter','Inter var','Hiragino Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
-      '--bar-radius': '2px',
+      '--bar-radius': '0px',
     },
     background: { kind: 'preset', id: 'seigaiha' },
   },
@@ -460,6 +480,16 @@ export const DEFAULT_THEME = 'lecture-hall';
  * Background presets. `css` is applied to the projector's backdrop layer.
  * Each is designed to sit *behind* a translucent panel, so nothing here
  * needs to be subtle enough to read text directly on.
+ *
+ * A backdrop is architecture, not decoration: texture alphas stay at or
+ * under ~0.08 and gradient washes under ~0.14, because anything you
+ * NOTICE in the first two seconds is competing with the question. The
+ * vignette is the one deliberate exception — being seen is its whole job.
+ *
+ * `hidden: true` retires a preset from the picker without deleting it.
+ * The key has to stay: decks store a background by id, and a missing key
+ * silently falls back to a bare ground, so an old deck would quietly lose
+ * its look. Hidden presets still render exactly as they always did.
  */
 export const BACKGROUND_PRESETS = {
   none: { name: 'None', css: () => 'none' },
@@ -486,14 +516,14 @@ export const BACKGROUND_PRESETS = {
   },
   'gradient-sunrise': {
     name: 'Sunrise',
-    css: (t) => `linear-gradient(180deg, ${hexA(t['--accent-2'], 0.18)} 0%, transparent 40%),
-                 radial-gradient(circle at 80% 10%, ${hexA(t['--accent'], 0.15)}, transparent 45%)`,
+    css: (t) => `linear-gradient(180deg, ${hexA(t['--accent-2'], 0.12)} 0%, transparent 40%),
+                 radial-gradient(circle at 80% 10%, ${hexA(t['--accent'], 0.10)}, transparent 45%)`,
   },
   aurora: {
     name: 'Aurora',
-    css: (t) => `radial-gradient(ellipse 80% 50% at 20% 0%, ${hexA(t['--accent-2'], 0.22)}, transparent 60%),
-                 radial-gradient(ellipse 70% 60% at 85% 30%, ${hexA(t['--accent'], 0.16)}, transparent 60%),
-                 radial-gradient(ellipse 60% 45% at 55% 105%, ${hexA(t['--good'], 0.10)}, transparent 65%)`,
+    css: (t) => `radial-gradient(ellipse 80% 50% at 20% 0%, ${hexA(t['--accent-2'], 0.14)}, transparent 60%),
+                 radial-gradient(ellipse 70% 60% at 85% 30%, ${hexA(t['--accent'], 0.11)}, transparent 60%),
+                 radial-gradient(ellipse 60% 45% at 55% 105%, ${hexA(t['--good'], 0.07)}, transparent 65%)`,
   },
   dots: {
     name: 'Dot grid',
@@ -508,22 +538,28 @@ export const BACKGROUND_PRESETS = {
   },
   'grid-glow': {
     name: 'Glow grid',
-    css: (t) => `linear-gradient(${hexA(t['--accent'], 0.10)} 1px, transparent 1px),
-                 linear-gradient(90deg, ${hexA(t['--accent'], 0.10)} 1px, transparent 1px),
-                 linear-gradient(180deg, transparent 55%, ${hexA(t['--accent'], 0.06)} 100%),
-                 radial-gradient(ellipse at 50% 120%, ${hexA(t['--accent'], 0.18)}, transparent 60%)`,
+    css: (t) => `linear-gradient(${hexA(t['--accent'], 0.07)} 1px, transparent 1px),
+                 linear-gradient(90deg, ${hexA(t['--accent'], 0.07)} 1px, transparent 1px),
+                 linear-gradient(180deg, transparent 55%, ${hexA(t['--accent'], 0.04)} 100%),
+                 radial-gradient(ellipse at 50% 120%, ${hexA(t['--accent'], 0.12)}, transparent 60%)`,
     size: '44px 44px, 44px 44px, 100% 100%, 100% 100%',
   },
   topo: {
+    // wider rings than the first pass: at 28px the contours read as a
+    // pattern swatch, at 44px they read as terrain seen from a long way up
     name: 'Contour',
-    css: (t) => `repeating-radial-gradient(circle at 15% 85%, transparent 0 28px, ${hexA(t['--accent'], 0.06)} 28px 29px)`,
+    css: (t) => `repeating-radial-gradient(circle at 15% 85%, transparent 0 44px, ${hexA(t['--accent'], 0.045)} 44px 45px)`,
   },
   stripes: {
     name: 'Diagonal',
+    hidden: true,
     css: (t) => `repeating-linear-gradient(45deg, ${hexA(t['--ink'], 0.035)} 0 14px, transparent 14px 28px)`,
   },
   confetti: {
+    // Retired: 4px dots at half opacity are the one backdrop that reads as
+    // clipart from the back row. Kept renderable for decks that chose it.
     name: 'Confetti',
+    hidden: true,
     css: (t) => `radial-gradient(circle at 12% 20%, ${hexA(t['--accent'], 0.5)} 0 4px, transparent 4px),
                  radial-gradient(circle at 78% 12%, ${hexA(t['--accent-2'], 0.45)} 0 5px, transparent 5px),
                  radial-gradient(circle at 35% 78%, ${hexA(t['--good'], 0.4)} 0 3px, transparent 3px),
@@ -533,14 +569,13 @@ export const BACKGROUND_PRESETS = {
 
   starfield: {
     name: 'Starfield',
-    css: (t) => `radial-gradient(circle at 18% 22%, ${hexA('#ffffff', 0.9)} 0 1px, transparent 1.5px),
-                 radial-gradient(circle at 62% 8%, ${hexA('#ffffff', 0.6)} 0 1px, transparent 1.5px),
-                 radial-gradient(circle at 84% 46%, ${hexA('#ffffff', 0.75)} 0 1.5px, transparent 2px),
-                 radial-gradient(circle at 38% 64%, ${hexA(t['--accent'], 0.8)} 0 1px, transparent 1.5px),
-                 radial-gradient(circle at 8% 82%, ${hexA('#ffffff', 0.5)} 0 1px, transparent 1.5px),
-                 radial-gradient(circle at 72% 88%, ${hexA(t['--accent-2'], 0.7)} 0 1px, transparent 1.5px),
-                 radial-gradient(ellipse 90% 60% at 50% -20%, ${hexA(t['--accent-2'], 0.10)}, transparent 60%)`,
-    size: '260px 260px, 260px 260px, 260px 260px, 260px 260px, 260px 260px, 260px 260px, 100% 100%',
+    css: (t) => `radial-gradient(circle at 18% 22%, ${hexA('#ffffff', 0.7)} 0 1px, transparent 1.5px),
+                 radial-gradient(circle at 62% 8%, ${hexA('#ffffff', 0.45)} 0 1px, transparent 1.5px),
+                 radial-gradient(circle at 84% 46%, ${hexA('#ffffff', 0.58)} 0 1.5px, transparent 2px),
+                 radial-gradient(circle at 38% 64%, ${hexA(t['--accent'], 0.6)} 0 1px, transparent 1.5px),
+                 radial-gradient(circle at 72% 88%, ${hexA(t['--accent-2'], 0.5)} 0 1px, transparent 1.5px),
+                 radial-gradient(ellipse 90% 60% at 50% -20%, ${hexA(t['--accent-2'], 0.09)}, transparent 60%)`,
+    size: '260px 260px, 260px 260px, 260px 260px, 260px 260px, 260px 260px, 100% 100%',
   },
   arches: {
     name: 'Adobe arches',
@@ -562,10 +597,12 @@ export const BACKGROUND_PRESETS = {
                  radial-gradient(ellipse 70% 40% at 50% 0%, ${hexA(t['--ink'], 0.03)}, transparent 60%)`,
   },
   halftone: {
-    name: 'Halftone',
-    css: (t) => `radial-gradient(${hexA(t['--ink'], 0.07)} 1px, transparent 1.5px),
-                 radial-gradient(${hexA(t['--ink'], 0.05)} 1px, transparent 1.5px)`,
-    size: '14px 14px, 14px 14px',
+    // Newsprint tooth, not comic-book dots: a 4px cell at 4% reads as the
+    // grain of cheap paper, which is what a broadsheet actually looks like.
+    name: 'Newsprint grain',
+    css: (t) => `radial-gradient(${hexA(t['--ink'], 0.04)} 0.5px, transparent 1px),
+                 radial-gradient(${hexA(t['--ink'], 0.03)} 0.5px, transparent 1px)`,
+    size: '4px 4px, 7px 7px',
   },
   vignette: {
     name: 'Vignette',
@@ -580,9 +617,9 @@ export const BACKGROUND_PRESETS = {
   },
   seigaiha: {
     name: 'Wave crests',
-    css: (t) => `radial-gradient(circle at 50% 130%, transparent 0 36px, ${hexA(t['--accent-2'], 0.10)} 36px 38px, transparent 38px 52px, ${hexA(t['--accent-2'], 0.08)} 52px 54px, transparent 54px 68px, ${hexA(t['--accent-2'], 0.06)} 68px 70px, transparent 70px),
-                 radial-gradient(circle at 0% 130%, transparent 0 36px, ${hexA(t['--accent-2'], 0.08)} 36px 38px, transparent 38px 52px, ${hexA(t['--accent-2'], 0.06)} 52px 54px, transparent 54px),
-                 radial-gradient(circle at 100% 130%, transparent 0 36px, ${hexA(t['--accent-2'], 0.08)} 36px 38px, transparent 38px 52px, ${hexA(t['--accent-2'], 0.06)} 52px 54px, transparent 54px)`,
+    css: (t) => `radial-gradient(circle at 50% 130%, transparent 0 36px, ${hexA(t['--accent-2'], 0.075)} 36px 38px, transparent 38px 52px, ${hexA(t['--accent-2'], 0.06)} 52px 54px, transparent 54px 68px, ${hexA(t['--accent-2'], 0.045)} 68px 70px, transparent 70px),
+                 radial-gradient(circle at 0% 130%, transparent 0 36px, ${hexA(t['--accent-2'], 0.06)} 36px 38px, transparent 38px 52px, ${hexA(t['--accent-2'], 0.045)} 52px 54px, transparent 54px),
+                 radial-gradient(circle at 100% 130%, transparent 0 36px, ${hexA(t['--accent-2'], 0.06)} 36px 38px, transparent 38px 52px, ${hexA(t['--accent-2'], 0.045)} 52px 54px, transparent 54px)`,
     size: '160px 80px',
   },
 };

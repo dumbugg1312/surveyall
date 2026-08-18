@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Edit deck — SurveyAll</title>
+<title>Edit deck · SurveyAll</title>
 <!-- Tab icon. The SVG is what modern browsers use; the PNGs are for
      Safari's older raster paths and for a phone home screen. Paths are
      root-relative so they resolve the same from /join and /create as
@@ -27,7 +27,7 @@
        instructions slide prints it, and click-to-rotate because a code
        that has escaped needs one obvious way to be replaced. -->
   <button class="code-chip" id="deckCode" type="button" hidden
-          title="This deck's join code — click to replace it">
+          title="This deck's join code. Click to replace it">
     <span class="code-label">Code</span>
     <span class="code-value"></span>
   </button>
@@ -37,7 +37,7 @@
        lands — see setSaveState() in app/edit-page.js, which also colours it
        and marks the tab title, since the rule for that would otherwise have
        to live in styles/app.css. -->
-  <span class="muted" id="saveState" style="font-size:.78rem"
+  <span class="muted text-xs" id="saveState"
         role="status" aria-live="polite"></span>
   <button class="btn btn-sm" id="textView" type="button">Text view</button>
   <button class="btn btn-sm" id="btnDesign" type="button"
@@ -46,7 +46,7 @@
        driven by an invented room. No session, no join code consumed,
        nothing written. See app/preview-panel.js. -->
   <button class="btn btn-sm" id="btnPreview" type="button"
-          title="Run this deck privately — projector and phone, with optional test answers">Preview</button>
+          title="Run this deck privately: projector and phone, with optional test answers">Preview</button>
   <button class="btn btn-sm btn-primary" id="startSession" type="button">Start session</button>
 </header>
 
@@ -108,8 +108,8 @@
         <button class="btn btn-sm" id="btnNewTheme" type="button">+ New theme</button>
       </div>
       <p class="mythemes-empty" id="myThemesEmpty">
-        Build your own look — pick four colours and a headline face,
-        the rest is derived so it always stays readable.
+        Build your own look: pick four colours and a headline face, and the
+        rest is derived so it always stays readable.
       </p>
       <div class="theme-grid" id="myThemeGrid"></div>
 
@@ -172,7 +172,7 @@
       </div>
       <!-- muted, not .privacy-note: that class hangs a padlock in the
            margin, and this note is about decoration, not about data. -->
-      <p class="muted" id="bgMotionNote" style="font-size:.72rem;line-height:1.45"></p>
+      <p class="muted note" id="bgMotionNote"></p>
 
       <label class="upload-drop" id="uploadDrop">
         Drop an image here, or click to choose
@@ -181,7 +181,7 @@
 
       <!-- Uploads expire 30 days after upload unless pinned — the number
            on each tile is the countdown, and the pin is the exemption. -->
-      <p class="muted" style="font-size:.72rem;line-height:1.45">
+      <p class="muted note">
         Uploaded images are deleted 30 days after upload. The number on a
         tile is the days it has left; press it to keep the image for good.
       </p>
@@ -190,14 +190,13 @@
 
       <!-- Filled in by app/edit-page.js when THIS deck's background is the
            one about to go. Empty and hidden the rest of the time. -->
-      <div class="alert alert-warn row row-wrap" id="bgExpiryWarn"
-           style="font-size:.8rem;gap:var(--sp-2);align-items:center" hidden></div>
+      <div class="alert alert-warn row row-wrap text-sm bg-expiry"
+           id="bgExpiryWarn" hidden></div>
 
       <!-- Per-account upload quota. Filled in by app/edit-page.js only
            once 80% of it is used — there is no reason to tell somebody
            with four images that a limit exists. -->
-      <p class="muted" id="bgQuotaNote"
-         style="font-size:.72rem;line-height:1.45" hidden></p>
+      <p class="muted note" id="bgQuotaNote" hidden></p>
 
       <div class="bg-controls" id="imageControls" hidden>
         <label class="label" for="bgDim">Dim <span id="dimVal">45%</span></label>
@@ -206,7 +205,7 @@
         <input type="range" id="bgBlur" min="0" max="20" value="0">
       </div>
 
-      <p class="privacy-note" style="font-size:.72rem">
+      <p class="privacy-note note">
         Backgrounds render on the projector only. Student phones use the theme
         colours, which keeps text readable and avoids 60 devices downloading
         the same image.
@@ -216,7 +215,7 @@
   </aside>
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script type="module" src="app/edit-page.js"></script>
 <script type="module" src="app/feedback.js"></script>

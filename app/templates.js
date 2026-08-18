@@ -30,7 +30,7 @@ export const TEMPLATES = [
   {
     id: 'muddiest-point',
     name: 'Muddiest point',
-    blurb: 'One question, honest answers — anonymity is what makes it work.',
+    blurb: 'One question, honest answers. Anonymity is what makes it work.',
     source: 'Angelo & Cross, Classroom Assessment Techniques (1993)',
     questions: [
       {
@@ -44,11 +44,11 @@ export const TEMPLATES = [
     id: 'exit-ticket',
     name: 'Exit ticket',
     blurb: 'Concept check + muddiest point + a confidence pulse. Open next class with the results.',
-    source: 'Black & Wiliam, Inside the Black Box (1998) — the value is acting on it',
+    source: 'Black & Wiliam, Inside the Black Box (1998). The value is acting on it',
     questions: [
       {
         type: 'multiple_choice',
-        prompt: 'Concept check — edit me: one question about today\'s key idea',
+        prompt: 'Concept check, edit me: one question about today\'s key idea',
         config: { options: ['Option A', 'Option B', 'Option C'], mode: 'best', confidence: true },
       },
       {
@@ -106,7 +106,7 @@ export const TEMPLATES = [
   {
     id: 'they-say-i-say',
     name: 'They Say / I Say',
-    blurb: 'The response stem as an input constraint — templates of the moves, not a handout.',
+    blurb: 'The response stem as an input constraint: templates of the moves, not a handout.',
     source: 'Graff & Birkenstein, They Say / I Say',
     questions: [
       {
@@ -136,7 +136,7 @@ export const TEMPLATES = [
   {
     id: 'toulmin-dissection',
     name: 'Toulmin dissection',
-    blurb: 'The room tags claim, evidence and warrant — the disagreement over the warrant IS the lesson.',
+    blurb: 'The room tags claim, evidence and warrant. The disagreement over the warrant IS the lesson.',
     source: 'Toulmin, The Uses of Argument; standard FYC practice, finally live',
     questions: [
       {
@@ -179,7 +179,7 @@ export const TEMPLATES = [
   {
     id: 'reading-temperature',
     name: 'Reading temperature',
-    blurb: 'A one-word warm-up plus two honest scales — the discussion opener that shows the room to itself.',
+    blurb: 'A one-word warm-up plus two honest scales: the discussion opener that shows the room to itself.',
     source: 'standard practice (Pitt, Hunter teaching centres); anonymity research on honest self-report',
     questions: [
       {

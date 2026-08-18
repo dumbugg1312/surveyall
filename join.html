@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#f7f4ee">
 <meta name="robots" content="noindex">
 <!-- No analytics, no trackers, no third-party scripts. See docs/architecture.md §5. -->
-<title>Join — SurveyAll</title>
+<title>Join · SurveyAll</title>
 <!-- Tab icon. The SVG is what modern browsers use; the PNGs are for
      Safari's older raster paths and for a phone home screen. Paths are
      root-relative so they resolve the same from /join and /create as
@@ -32,9 +32,13 @@
   <p id="join-status" class="sr-only" role="status" aria-live="polite"></p>
 
   <main class="join-shell" id="app">
+    <!-- The ship state needs the same <h1> every screen built by
+         showState() gets: this is the page until the first fetch lands,
+         and on a slow phone it is on screen for several seconds. -->
     <div class="join-state">
       <div class="pulse-wait" aria-hidden="true"><span></span><span></span><span></span></div>
-      <p class="state-text">Connecting…</p>
+      <h1 class="state-title">Connecting…</h1>
+      <p class="state-text">Finding the session.</p>
     </div>
   </main>
 

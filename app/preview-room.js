@@ -62,7 +62,7 @@ const WORDS = [
 
 const SENTENCES = [
   'I think it depends on the context.',
-  'Not sure yet — I want to hear what other people say first.',
+  'Not sure yet. I want to hear what other people say first.',
   'It made much more sense the second time through.',
   'Mostly agree, but I can think of exceptions.',
   'Could we go over the second part again?',

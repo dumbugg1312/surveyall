@@ -16,12 +16,17 @@
 import {
   configured, currentUser, signOut, listDecks, createDeck, deleteDeck,
   listSessions, createSession, deleteSession, listQuestions, replaceQuestions,
-  adminSummary,
+  adminSummary, changePassword,
 } from './db.js';
 import { resolveTheme } from './themes.js';
 import { parseDeck, SAMPLE_DECK } from './deck-format.js';
 import { renderSlide } from './slide-preview.js';
 import { icon } from './icons.js';
+import { joinBase } from './config.js';
+import { joinURL, joinURLPretty } from './logic.js';
+import {
+  el, button, linkBtn, emptyState, toast, openModal, askText, askConfirm, fmt,
+} from './ui.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -58,6 +63,7 @@ async function boot() {
   // identity. Admins are marked because only they can reset a colleague's
   // password, and it is worth knowing which account you are in.
   $('who').textContent = user.is_admin ? `${user.username} · admin` : (user.username || '');
+  $('who').addEventListener('click', () => openAccount(user));
 
   // Only the admin can read the feedback or reset a colleague's
   // password, so only the admin is offered the link. The unread count
@@ -180,7 +186,7 @@ function showDeckSkeleton() {
 function renderDecks(gen) {
   const area = $('deckArea');
   area.textContent = '';
-  setCount($('deckCount'), decks.length);
+  setCount($('deckCount'), decks.length, 'deck');
 
   if (!decks.length) {
     area.append(emptyState(
@@ -218,11 +224,9 @@ function deckCard(deck, gen) {
   preview.setAttribute('aria-hidden', 'true');
   shot.append(preview);
 
-  if (deck.join_code) {
-    const code = el('span', 'deck-code', deck.join_code);
-    code.title = "This deck's permanent join code";
-    shot.append(code);
-  }
+  // The code was a label with pointer-events:none — the one string the
+  // whole room needs, and it could not be clicked, selected or copied.
+  if (deck.join_code) shot.append(joinCodeButton(deck));
 
   const body = el('div', 'deck-body');
   const title = el('h3', 'deck-title');
@@ -248,6 +252,102 @@ function deckCard(deck, gen) {
   card.append(shot, body, actions);
   paintDeckPreview({ deck, themeRef, preview, meta, stats, gen });
   return card;
+}
+
+/**
+ * Your own account, in a dialog.
+ *
+ * Everything this app knows about an instructor is on this one screen:
+ * a username, whether they are the admin, and a password. There is no
+ * email to change and no profile to fill in, which is the whole point.
+ */
+async function openAccount(user) {
+  let current;
+  let next;
+  let confirmField;
+  let problem;
+
+  const result = await openModal({
+    title: 'Your account',
+    blurb: `Signed in as ${user.username}${user.is_admin ? ', the admin for this site' : ''}. `
+      + 'This app stores your username and a hashed password, and nothing else — '
+      + 'no email address, which is also why a forgotten password has to be reset '
+      + 'by an admin rather than mailed to you.',
+    confirmLabel: 'Change password',
+    build(form) {
+      const mk = (id, label, hint) => {
+        const wrap = el('div', 'field');
+        const lab = document.createElement('label');
+        lab.htmlFor = id;
+        lab.textContent = label;
+        const input = document.createElement('input');
+        input.type = 'password';
+        input.id = id;
+        input.autocomplete = id === 'acCurrent' ? 'current-password' : 'new-password';
+        wrap.append(lab, input);
+        if (hint) wrap.append(el('p', 'field-hint', hint));
+        form.append(wrap);
+        return input;
+      };
+      current = mk('acCurrent', 'Current password');
+      next = mk('acNext', 'New password',
+        'Four characters is enough. A short PIN is fine here: what makes it safe '
+        + 'is the sign-in lockout, which slows a guesser down to nothing.');
+      confirmField = mk('acConfirm', 'New password again');
+      problem = el('p', 'field-error');
+      problem.setAttribute('role', 'alert');
+      form.append(problem);
+      return () => ({ current: current.value, next: next.value, again: confirmField.value });
+    },
+  });
+  if (result == null) return;
+
+  if (!result.next || result.next.length < 4) {
+    toast('A new password needs at least four characters');
+    return;
+  }
+  if (result.next !== result.again) {
+    // Typed twice precisely because it is masked and short — there is no
+    // reset email to fall back on if a typo gets saved.
+    toast('The two new passwords do not match');
+    return;
+  }
+  try {
+    await changePassword(result.current, result.next);
+    toast('Password changed');
+  } catch (err) {
+    toast(err.message || 'That did not work');
+  }
+}
+
+/**
+ * The join code, as something you can actually use.
+ *
+ * One click copies the full join link — which is what somebody posting it
+ * to a course page or a chat window wants — and the code itself stays
+ * selectable for anyone who just wants to read it out.
+ */
+function joinCodeButton(deck) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'deck-code';
+  b.textContent = deck.join_code;
+  b.title = `Copy the join link for “${deck.title}”`;
+  b.setAttribute('aria-label',
+    `Join code ${deck.join_code.split('').join(' ')}. Copy the join link.`);
+  b.addEventListener('click', async (e) => {
+    e.preventDefault();
+    const url = joinURL(joinBase(), deck.join_code);
+    try {
+      await navigator.clipboard.writeText(url);
+      toast('Join link copied');
+    } catch {
+      // Clipboard access can be refused outright (insecure context, or a
+      // policy). Showing the link beats a silent no-op.
+      toast(joinURLPretty(joinBase(), deck.join_code));
+    }
+  });
+  return b;
 }
 
 /**
@@ -312,8 +412,8 @@ async function paintDeckPreview({ deck, themeRef, preview, meta, stats, gen }) {
   const n = questions.length;
   meta.textContent = n
     ? `${n} slide${n === 1 ? '' : 's'}`
-    : 'Empty — no slides yet';
-  if (!n && stats.runs === 0) meta.textContent = 'Empty — add a question to run it';
+    : 'Empty. No slides yet';
+  if (!n && stats.runs === 0) meta.textContent = 'Empty. Add a question to run it';
 }
 
 /** Everything this deck has produced, drawn from the session list. */
@@ -347,7 +447,7 @@ async function onDeleteDeck(deck) {
     blurb: stats.runs
       ? `This also deletes ${stats.runs} session${stats.runs === 1 ? '' : 's'} and `
         + `${fmt(stats.responses)} recorded answer${stats.responses === 1 ? '' : 's'}. `
-        + 'Export anything you need first — this cannot be undone.'
+        + 'Export anything you need first, because this cannot be undone.'
       : 'This deck has never been run, so no results are lost. This cannot be undone.',
     confirmLabel: 'Delete deck',
   });
@@ -357,50 +457,46 @@ async function onDeleteDeck(deck) {
   await refresh();
 }
 
-function onImport(preset) {
-  const backdrop = el('div', 'modal-backdrop');
-  const modal = el('div', 'modal');
+/**
+ * Import now runs through the shared dialog, so it has the role, the
+ * labelling, the focus trap and the Escape key that the hand-rolled
+ * backdrop never had.
+ */
+async function onImport(preset) {
+  let area;
+  let errors;
+  const text = await openModal({
+    title: 'Import a deck from text',
+    blurb: 'Paste a deck in SurveyAll\'s plain-text format. This is also how you '
+      + 'copy a deck between sections or keep it in version control.',
+    confirmLabel: 'Import',
+    build(form) {
+      area = document.createElement('textarea');
+      area.className = 'text-editor';
+      area.setAttribute('aria-label', 'Deck text');
+      area.value = typeof preset === 'string' ? preset : SAMPLE_DECK;
+      errors = el('div', 'parse-errors');
+      form.append(area, errors);
+      return () => area.value;
+    },
+  });
+  if (text == null) return;
 
-  const h = el('h2', null, 'Import a deck from text');
-  const p = el('p', 'muted');
-  p.style.fontSize = '.86rem';
-  p.textContent = 'Paste a deck in SurveyAll\'s plain-text format. This is also how you '
-    + 'copy a deck between sections or keep it in version control.';
-
-  const area = document.createElement('textarea');
-  area.className = 'text-editor';
-  area.value = typeof preset === 'string' ? preset : SAMPLE_DECK;
-
-  const errors = el('div', 'parse-errors');
-
-  const row = el('div', 'row');
-  row.style.justifyContent = 'flex-end';
-  row.append(
-    button('Cancel', '', () => backdrop.remove()),
-    button('Import', 'btn-primary', async () => {
-      const parsed = parseDeck(area.value);
-      errors.textContent = '';
-      if (parsed.errors.length) {
-        parsed.errors.forEach((e) => {
-          const a = el('div', 'alert alert-error', e);
-          errors.append(a);
-        });
-        if (!parsed.questions.length) return;
-      }
-      const deck = await createDeck({
-        title: parsed.title,
-        theme: parsed.theme,
-        background: parsed.background,
-      });
-      await replaceQuestions(deck.id, parsed.questions);
-      window.location.href = `edit.html?deck=${deck.id}`;
-    }),
-  );
-
-  modal.append(h, p, area, errors, row);
-  backdrop.append(modal);
-  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.remove(); });
-  document.body.append(backdrop);
+  const parsed = parseDeck(text);
+  if (parsed.errors.length && !parsed.questions.length) {
+    // Nothing usable came out, so say what was wrong and hand the text
+    // back rather than dropping it on the floor.
+    toast(parsed.errors[0]);
+    onImport(text);
+    return;
+  }
+  const deck = await createDeck({
+    title: parsed.title,
+    theme: parsed.theme,
+    background: parsed.background,
+  });
+  await replaceQuestions(deck.id, parsed.questions);
+  window.location.href = `edit.html?deck=${deck.id}`;
 }
 
 async function onStart(deck) {
@@ -413,7 +509,7 @@ async function onStart(deck) {
   const label = await askText({
     title: `Start a session of “${deck.title}”`,
     blurb: 'The label is how you will find this session in the archive later, so '
-      + 'name the class, not the date — the date is recorded anyway.',
+      + 'name the class, not the date. The date is recorded anyway.',
     label: 'Session label',
     value: '',
     placeholder: 'e.g. Tue 9am section',
@@ -500,7 +596,7 @@ function visibleSessions() {
 function renderArchive() {
   const area = $('sessionArea');
   area.textContent = '';
-  setCount($('sessionCount'), sessions.length);
+  setCount($('sessionCount'), sessions.length, 'session');
 
   // The controls are furniture until there is a pile to work through.
   $('archiveBar').hidden = sessions.length < 5;
@@ -508,8 +604,8 @@ function renderArchive() {
   if (!sessions.length) {
     area.append(emptyState('Nothing run yet',
       'Starting a session on a deck creates a join code and a QR for your students. '
-      + 'Every run is kept here permanently — the answers, the charts, and a free '
-      + 'CSV export — so this list is your record of the term.', []));
+      + 'Every run is kept here permanently: the answers, the charts, and a free '
+      + 'CSV export, so this list is your record of the term.', []));
     return;
   }
 
@@ -635,7 +731,7 @@ async function onDeleteSession(s, deck) {
     blurb: answers
       ? `${fmt(answers)} recorded answer${answers === 1 ? '' : 's'} from `
         + `${fmt(s.participant_count || 0)} ${s.participant_count === 1 ? 'person' : 'people'} `
-        + `will be deleted with it. Export the results first if you need them — `
+        + `will be deleted with it. Export the results first if you need them, `
         + 'this cannot be undone.'
       : 'Nobody answered in this session, so no results are lost.',
     confirmLabel: 'Delete session',
@@ -675,7 +771,12 @@ const UNITS = [
 ];
 
 function relTime(ts, { joined = false } = {}) {
-  const n = Number(ts);
+  // Two shapes reach this. created_at is an epoch number; started_at and
+  // ended_at are ISO strings, which Number() turns into NaN — so a
+  // session that was very much running reported "started never" in the
+  // live banner, the one place on this page that is about right now.
+  const n = typeof ts === 'string' && !/^\d+$/.test(ts)
+    ? Date.parse(ts) : Number(ts);
   if (!Number.isFinite(n) || n <= 0) return 'never';
   const rtf = joined ? RTF_JOINED : RTF_ALONE;
   const diff = n - Date.now();
@@ -708,103 +809,6 @@ function timeBucket(ts) {
 }
 
 // =====================================================================
-// Modals — what window.prompt and window.confirm were standing in for
-// =====================================================================
-
-let modalSeq = 0;
-
-/**
- * One modal shell for asking a question and getting an answer back.
- *
- * Escape closes, the backdrop closes, Enter submits, focus starts inside
- * and returns to whatever opened it. Resolves null on cancel, so a caller
- * can tell "cancelled" from "submitted empty".
- */
-function openModal({ title, blurb, build, confirmLabel, danger }) {
-  return new Promise((resolve) => {
-    const opener = document.activeElement;
-    const backdrop = el('div', 'modal-backdrop');
-
-    const form = document.createElement('form');
-    form.className = 'modal';
-    form.setAttribute('role', 'dialog');
-    form.setAttribute('aria-modal', 'true');
-
-    const heading = el('h2', null, title);
-    heading.id = `modal-title-${(modalSeq += 1)}`;
-    form.setAttribute('aria-labelledby', heading.id);
-    form.append(heading);
-
-    if (blurb) {
-      const p = el('p', 'muted', blurb);
-      p.style.fontSize = '.86rem';
-      form.append(p);
-    }
-
-    const getValue = build ? build(form) : () => true;
-
-    const row = el('div', 'row');
-    row.style.justifyContent = 'flex-end';
-    const submit = document.createElement('button');
-    submit.type = 'submit';
-    submit.className = `btn ${danger ? 'btn-danger' : 'btn-primary'}`;
-    submit.textContent = confirmLabel;
-    row.append(button('Cancel', '', () => close(null)), submit);
-    form.append(row);
-
-    function close(value) {
-      document.removeEventListener('keydown', onKey, true);
-      backdrop.remove();
-      opener?.focus?.();
-      resolve(value);
-    }
-    function onKey(e) {
-      if (e.key === 'Escape') { e.preventDefault(); close(null); }
-    }
-
-    form.addEventListener('submit', (e) => { e.preventDefault(); close(getValue()); });
-    backdrop.addEventListener('mousedown', (e) => { if (e.target === backdrop) close(null); });
-    document.addEventListener('keydown', onKey, true);
-
-    backdrop.append(form);
-    document.body.append(backdrop);
-
-    const first = form.querySelector('input, textarea') || submit;
-    first.focus();
-    if (first.select) first.select();
-  });
-}
-
-/** @returns {Promise<string|null>} trimmed text, or null if cancelled. */
-function askText({ title, blurb, label, value = '', placeholder = '', confirmLabel }) {
-  let input;
-  return openModal({
-    title,
-    blurb,
-    confirmLabel,
-    build(form) {
-      const field = el('div', 'field');
-      const lab = document.createElement('label');
-      lab.htmlFor = `modal-input-${modalSeq}`;
-      lab.textContent = label;
-      input = document.createElement('input');
-      input.type = 'text';
-      input.id = lab.htmlFor;
-      input.value = value;
-      input.placeholder = placeholder;
-      field.append(lab, input);
-      form.append(field);
-      return () => input.value.trim();
-    },
-  });
-}
-
-/** @returns {Promise<boolean>} */
-function askConfirm({ title, blurb, confirmLabel }) {
-  return openModal({ title, blurb, confirmLabel, danger: true }).then((v) => v === true);
-}
-
-// =====================================================================
 // Bits
 // =====================================================================
 
@@ -815,42 +819,19 @@ const TRASH_ICON =
   + '<rect x="9.3" y="11.4" width="1.7" height="7.6" rx=".85" fill="var(--surface,#fff)"/>'
   + '<rect x="13" y="11.4" width="1.7" height="7.6" rx=".85" fill="var(--surface,#fff)"/>';
 
-function el(tag, cls, text) {
-  const n = document.createElement(tag);
-  if (cls) n.className = cls;
-  if (text != null) n.textContent = text;
-  return n;
-}
-
 function deckById(id) {
   return decks.find((d) => d.id === id) || null;
 }
 
-function fmt(n) {
-  return Number(n || 0).toLocaleString();
-}
-
-function setCount(node, n) {
+/**
+ * The count pill beside a section heading. The noun matters: on its own
+ * the pill announced a bare "7", which is a number with no subject.
+ */
+function setCount(node, n, noun) {
   if (!node) return;
   node.hidden = !n;
   node.textContent = fmt(n);
-}
-
-function button(label, cls, fn) {
-  const b = document.createElement('button');
-  b.type = 'button';
-  b.className = `btn ${cls || ''}`.trim();
-  b.textContent = label;
-  b.addEventListener('click', fn);
-  return b;
-}
-
-function linkBtn(label, cls, href) {
-  const a = document.createElement('a');
-  a.className = `btn ${cls || ''}`.trim();
-  a.href = href;
-  a.textContent = label;
-  return a;
+  node.setAttribute('aria-label', `${fmt(n)} ${noun}${n === 1 ? '' : 's'}`);
 }
 
 function iconBtn(markup, label, cls, fn) {
@@ -862,27 +843,6 @@ function iconBtn(markup, label, cls, fn) {
   b.append(icon(markup));
   b.addEventListener('click', fn);
   return b;
-}
-
-function emptyState(title, text, actions) {
-  const wrap = el('div', 'empty-state');
-  wrap.append(el('h3', null, title), el('p', null, text));
-  if (actions?.length) {
-    const row = el('div', 'row');
-    actions.forEach((a) => row.append(a));
-    wrap.append(row);
-  }
-  return wrap;
-}
-
-let toastTimer = null;
-function toast(msg) {
-  const t = $('toast');
-  t.textContent = msg;
-  t.classList.add('is-visible');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('is-visible'), 2200);
-  announce(msg);
 }
 
 function announce(msg) {

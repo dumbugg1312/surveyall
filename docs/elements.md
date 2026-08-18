@@ -1,9 +1,9 @@
 # Slide elements
 
 Instructors can place icons and annotation marks on a slide — the thing
-people mean when they ask for "Canva, but for this". 253 elements: 229
-curated Lucide icons across nine teaching categories, and 24 annotation
-marks drawn for this app.
+people mean when they ask for "Canva, but for this". 778 elements: 754
+curated Lucide icons across fourteen teaching categories, and 24
+annotation marks drawn for this app.
 
 This note is about the two decisions that shaped it, because both of them
 say no to the obvious version of the feature.
@@ -179,10 +179,26 @@ the worst available outcome.
 requires no attribution line, which is why nothing has to appear on a
 projected slide.
 
+Lucide ships 2,025 icons and the catalog draws on 754 of them, so the
+answer to "can we add more?" is almost always "widen the catalog", not
+"add a source". A second source costs a second licence to honour and,
+worse, a second drawing style.
+
 Deliberately not used: **Font Awesome Free** and **The Noun Project**
 free tier are CC BY — they need visible credit, and a credit line on a
 lecture slide is a worse feature than not having the icon. Anything from
 Flaticon/Freepik carries per-asset terms nobody is going to read.
+**OpenMoji** is CC BY-SA, so it wants credit *and* share-alike, and it is
+coloured — which breaks the theme-token promise above. **Phosphor**,
+**Heroicons**, **Bootstrap Icons**, **Material Symbols** and **Remix**
+are all permissively licensed and all drawn on a different grid or at a
+different weight; mixing one in means a slide where the icon you dragged
+in visibly came from somewhere else.
+
+The one genuinely compatible second source is **Tabler** (MIT, ~5,900
+icons, also 24×24 at stroke 2 with round caps and joins). Worth reaching
+for only when Lucide actually lacks something — an abacus, a Bunsen
+burner, a specific instrument — and even then per icon, not wholesale.
 
 To change the catalog, edit `CATALOG` in `tools/build-elements.mjs`:
 
@@ -193,7 +209,50 @@ node tools/build-elements.mjs /tmp/package
 
 The build refuses duplicate ids. It has to: `ICON_PATHS` is an object and
 `ICON_INDEX` is a list, so a duplicate shrinks one and not the other and
-silently drops the icon from whichever category claimed it first.
+silently drops the icon from whichever category claimed it first. It
+reports every unknown id in one pass rather than one per run, because a
+Lucide upgrade renames icons in batches.
+
+A catalog entry can be a bare id. Search tags then come from Lucide's own
+`tags.json`, which ships in the same package as the art — 1,767 icons'
+worth of synonyms written by the people who drew them. Write tags only
+for the words upstream wouldn't think of, which are the classroom ones:
+Lucide tagged the calculator "arithmetic"; a teacher types "maths".
+
+Upstream tags are not always right *here*, so a tag can be vetoed with a
+leading minus. Lucide tags the tally marks "prison cell sentence", and a
+science teacher searching "cell" should get the microscope. The veto is
+per icon rather than a banned-word list, because "drug" belongs on the
+pill and "weapon" belongs on the sword.
+
+Tags are stored as single words even where upstream wrote a phrase.
+"passive aggressive" on the slight-smile survived a whole-string veto and
+still matched a search for "aggressive", because search splits on
+whitespace and the veto did not.
+
+## Keeping it safe to open in front of a class
+
+Lucide is a general-purpose set. It has cigarettes, cannabis, martinis
+and a corna hand sign, and it tags icons for a general audience — which
+is how "prison", "begging", "patronizing" and "dating" arrive attached to
+a tally mark, a helping hand, a smile and a kind word.
+
+Both halves are curated on the way in: the art by choosing ids, the words
+by vetoing tags. What stays is what a lesson actually needs — the sword
+and the shield for history, the pills and the syringe for health, the
+skull for archaeology. What goes is what earns nothing: alcohol, the
+penknife, the corna.
+
+`is safe to open in front of a class` in the test suite asserts no
+element carries any of it, so a Lucide upgrade cannot quietly put it
+back. `no two elements share a label` is the other half — a tile shows
+its label and nothing else, so a garden "Spade" and a card-suit "Spade"
+are indistinguishable in the grid.
+
+A new category has to be added in two places — `CATALOG` here and
+`CATEGORY_ORDER` in `app/elements.js`, which also needs a short tab name
+in `CATEGORY_TABS`. `orphanCategories()` is the guard, asserted empty by
+the test suite.
 
 Then open `tests/elements-check.html` and look at it. A Lucide upgrade
 can redraw an icon, and no unit test can tell you whether the new drawing

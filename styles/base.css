@@ -44,6 +44,10 @@
   --accent-2: #b45309;
   --good: #15803d;
   --bad: #b91c1c;
+  /* Caution, for the honest "here is where this falls short" callouts and
+     for a quota approaching its ceiling. Not an error: nothing has gone
+     wrong yet, which is exactly why it cannot borrow --bad. */
+  --warn: #b45309;
 
   /* Derived in app/themes.js and stamped onto :root by applyTheme(); the
      values here are the default theme's, so a page renders correctly
@@ -64,6 +68,7 @@
   --accent-2-text: #9e4908;
   --good-text: #137337;
   --bad-text: #b91c1c;
+  --warn-text: #9e4908;
 
   --display: 'Fraunces', 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
   --body: 'Inter', 'Inter var', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -77,7 +82,32 @@
   --sp-6: 2rem;
   --sp-7: 3rem;
 
+  /* Type scale for the INSTRUCTOR CHROME only — dashboard, editor, admin.
+     The creator CSS had grown 25 distinct sizes, several of them 0.02rem
+     apart, which is a difference nobody can see and everybody has to
+     maintain. The projector and phone surfaces (charts.css, present.css,
+     join.css) are deliberately NOT on this scale: they are em-relative so
+     one renderer serves a card in the archive and a slide on the wall. */
+  --text-xs: .72rem;
+  --text-sm: .8rem;
+  --text-base: .9rem;
+  --text-md: 1rem;
+  --text-lg: 1.15rem;
+  --text-xl: 1.45rem;
+  --text-2xl: 1.9rem;
+
+  /* The app bar's height, declared once. The editor's three panes are
+     sized as (viewport − this), and it was a 3.6rem literal in two rules
+     in another file, matched by hand to a bar whose height came out of
+     its padding and contents. */
+  --appbar-h: 3.6rem;
+
   --radius: 12px;
+  --radius-sm: 9px;
+  --radius-xs: 6px;
+  /* The selected-state ring, which had drifted into three near-identical
+     hand-written values (22%, 25%, 22%) across four components. */
+  --ring-selected: 0 0 0 2px color-mix(in srgb, var(--accent) 24%, transparent);
   --shadow: 0 1px 2px rgba(0, 0, 0, .05), 0 8px 24px rgba(0, 0, 0, .07);
   /* Focus ring — an OUTLINE, deliberately, and solid rather than a wash.
      Three earlier attempts each failed a different way:
@@ -113,6 +143,12 @@
   --ease-out: cubic-bezier(0, 0, .2, 1);
   --ease-snap: cubic-bezier(.2, 0, 0, 1);
   --ease-spring: cubic-bezier(.34, 1.56, .64, 1);
+
+  /* The padlock on a privacy note, as a shape rather than an emoji: it
+     takes the surrounding ink colour, draws identically on every OS, and
+     is silent to a screen reader (the sentence beside it already says
+     what it means). */
+  --lock-mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 1.8a5.2 5.2 0 0 0-5.2 5.2v2.4H6a1.8 1.8 0 0 0-1.8 1.8v9A1.8 1.8 0 0 0 6 22h12a1.8 1.8 0 0 0 1.8-1.8v-9A1.8 1.8 0 0 0 18 9.4h-.8V7A5.2 5.2 0 0 0 12 1.8zm0 2.2A3 3 0 0 1 15 7v2.4H9V7a3 3 0 0 1 3-3z"/></svg>');
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -175,7 +211,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .eyebrow {
   font-family: var(--body);
-  font-size: .72rem;
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: .09em;
   text-transform: uppercase;
@@ -184,6 +220,17 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .muted { color: var(--ink-soft); }
 .tabular { font-variant-numeric: tabular-nums; }
+
+/* Size utilities on the chrome's own scale. These exist so a size can be
+   picked in markup without inventing a new one: the creator pages had
+   accumulated a dozen inline `style="font-size:.78rem"`-shaped overrides,
+   no two of them agreeing. */
+.text-xs { font-size: var(--text-xs); }
+.text-sm { font-size: var(--text-sm); }
+.text-base { font-size: var(--text-base); }
+/* Small print that is a sentence rather than a label: the note under a
+   control, the line at the foot of a panel. */
+.note { font-size: var(--text-xs); line-height: 1.45; }
 
 /* ------------------------------------------------------------- buttons */
 
@@ -194,13 +241,15 @@ button, input, select, textarea { font: inherit; color: inherit; }
   gap: var(--sp-2);
   padding: .6rem 1rem;
   border: 1px solid var(--edge-strong);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--ink);
-  font-size: .92rem;
+  font-size: var(--text-base);
   font-weight: 550;
   cursor: pointer;
-  transition: background .15s ease, border-color .15s ease, transform .08s ease;
+  transition: background var(--duration-fast) var(--ease-out),
+              border-color var(--duration-fast) var(--ease-out),
+              transform var(--duration-instant) var(--ease-out);
 }
 
 /* A link can be a button here (deck cards navigate rather than act), and
@@ -209,7 +258,18 @@ a.btn { text-decoration: none; }
 
 .btn:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 45%, var(--edge-strong)); }
 .btn:active:not(:disabled) { transform: translateY(1px); }
-.btn:disabled { opacity: .45; cursor: not-allowed; }
+/* Disabled used to be opacity .45, which drags the label under AA on every
+   theme — and a disabled button is often exactly the one carrying the
+   explanation (the theme builder's Save says why it cannot save). Flatten
+   to a surface treatment with real ink instead of fading it, the same way
+   the student's submit button already does. */
+.btn:disabled {
+  background: color-mix(in srgb, var(--ink) 9%, var(--ground));
+  border-color: color-mix(in srgb, var(--ink) 18%, transparent);
+  color: var(--ink-soft);
+  cursor: not-allowed;
+}
+.btn-primary:disabled, .btn-danger:disabled { color: var(--ink-soft); }
 
 .btn-primary {
   background: var(--cta);
@@ -221,15 +281,15 @@ a.btn { text-decoration: none; }
 .btn-danger { color: var(--bad-text); border-color: color-mix(in srgb, var(--bad) 35%, var(--edge-strong)); }
 .btn-ghost { background: transparent; border-color: transparent; }
 .btn-ghost:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 6%, transparent); }
-.btn-sm { padding: .35rem .6rem; font-size: .82rem; }
-.btn-lg { padding: .85rem 1.4rem; font-size: 1.05rem; }
+.btn-sm { padding: .35rem .6rem; font-size: var(--text-sm); }
+.btn-lg { padding: .85rem 1.4rem; font-size: var(--text-md); }
 
 /* -------------------------------------------------------------- footer */
 
 .page-foot {
   padding: var(--sp-4) var(--sp-3) calc(var(--sp-4) + env(safe-area-inset-bottom));
   text-align: center;
-  font-size: .78rem;
+  font-size: var(--text-sm);
 }
 
 .page-foot a { color: var(--ink-soft); text-decoration: none; }
@@ -240,7 +300,7 @@ a.btn { text-decoration: none; }
 .field { display: flex; flex-direction: column; gap: var(--sp-2); }
 
 .field > label, .label {
-  font-size: .82rem;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--ink-soft);
 }
@@ -250,10 +310,12 @@ a.btn { text-decoration: none; }
    to say that a forgotten password cannot be self-reset). */
 .field-hint {
   margin: 0;
-  font-size: .74rem;
+  font-size: var(--text-xs);
   line-height: 1.45;
+  /* No opacity on top of --ink-soft: compounding a soft colour with
+     transparency is how text that reads fine in the palette lands under
+     AA on the page. If it needs to be quieter, pick a quieter colour. */
   color: var(--ink-soft);
-  opacity: .85;
   text-align: left;
 }
 
@@ -268,12 +330,17 @@ select, textarea {
   width: 100%;
   padding: .58rem .7rem;
   border: 1px solid var(--edge-strong);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
-  transition: border-color .15s ease;
+  transition: border-color var(--duration-fast) var(--ease-out);
 }
 
-input:focus, select:focus, textarea:focus {
+/* A border-colour change alone is a much weaker signal than the ring
+   every other control gets, and :focus fires on a mouse click too, so a
+   field looked "focused" in a way nothing else on the page did. The ring
+   is the system's focus primitive; the tinted border now rides along with
+   it rather than standing in for it. */
+input:focus-visible, select:focus-visible, textarea:focus-visible {
   border-color: var(--accent);
 }
 
@@ -281,7 +348,7 @@ textarea { resize: vertical; min-height: 5rem; }
 
 .checkline {
   display: flex; align-items: center; gap: var(--sp-2);
-  font-size: .9rem;
+  font-size: var(--text-base);
 }
 .checkline input { width: auto; }
 
@@ -308,7 +375,7 @@ textarea { resize: vertical; min-height: 5rem; }
   border-radius: 999px;
   background: var(--accent-soft);
   color: color-mix(in srgb, var(--accent-text) 80%, var(--ink));
-  font-size: .74rem;
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: .02em;
 }
@@ -330,9 +397,9 @@ textarea { resize: vertical; min-height: 5rem; }
 
 .alert {
   padding: var(--sp-3) var(--sp-4);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   border: 1px solid;
-  font-size: .9rem;
+  font-size: var(--text-base);
 }
 .alert-error {
   border-color: color-mix(in srgb, var(--bad) 40%, transparent);
@@ -350,6 +417,40 @@ textarea { resize: vertical; min-height: 5rem; }
   color: color-mix(in srgb, var(--accent-2-text) 80%, var(--ink));
 }
 
+/* ---------------------------------------------------------------- modal
+   The dialog every page asks with — see app/ui.js. It lives HERE rather
+   than in app.css because the projector needs it too (ending a session,
+   clearing a round) and present.html deliberately does not load app.css.
+   In app.css it rendered as an unstyled block in the middle of a lecture. */
+.modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.45);
+  display: grid; place-items: center;
+  padding: var(--sp-4);
+  z-index: 200;
+}
+.modal {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: var(--sp-5);
+  max-width: 44rem;
+  width: 100%;
+  max-height: 86vh;
+  overflow-y: auto;
+  display: flex; flex-direction: column; gap: var(--sp-4);
+  box-shadow: var(--shadow);
+}
+/* The consequence line. This is the part somebody actually has to read
+   before agreeing to destroy something, so it is not set in faded grey. */
+.modal-blurb {
+  margin: 0;
+  font-size: var(--text-base);
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+.modal-actions { justify-content: flex-end; }
+.modal textarea { min-height: 14rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
 /* ------------------------------------------------------- privacy badge */
 
 /* The padlock hangs in the margin rather than being a flex sibling.
@@ -359,24 +460,38 @@ textarea { resize: vertical; min-height: 5rem; }
 .privacy-note {
   position: relative;
   padding-left: 1.6rem;
-  font-size: .8rem;
+  font-size: var(--text-sm);
   color: var(--ink-soft);
   line-height: 1.45;
 }
+/* Drawn, not typed. This used to be a 🔒 in `content`, which several
+   screen readers announce ("locked padlock") ahead of a sentence that
+   says the same thing in words — and which renders as a different picture
+   in every OS. A mask keeps the mark decorative and takes the ink colour. */
 .privacy-note::before {
-  content: '🔒';
+  content: '';
   position: absolute;
   left: 0;
-  top: 0;
-  font-size: .9rem;
-  line-height: 1.45;
+  top: .18em;
+  width: 1rem;
+  height: 1rem;
+  background: currentColor;
+  opacity: .75;
+  -webkit-mask: var(--lock-mask) center / contain no-repeat;
+  mask: var(--lock-mask) center / contain no-repeat;
 }
 
 /* --------------------------------------------------------------- shell */
 
+/* The bar's height is FIXED here rather than left to grow from whatever
+   it happens to contain, because the editor sizes itself against it
+   (--appbar-h). A control appearing in the bar — the join-code chip is
+   unhidden by JS — must not be able to change the height of a layout in
+   another file. */
 .appbar {
   display: flex; align-items: center; gap: var(--sp-4);
-  padding: var(--sp-3) var(--sp-5);
+  height: var(--appbar-h);
+  padding: 0 var(--sp-5);
   border-bottom: 1px solid var(--edge);
   background: var(--surface);
   position: sticky; top: 0; z-index: 20;
@@ -384,7 +499,7 @@ textarea { resize: vertical; min-height: 5rem; }
 
 .appbar .brand {
   font-family: var(--display);
-  font-size: 1.1rem;
+  font-size: var(--text-lg);
   font-weight: 700;
   letter-spacing: -.01em;
   text-decoration: none;
@@ -407,10 +522,11 @@ textarea { resize: vertical; min-height: 5rem; }
   border-radius: 999px;
   background: var(--ink);
   color: var(--ground);
-  font-size: .88rem;
+  font-size: var(--text-base);
   opacity: 0;
   pointer-events: none;
-  transition: opacity .2s ease, transform .2s ease;
+  transition: opacity var(--duration-moderate) var(--ease-out),
+              transform var(--duration-moderate) var(--ease-out);
   z-index: 100;
 }
 .toast.is-visible { opacity: 1; transform: translateX(-50%) translateY(0); }
@@ -448,7 +564,9 @@ textarea { resize: vertical; min-height: 5rem; }
   color: var(--ink-soft);
   box-shadow: var(--shadow);
   cursor: pointer;
-  transition: color .15s ease, border-color .15s ease, transform .12s var(--ease-snap);
+  transition: color var(--duration-fast) var(--ease-out),
+              border-color var(--duration-fast) var(--ease-out),
+              transform .12s var(--ease-snap);
 }
 
 .fb-button svg { width: 1.35rem; height: 1.35rem; }
@@ -491,11 +609,11 @@ textarea { resize: vertical; min-height: 5rem; }
 
 .fb-form { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-5); }
 .fb-title { font-size: 1.2rem; }
-.fb-note { font-size: .78rem; color: var(--ink-soft); }
+.fb-note { font-size: var(--text-sm); color: var(--ink-soft); }
 .fb-dialog textarea { min-height: 7rem; }
 
 .fb-error {
-  font-size: .82rem;
+  font-size: var(--text-sm);
   color: var(--bad-text);
 }
 
@@ -510,6 +628,6 @@ textarea { resize: vertical; min-height: 5rem; }
   border-radius: 999px;
   background: var(--ink);
   color: var(--ground);
-  font-size: .84rem;
+  font-size: var(--text-sm);
   box-shadow: var(--shadow);
 }

@@ -97,13 +97,21 @@
 /* ---- per-theme flourishes -------------------------------------------
    applyTheme() stamps data-theme-id on the root; these hooks give each
    theme a physical signature beyond its palette. Only CSS-owned
-   properties — charts.js paint() never writes to the prompt or kicker. */
+   properties — charts.js paint() never writes to the prompt or kicker.
+
+   This is deliberately where theme personality lives. The alternative —
+   giving each theme its own novelty display face — is what made the set
+   read as amateur: a cursive headline and a condensed headline are two
+   different products, while the same face at 800/-.03em and at 400/.02em
+   is one product in two moods. Weight, tracking and optical size do the
+   work; the faces stay within the eight we self-host. */
 
 [data-theme-id="neon-night"] .stage-prompt {
   text-shadow: 0 0 24px color-mix(in srgb, var(--accent) 38%, transparent);
 }
 [data-theme-id="chalkboard"] .stage-prompt {
-  transform: rotate(-.4deg);           /* hand-written on a real board */
+  /* chalk dust, without the hand-written cosplay the rotation implied */
+  font-weight: 500;
   text-shadow: 0 0 1px color-mix(in srgb, var(--ink) 40%, transparent);
 }
 [data-theme-id="letterpress"] .stage-prompt {
@@ -111,6 +119,40 @@
   border-block: 1px solid var(--edge); /* hairline rules, set like type */
 }
 [data-theme-id="midnight"] .stage-kicker { letter-spacing: .16em; }
+
+/* Product themes: tight, heavy, modern. */
+[data-theme-id="clean-slate"] .stage-prompt,
+[data-theme-id="arcade"] .stage-prompt {
+  font-weight: 700;
+  letter-spacing: -.025em;
+}
+[data-theme-id="midnight"] .stage-prompt,
+[data-theme-id="fjord"] .stage-prompt {
+  font-weight: 650;
+  letter-spacing: -.015em;
+}
+
+/* Blueprint gets the stencilled-annotation feel from tracking alone —
+   an actual stencil face would be a ninth font for one theme. */
+[data-theme-id="blueprint"] .stage-kicker { letter-spacing: .22em; }
+[data-theme-id="blueprint"] .stage-prompt {
+  font-weight: 600;
+  letter-spacing: .01em;
+}
+
+/* Editorial themes: large optical size, near-zero tracking, room to sit. */
+[data-theme-id="gallery"] .stage-prompt {
+  font-weight: 400;
+  letter-spacing: -.005em;
+  font-variation-settings: 'opsz' 144, 'SOFT' 0, 'WONK' 0;
+}
+[data-theme-id="gallery"] .stage-kicker { letter-spacing: .28em; }
+[data-theme-id="citrus-studio"] .stage-prompt { font-weight: 800; }
+[data-theme-id="sorbet"] .stage-prompt {
+  font-weight: 550;
+  font-variation-settings: 'SOFT' 100, 'WONK' 1;
+}
+[data-theme-id="rice-paper"] .stage-prompt { font-weight: 500; letter-spacing: .005em; }
 
 /* ---------------------------------------------------------------- body */
 
@@ -326,6 +368,20 @@
 .stage-controls:hover,
 .stage-controls:focus-within,
 .stage.is-controls-open .stage-controls { opacity: 1; }
+
+/* First slide of a session only: the bar introduces itself, then settles
+   back to .2 — where it belongs, because a projected room should not be
+   looking at the instructor's controls. Presenting is otherwise the one
+   screen with no visible way in: ← and → ARE the navigation, and at 20%
+   over a bright slide a first-time presenter can miss them entirely. */
+.stage.is-controls-hint .stage-controls {
+  opacity: 1;
+  transition: opacity 1.1s var(--ease-in-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage.is-controls-hint .stage-controls { transition: none; }
+}
 
 .ctrl-more { display: none; align-items: center; gap: .4em; }
 .stage.is-controls-open .ctrl-more { display: flex; }

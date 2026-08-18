@@ -11,14 +11,21 @@
    through to a system face:
 
      Inter            — body text everywhere; display for the plainest themes
-     Fraunces         — the bookish serif (lecture-hall, letterpress, riviera…)
-     Oswald           — the tall condensed grotesque (neon-night, broadsheet…)
-     Caveat           — the chalk hand (chalkboard, sorbet)
+     Fraunces         — the bookish serif, and the workhorse display face
+                        (lecture-hall, letterpress, riviera, gallery…)
+     Oswald           — the tall condensed grotesque (neon-night, broadsheet)
      Source Serif 4   — the sturdy text serif (letterpress + broadsheet body,
                         replacing 'Charter', which only Macs have)
      Playfair Display — the Didone (velvet), replacing 'Didot'/'Bodoni MT'
-     Cinzel           — inscriptional Roman caps (gallery)
      Faustina         — warm humanist (botanical), replacing 'Optima'
+     Caveat           — the chalk hand
+     Cinzel           — inscriptional Roman caps
+
+   The last two are no longer used by any built-in theme: a cursive or an
+   all-caps inscriptional headline is a costume rather than a typeface
+   choice, and it was most of what made the set read as amateur. They stay
+   shipped because the My Themes builder still offers them, and because a
+   saved custom theme may already name one.
 
    Each family ships as TWO files split on unicode-range, exactly as
    Google Fonts serves them: a `latin` file and a `-ext` file covering

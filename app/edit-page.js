@@ -44,6 +44,7 @@ import {
 } from './elements-editor.js';
 import { qrSVG, qrInk } from './qr.js';
 import { joinBase } from './config.js';
+import { toast, askConfirm, openModal } from './ui.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -111,8 +112,9 @@ async function boot() {
   $('textView').addEventListener('click', guard(openTextView));
   $('btnPreview').addEventListener('click', guard(onPreview));
   $('startSession').addEventListener('click', guard(onStart));
-  $('btnDesign').addEventListener('click', guard(toggleDesign));
+  $('btnDesign').addEventListener('click', guard(() => toggleDesign()));
   $('deckCode')?.addEventListener('click', guard(rotateCode));
+  wireDesignDrawer();
 
   await refreshJoinArt();
   paintCodeChip();
@@ -144,17 +146,22 @@ function paintCodeChip() {
 }
 
 async function rotateCode() {
-  if (!window.confirm('Give this deck a new join code?\n\n'
-    + 'Anyone holding the old code or QR — a printed handout, a student\'s '
-    + 'bookmark — stops being able to join. Past sessions and their results '
-    + 'are untouched.')) return;
+  const ok = await askConfirm({
+    title: 'Give this deck a new join code?',
+    blurb: 'Anyone holding the old code or QR — a printed handout, a slide in '
+      + 'somebody else\'s deck, a student\'s bookmark — stops being able to '
+      + 'join. Past sessions and their results are untouched.',
+    confirmLabel: 'New code',
+    danger: false,
+  });
+  if (!ok) return;
   const { join_code: code } = await regenerateDeckCode(deck.id);
   deck.join_code = code;
   await refreshJoinArt();
   paintCodeChip();
   renderRail();
   renderCanvas();
-  toast('New code — reprint anything showing the old one');
+  toast('New code. Reprint anything showing the old one');
 }
 
 /**
@@ -243,7 +250,7 @@ function railItem(q, index) {
   button.className = 'rail-thumb';
   button.setAttribute('aria-current', q.id === selectedId ? 'true' : 'false');
   button.setAttribute('aria-label',
-    `Slide ${index + 1}: ${q.prompt || 'untitled'} — ${TYPE_LABELS[q.type] || q.type}`);
+    `Slide ${index + 1}: ${q.prompt || 'untitled'}, ${TYPE_LABELS[q.type] || q.type}`);
   paintThumb(button, q);
   button.addEventListener('click', () => selectSlide(q.id));
 
@@ -318,13 +325,13 @@ function guard(fn) {
       if (out && typeof out.then === 'function') {
         out.catch((e) => {
           console.error(e);
-          toast(e?.message || 'Something went wrong — see the console.');
+          toast(e?.message || 'Something went wrong. See the console.');
         });
       }
       return out;
     } catch (e) {
       console.error(e);
-      toast(e?.message || 'Something went wrong — see the console.');
+      toast(e?.message || 'Something went wrong. See the console.');
       return undefined;
     }
   };
@@ -779,8 +786,21 @@ async function duplicateSlide(q) {
 }
 
 async function deleteSlide(q) {
-  if (!confirm('Delete this slide?')) return;
   const at = questions.findIndex((x) => x.id === q.id);
+  // "Delete this slide?" told you nothing about which slide or what goes
+  // with it. Name it, and say what happens to answers already collected —
+  // the dashboard's delete has always been this specific.
+  const name = (q.prompt || '').trim();
+  const ok = await askConfirm({
+    title: name ? `Delete “${truncate(name, 60)}”?` : `Delete slide ${at + 1}?`,
+    blurb: `${TYPE_LABELS[q.type] || q.type}, slide ${at + 1} of ${questions.length}. `
+      + (isContentSlide(q.type)
+        ? 'Nothing was collected on this slide, so no results are lost.'
+        : 'Any answers already collected for this question, in every session '
+          + 'this deck has been run, are deleted with it. This cannot be undone.'),
+    confirmLabel: 'Delete slide',
+  });
+  if (!ok) return;
   await deleteQuestion(q.id);
   questions = questions.filter((x) => x.id !== q.id);
   await reorderQuestions(deck.id, questions.map((x) => x.id));
@@ -836,7 +856,7 @@ function renderCanvas() {
   // stays a picture — you arrange slides there, not the things on them.
   mountDecorEditor(slide, q, decorCtx(q));
   note.textContent = isContentSlide(q.type)
-    ? 'Nothing to answer — this slide just sits on the projector.'
+    ? 'Nothing to answer. This slide just sits on the projector.'
     : 'A sketch of the projected slide. Real results appear when you run it.';
 }
 
@@ -935,8 +955,8 @@ function pairsEditor(q, leftLabel, rightLabel) {
   const head = document.createElement('span');
   head.className = 'label';
   head.textContent = q.type === 'matching'
-    ? 'Pairs — each row is a correct match'
-    : 'Pairs — one either/or per row';
+    ? 'Pairs: each row is a correct match'
+    : 'Pairs: one either/or per row';
   wrap.append(head);
 
   const pairs = Array.isArray(q.config.pairs) ? q.config.pairs : [];
@@ -1069,7 +1089,7 @@ function clozeEditor(q) {
       ? 'Put the answer in [square brackets] to make a blank. Several accepted answers: [colour|color].'
       : `${blanks.length} blank${blanks.length === 1 ? '' : 's'}`
         + (keyed < blanks.length
-          ? ` · ${blanks.length - keyed} with no answer inside — those are never marked wrong`
+          ? ` · ${blanks.length - keyed} with no answer inside, which are never marked wrong`
           : ' · all with an answer');
   };
 
@@ -1173,16 +1193,16 @@ function typePicker(q) {
 async function changeType(q, to) {
   const { config, dropped } = retypeQuestion(q.type, to, q.config);
 
-  const lines = [
-    `Change this slide from ${TYPE_LABELS[q.type]} to ${TYPE_LABELS[to]}?`,
-    '',
-  ];
-  if (dropped.length) lines.push(`This discards ${listSentence(dropped)}.`);
-  lines.push('Any answers already collected for this slide stay in the database, '
-    + 'but they were given to a different question — results and exports will '
-    + 'read them as the new type.');
-
-  if (!window.confirm(lines.join('\n'))) return false;
+  const ok = await askConfirm({
+    title: `Change this slide to ${TYPE_LABELS[to]}?`,
+    blurb: (dropped.length ? `This discards ${listSentence(dropped)}. ` : '')
+      + 'Any answers already collected for this slide stay in the database, '
+      + 'but they were given to a different question, so results and exports '
+      + 'will read them as the new type.',
+    confirmLabel: `Change to ${TYPE_LABELS[to].toLowerCase()}`,
+    danger: dropped.length > 0,
+  });
+  if (!ok) return false;
 
   // Get the debounce out of the way before writing directly.
   //
@@ -1193,7 +1213,7 @@ async function changeType(q, to) {
   // a row carrying the new type and the old type's config, which no editor
   // branch renders and retypeQuestion cannot repair.
   if (!(await flushNow())) {
-    toast('Your last edit has not saved yet — try the retype again in a moment');
+    toast('Your last edit has not saved yet. Try the retype again in a moment');
     return false;
   }
 
@@ -1563,8 +1583,8 @@ function settingsFor(q) {
       break;
     case 'multiple_choice':
       choose('mode', 'Question mode', {
-        opinion: 'Opinion — no key, the split is the point',
-        best: 'Best answer — mark the most defensible below',
+        opinion: 'Opinion: no key, the split is the point',
+        best: 'Best answer: mark the most defensible below',
       }, 'opinion');
       bool('multiple', 'Allow several answers');
       if (cfg.multiple) num('max_choices', 'Max choices', 1, 20, (cfg.options || []).length);
@@ -1608,8 +1628,8 @@ function settingsFor(q) {
       break;
     case 'heatmap':
       choose('mode', 'Mode', {
-        highlight: 'Highlight — tap the sentence(s)',
-        classify: 'Classify — label the parts',
+        highlight: 'Highlight: tap the sentence(s)',
+        classify: 'Classify: label the parts',
       }, 'highlight');
       if (cfg.mode === 'classify') {
         if (!Array.isArray(cfg.labels) || !cfg.labels.length) {
@@ -1670,7 +1690,7 @@ function anchorsEditor(q) {
   wrap.className = 'opt-editor';
   const l = document.createElement('span');
   l.className = 'label';
-  l.textContent = 'Your anchor ratings (optional — revealed after voting closes)';
+  l.textContent = 'Your anchor ratings (optional, revealed after voting closes)';
   wrap.append(l);
 
   const statements = Array.isArray(q.config.statements) ? q.config.statements : [];
@@ -1706,7 +1726,7 @@ function passageEditor(q) {
   wrap.className = 'opt-editor';
   const l = document.createElement('span');
   l.className = 'label';
-  l.textContent = 'Passage — keep it short; use | to override the sentence splits';
+  l.textContent = 'Passage. Keep it short; use | to override the sentence splits';
   wrap.append(l);
 
   const area = document.createElement('textarea');
@@ -1729,7 +1749,7 @@ function passageEditor(q) {
     if (words > 120) {
       const warn = document.createElement('span');
       warn.className = 'seg-preview-warn';
-      warn.textContent = `${words} words — close reading works best under ~120`;
+      warn.textContent = `${words} words. Close reading works best under ~120`;
       preview.append(warn);
     }
   };
@@ -1815,10 +1835,52 @@ function openTemplatePicker() {
 // Theme + background
 // =====================================================================
 
-function toggleDesign() {
-  const open = $('editorShell').classList.toggle('design-hidden');
-  $('btnDesign').setAttribute('aria-expanded', open ? 'false' : 'true');
-  $('btnDesign').classList.toggle('is-active', !open);
+function toggleDesign(force) {
+  const shell = $('editorShell');
+  const hidden = typeof force === 'boolean'
+    ? (shell.classList.toggle('design-hidden', force), force)
+    : shell.classList.toggle('design-hidden');
+  $('btnDesign').setAttribute('aria-expanded', hidden ? 'false' : 'true');
+  $('btnDesign').classList.toggle('is-active', !hidden);
+  if (hidden) $('btnDesign').focus();
+  return hidden;
+}
+
+/**
+ * Below 1080px the design panel stops being a column and becomes a drawer
+ * over the stage — and it had no way out: no backdrop, no close button,
+ * and the toggle that opened it could be underneath it. Escape and a tap
+ * outside now close it, the way every other overlay in the editor does.
+ */
+function wireDesignDrawer() {
+  const shell = $('editorShell');
+  const drawer = $('designPanel');
+  if (!drawer.querySelector('.side-close')) {
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'side-close';
+    close.textContent = '×';
+    close.title = 'Close design panel';
+    close.setAttribute('aria-label', 'Close design panel');
+    close.addEventListener('click', () => toggleDesign(true));
+    drawer.prepend(close);
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (shell.classList.contains('design-hidden')) return;
+    // Only while it is actually a drawer; on a wide screen it is a column
+    // and Escape has nothing to do with it.
+    if (!window.matchMedia('(max-width: 1080px)').matches) return;
+    if (document.querySelector('.modal-backdrop')) return;   // a dialog is nearer
+    e.preventDefault();
+    toggleDesign(true);
+  });
+  shell.addEventListener('click', (e) => {
+    if (shell.classList.contains('design-hidden')) return;
+    if (!window.matchMedia('(max-width: 1080px)').matches) return;
+    if (drawer.contains(e.target) || $('btnDesign').contains(e.target)) return;
+    toggleDesign(true);
+  });
 }
 
 /**
@@ -1996,7 +2058,7 @@ function refreshBuilderPreview() {
   warn.hidden = problems.length === 0;
   if (problems.length) {
     const worst = problems[0];
-    warn.textContent = `${worst.what} is only ${worst.ratio.toFixed(1)}:1 — `
+    warn.textContent = `${worst.what} is only ${worst.ratio.toFixed(1)}:1. `
       + `needs ${worst.need}:1 so the back row can read it.`
       + (problems.length > 1 ? ` (${problems.length - 1} more to fix.)` : '');
   } else {
@@ -2049,7 +2111,7 @@ function wireThemeBuilder() {
   none.value = 'none'; none.textContent = 'None';
   backdropSel.append(none);
   Object.entries(BACKGROUND_PRESETS).forEach(([id, b]) => {
-    if (id === 'none') return;
+    if (id === 'none' || b.hidden) return;
     const o = document.createElement('option');
     o.value = id; o.textContent = b.name;
     backdropSel.append(o);
@@ -2076,7 +2138,13 @@ function wireThemeBuilder() {
 
   $('ctDelete').addEventListener('click', async () => {
     if (!editingThemeId) return;
-    if (!window.confirm('Delete this theme? Decks using it fall back to Lecture Hall.')) return;
+    const ok = await askConfirm({
+      title: 'Delete this theme?',
+      blurb: 'Themes are saved in this browser, not on the server, so this is '
+        + 'the only copy. Any deck using it falls back to Lecture Hall.',
+      confirmLabel: 'Delete theme',
+    });
+    if (!ok) return;
     saveMyThemes(loadMyThemes().filter((t) => t.id !== editingThemeId));
     const wasApplied = deck.theme === 'custom'
       && deck.settings?.customTheme?.id === editingThemeId;
@@ -2091,9 +2159,15 @@ function buildBackgroundGrid() {
   grid.textContent = '';
   const theme = getTheme(resolveTheme(deck.theme, deck));
 
+  // Retired presets stay renderable but drop out of the picker — except
+  // for the one this deck is already using, which has to stay selectable
+  // or the tile rack would show nothing as active.
+  const current = deck.background?.kind === 'preset' ? deck.background.id : null;
   const tiles = [
     { kind: 'theme', label: 'Theme' },
-    ...Object.keys(BACKGROUND_PRESETS).map((id) => ({ kind: 'preset', id, label: BACKGROUND_PRESETS[id].name })),
+    ...Object.keys(BACKGROUND_PRESETS)
+      .filter((id) => !BACKGROUND_PRESETS[id].hidden || id === current)
+      .map((id) => ({ kind: 'preset', id, label: BACKGROUND_PRESETS[id].name })),
   ];
 
   tiles.forEach((t) => {
@@ -2175,7 +2249,18 @@ async function refreshUploads() {
       + 'background:rgba(255,255,255,.94);color:#8a1c1c;'
       + 'font-size:1rem;line-height:1;cursor:pointer;';
     del.addEventListener('click', guard(async () => {
-      if (!confirm('Delete this uploaded image?')) return;
+      const inUse = deck.background?.kind === 'image' && deck.background?.url === f.url;
+      const ok = await askConfirm({
+        title: 'Delete this uploaded image?',
+        blurb: inUse
+          ? 'This deck is using it right now, so its backdrop goes back to the '
+            + 'theme\'s own. Any other deck using it loses it too. This cannot '
+            + 'be undone — the file is not kept anywhere else.'
+          : 'Any deck using it loses its backdrop and falls back to the theme\'s '
+            + 'own. This cannot be undone — the file is not kept anywhere else.',
+        confirmLabel: 'Delete image',
+      });
+      if (!ok) return;
       await deleteBackground(f.path);
       await refreshUploads();
     }));
@@ -2187,8 +2272,8 @@ async function refreshUploads() {
     keep.type = 'button';
     keep.textContent = f.pinned ? '📌' : String(days);
     keep.setAttribute('aria-label', f.pinned
-      ? `Kept forever — click to let this image expire again`
-      : `Expires in ${days} day${days === 1 ? '' : 's'} — click to keep it forever`);
+      ? `Kept forever. Click to let this image expire again`
+      : `Expires in ${days} day${days === 1 ? '' : 's'}. Click to keep it forever`);
     keep.title = f.pinned
       ? 'Kept. Click to put it back on the 30-day clock.'
       : `Deleted in ${days} day${days === 1 ? '' : 's'}. Click to keep it.`;
@@ -2232,7 +2317,7 @@ function showQuotaIfNear(quota) {
   const mb = (n) => (n / 1_000_000).toFixed(1);
   host.hidden = false;
   host.textContent = ratio >= 1
-    ? `Image storage is full — ${mb(quota.used)} MB of ${mb(quota.total)} MB. `
+    ? `Image storage is full: ${mb(quota.used)} MB of ${mb(quota.total)} MB. `
       + 'Delete a backdrop, or unpin one and let it expire, before uploading another.'
     : `Image storage: ${mb(quota.used)} MB of ${mb(quota.total)} MB used.`;
 }
@@ -2348,7 +2433,7 @@ function wireBackgroundControls() {
 async function handleUpload(file) {
   if (!file.type.startsWith('image/')) { toast('That is not an image'); return; }
   if (file.size > 6 * 1024 * 1024) {
-    toast('Image is over 6 MB — please shrink it first');
+    toast('Image is over 6 MB. Please shrink it first');
     return;
   }
   toast('Uploading…');
@@ -2384,7 +2469,7 @@ function describeAmbience() {
 
   note.textContent = {
     none: getTheme(resolveTheme(deck.theme, deck)).highContrast
-      ? 'High Contrast never animates — it is an accessibility theme.'
+      ? 'High Contrast never animates; it is an accessibility theme.'
       : 'The backdrop holds still.',
     bloom: 'Wide washes of colour swing and breathe across the backdrop, '
       + 'so the hue in a corner is slowly not the hue it was.',
@@ -2423,79 +2508,85 @@ async function setBackground(bg) {
 // Text view (import / export)
 // =====================================================================
 
-function openTextView() {
-  const backdrop = document.createElement('div');
-  backdrop.className = 'modal-backdrop';
-  const modal = document.createElement('div');
-  modal.className = 'modal';
+/**
+ * The deck as plain text, and the single most destructive control in the
+ * app: applying replaces every question row, and every answer ever
+ * recorded against one goes with it.
+ *
+ * It used to ask with a one-line window.confirm and no numbers in it. Now
+ * it runs through the shared dialog — role, labelling, focus trap, Escape
+ * — and the confirm says what is being replaced and with what.
+ */
+async function openTextView() {
+  let area;
+  let errors;
+  const text = await openModal({
+    title: 'Text view',
+    blurb: 'This is your whole deck as plain text. Copy it to keep a backup, '
+      + 'paste it into another deck, or edit here and apply.',
+    confirmLabel: 'Apply changes',
+    cancelLabel: 'Close',
+    build(form) {
+      area = document.createElement('textarea');
+      area.className = 'text-editor';
+      area.setAttribute('aria-label', 'Deck text');
+      area.value = serialiseDeck(deck, questions);
+      errors = document.createElement('div');
+      errors.className = 'parse-errors';
 
-  const h = document.createElement('h2');
-  h.textContent = 'Text view';
-  const p = document.createElement('p');
-  p.className = 'muted';
-  p.style.fontSize = '.86rem';
-  p.textContent = 'This is your whole deck as plain text. Copy it to keep a backup, '
-    + 'paste it into another deck, or edit here and apply.';
+      const tools = document.createElement('div');
+      tools.className = 'row';
+      tools.append(
+        btn('Copy', 'btn-sm', async () => {
+          try {
+            await navigator.clipboard.writeText(area.value);
+            toast('Copied');
+          } catch { area.select(); }
+        }),
+        btn('Download', 'btn-sm', () => {
+          const blob = new Blob([area.value], { type: 'text/plain;charset=utf-8' });
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = `${slug(deck.title)}.txt`;
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }),
+      );
+      form.append(area, tools, errors);
+      return () => area.value;
+    },
+  });
+  if (text == null) return;
 
-  const area = document.createElement('textarea');
-  area.className = 'text-editor';
-  area.value = serialiseDeck(deck, questions);
+  const parsed = parseDeck(text);
+  if (parsed.errors.length && !parsed.questions.length) {
+    toast(parsed.errors[0]);
+    return;
+  }
 
-  const errors = document.createElement('div');
-  errors.className = 'parse-errors';
+  const ok = await askConfirm({
+    title: 'Replace every slide in this deck?',
+    blurb: `The ${questions.length} slide${questions.length === 1 ? '' : 's'} in this `
+      + `deck ${questions.length === 1 ? 'is' : 'are'} deleted and replaced with the `
+      + `${parsed.questions.length} in the text. Every answer ever collected against `
+      + 'them, in every session this deck has been run, is deleted too. Export '
+      + 'anything you need first — this cannot be undone.',
+    confirmLabel: 'Replace slides',
+  });
+  if (!ok) return;
 
-  const row = document.createElement('div');
-  row.className = 'row';
-  row.append(
-    btn('Copy', '', async () => {
-      try {
-        await navigator.clipboard.writeText(area.value);
-        toast('Copied');
-      } catch { area.select(); }
-    }),
-    btn('Download', '', () => {
-      const blob = new Blob([area.value], { type: 'text/plain;charset=utf-8' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `${slug(deck.title)}.txt`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-    }),
-    spacer(),
-    btn('Close', '', () => backdrop.remove()),
-    btn('Apply changes', 'btn-primary', async () => {
-      const parsed = parseDeck(area.value);
-      errors.textContent = '';
-      if (parsed.errors.length) {
-        parsed.errors.forEach((e) => {
-          const a = document.createElement('div');
-          a.className = 'alert alert-error';
-          a.textContent = e;
-          errors.append(a);
-        });
-        if (!parsed.questions.length) return;
-      }
-      if (!confirm('Replace every slide in this deck with the text above?')) return;
-      await updateDeck(deck.id, {
-        title: parsed.title, theme: parsed.theme, background: parsed.background,
-      });
-      questions = await replaceQuestions(deck.id, parsed.questions);
-      deck = await getDeck(deck.id);
-      selectedId = questions[0]?.id || null;
-      $('deckTitle').value = deck.title;
-      buildThemeGrid(); buildBackgroundGrid();
-      $('bgMotion').value = ambienceLevel(deck.background);
-      describeAmbience();
-      renderRail(); renderStage();
-      backdrop.remove();
-      toast('Deck updated');
-    }),
-  );
-
-  modal.append(h, p, area, errors, row);
-  backdrop.append(modal);
-  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.remove(); });
-  document.body.append(backdrop);
+  await updateDeck(deck.id, {
+    title: parsed.title, theme: parsed.theme, background: parsed.background,
+  });
+  questions = await replaceQuestions(deck.id, parsed.questions);
+  deck = await getDeck(deck.id);
+  selectedId = questions[0]?.id || null;
+  $('deckTitle').value = deck.title;
+  buildThemeGrid(); buildBackgroundGrid();
+  $('bgMotion').value = ambienceLevel(deck.background);
+  describeAmbience();
+  renderRail(); renderStage();
+  toast('Deck updated');
 }
 
 /**
@@ -2511,13 +2602,94 @@ function onPreview() {
   openPreview(deck, questions);
 }
 
+/**
+ * The pre-flight check.
+ *
+ * A slide with no prompt, a multiple choice with one option, a quiz with
+ * nothing marked correct — each of these saves happily and then goes up
+ * on the wall in front of the room, where there is nothing to be done
+ * about it. Nothing here blocks a start: half-finished is a legitimate
+ * state to teach from, and the instructor is the one who knows. It just
+ * refuses to let the projector be the first place they find out.
+ *
+ * @returns {string[]} one plain sentence per problem, slide order.
+ */
+function deckIssues() {
+  const issues = [];
+  const at = (i) => `Slide ${i + 1}`;
+
+  questions.forEach((q, i) => {
+    const c = q.config || {};
+    if (!isContentSlide(q.type) && !String(q.prompt || '').trim()) {
+      issues.push(`${at(i)} has no question written on it.`);
+    }
+
+    const opts = (c.options || []).filter((o) => String(o?.text ?? o ?? '').trim());
+    if ((q.type === 'multiple_choice' || q.type === 'quiz') && opts.length < 2) {
+      issues.push(`${at(i)} is a ${TYPE_LABELS[q.type].toLowerCase()} with `
+        + `${opts.length === 1 ? 'only one answer' : 'no answers'} to choose from.`);
+    }
+    if (q.type === 'quiz' && opts.length >= 2 && !(c.correct || []).length) {
+      issues.push(`${at(i)} is a quiz with no correct answer marked, so it cannot be scored.`);
+    }
+
+    const listed = (key) => (c[key] || []).filter((s) => String(s?.text ?? s ?? '').trim());
+    if (q.type === 'ranking' && listed('items').length < 2) {
+      issues.push(`${at(i)} has fewer than two things to rank.`);
+    }
+    if (q.type === 'scales' && listed('statements').length < 1) {
+      issues.push(`${at(i)} has no statements to rate.`);
+    }
+    if (q.type === 'timeline' && listed('items').length < 2) {
+      issues.push(`${at(i)} has fewer than two events to put in order.`);
+    }
+    if (q.type === 'sample_vote' && listed('samples').length < 2) {
+      issues.push(`${at(i)} has fewer than two samples to vote between.`);
+    }
+    if (q.type === 'budget' && listed('options').length < 2) {
+      issues.push(`${at(i)} has fewer than two things to split a budget across.`);
+    }
+    if (q.type === 'matching' && !(c.pairs || []).filter((p) => p?.left && p?.right).length) {
+      issues.push(`${at(i)} has no complete pairs to match.`);
+    }
+    if (q.type === 'this_or_that' && !(c.pairs || []).filter((p) => p?.left && p?.right).length) {
+      issues.push(`${at(i)} has no pairs to choose between.`);
+    }
+    if (q.type === 'cloze' && !/\[[^\]]+\]/.test(String(c.text || ''))) {
+      issues.push(`${at(i)} has no blanks marked with [brackets].`);
+    }
+    if (q.type === 'heatmap' && !String(c.passage || '').trim()) {
+      issues.push(`${at(i)} has no passage for the room to mark up.`);
+    }
+    if (q.type === 'mood' && !(c.icons || []).filter((m) => String(m?.emoji || '').trim()).length) {
+      issues.push(`${at(i)} has no moods to pick from.`);
+    }
+  });
+  return issues;
+}
+
 async function onStart() {
   if (!questions.length) { toast('Add a question first'); return; }
+
+  const issues = deckIssues();
+  if (issues.length) {
+    const shown = issues.slice(0, 6);
+    const more = issues.length - shown.length;
+    const ok = await askConfirm({
+      title: issues.length === 1 ? 'One slide looks unfinished' : `${issues.length} slides look unfinished`,
+      blurb: `${shown.join(' ')}${more > 0 ? ` And ${more} more.` : ''} `
+        + 'You can start anyway — nothing here stops a session, and a slide you '
+        + 'are about to talk over does not need to be finished.',
+      confirmLabel: 'Start anyway',
+      danger: false,
+    });
+    if (!ok) return;
+  }
 
   const label = await askText({
     title: 'Start a session',
     note: 'A session holds one run of this deck and its results. Name it for '
-      + 'the class you are about to teach — you will be picking it out of a '
+      + 'the class you are about to teach, because you will be picking it out of a '
       + 'list weeks from now.',
     label: 'Session label',
     value: new Date().toLocaleDateString(),
@@ -2531,7 +2703,7 @@ async function onStart() {
   // sitting in the debounce would be projected as it was before the
   // correction — in front of the class. Nothing starts until it has landed.
   if (!(await flushNow())) {
-    toast('Your last edit has not saved yet — the session would run the old version');
+    toast('Your last edit has not saved yet. The session would run the old version');
     return;
   }
 
@@ -2677,8 +2849,8 @@ async function runFlush() {
  */
 function markSaveFailed(e) {
   saveFailed = true;
-  setSaveState('Not saved — retrying');
-  toast(e?.message || 'Could not save — still trying');
+  setSaveState('Not saved. Retrying');
+  toast(e?.message || 'Could not save. Still trying');
   retryDelay = Math.min(retryDelay ? retryDelay * 2 : 2000, 15000);
   clearTimeout(retryTimer);
   retryTimer = setTimeout(() => { flushSaves().catch(() => {}); }, retryDelay);
@@ -2729,8 +2901,8 @@ function setSaveState(text) {
   node.title = bad
     ? 'This deck has changes the server has not taken yet. Keep this tab open.'
     : '';
-  const base = document.title.replace(/^• Unsaved — /, '');
-  document.title = bad ? `• Unsaved — ${base}` : base;
+  const base = document.title.replace(/^• Unsaved · /, '');
+  document.title = bad ? `• Unsaved · ${base}` : base;
 }
 
 function field(label, control) {
@@ -2778,17 +2950,14 @@ function spacer() {
   return s;
 }
 
-function slug(s) {
-  return String(s || 'deck').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'deck';
+/** A prompt in a dialog title: enough to recognise, never a paragraph. */
+function truncate(s, max) {
+  const t = String(s || '').replace(/\s+/g, ' ').trim();
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 }
 
-let toastTimer = null;
-function toast(msg) {
-  const t = $('toast');
-  t.textContent = msg;
-  t.classList.add('is-visible');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('is-visible'), 2200);
+function slug(s) {
+  return String(s || 'deck').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'deck';
 }
 
 // ------------------------------------------------------------ keyboard

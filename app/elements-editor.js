@@ -22,7 +22,7 @@
  */
 
 import {
-  ELEMENT_LIST, CATEGORY_ORDER, CATEGORY_LABELS, searchElements, getElement,
+  ELEMENT_LIST, CATEGORY_ORDER, CATEGORY_LABELS, CATEGORY_TABS, searchElements, getElement,
   elementSvg, decorNode, decorOf, normaliseDecor,
   anchorPos, posLabel, coord, LAYERS, RESERVED_ZONES, reservedAt,
   SIZES, SIZE_LABELS, COLOR_TOKENS, WEIGHTS, ROT_STEP, MAX_DECOR,
@@ -143,7 +143,7 @@ export function elementsEditor(q, ctx) {
 
   if (!items.length) {
     const empty = el('p', 'decor-empty',
-      'Nothing placed yet. Marks — circling, arrows, braces — do the most '
+      'Nothing placed yet. Marks like circling, arrows and braces do the most '
       + 'teaching work; the subject icons are for setting the scene.');
     wrap.append(empty);
     return wrap;
@@ -156,7 +156,7 @@ export function elementsEditor(q, ctx) {
   items.forEach((item, i) => {
     const chip = el('button', 'decor-chip');
     chip.type = 'button';
-    chip.title = `${getElement(item.id)?.label || item.id} — ${posLabel(item.x, item.y)}`;
+    chip.title = `${getElement(item.id)?.label || item.id}: ${posLabel(item.x, item.y)}`;
     if (i === active) chip.classList.add('is-selected');
 
     const svg = elementSvg(item.id, {
@@ -308,6 +308,9 @@ function labelled(text, control) {
  * projector — fine enough to line two marks up by eye, coarse enough
  * that holding the key does something.
  */
+/** Tiles drawn per search. See paint() — the tail of a broad match is never scrolled to. */
+const PICKER_MAX = 180;
+
 const NUDGE = 0.5;
 const NUDGE_BIG = 5;
 
@@ -461,7 +464,7 @@ function openPicker(anchorEl, q, ctx) {
   const search = document.createElement('input');
   search.type = 'search';
   search.className = 'picker-search';
-  search.placeholder = 'Search 250+ elements — try "arrow", "cell", "law"';
+  search.placeholder = 'Search 750+ elements: try "arrow", "cell", "law"';
   search.setAttribute('aria-label', 'Search elements');
   head.append(search);
   pop.append(head);
@@ -494,7 +497,14 @@ function openPicker(anchorEl, q, ctx) {
       return;
     }
 
-    list.forEach((e) => {
+    // A one-letter query matches most of the catalog, and every tile is a
+    // freshly built SVG — drawing 700 of them between keystrokes is felt.
+    // The scoring already put the best rows first, so the tail is the part
+    // nobody scrolls to.
+    const shown = list.slice(0, PICKER_MAX);
+    const hidden = list.length - shown.length;
+
+    shown.forEach((e) => {
       const tile = el('button', 'picker-tile');
       tile.type = 'button';
       tile.title = e.label;
@@ -509,11 +519,16 @@ function openPicker(anchorEl, q, ctx) {
       });
       grid.append(tile);
     });
+
+    if (hidden) {
+      grid.append(el('p', 'picker-more', `${hidden} more — keep typing to narrow it down.`));
+    }
   };
 
   CATEGORY_ORDER.forEach((cat) => {
-    const t = el('button', 'picker-tab', CATEGORY_LABELS[cat]);
+    const t = el('button', 'picker-tab', CATEGORY_TABS[cat]);
     t.type = 'button';
+    t.title = CATEGORY_LABELS[cat];
     t.dataset.cat = cat;
     t.setAttribute('role', 'tab');
     t.setAttribute('aria-controls', grid.id);
@@ -533,7 +548,7 @@ function openPicker(anchorEl, q, ctx) {
   const above = r.top - 20;
   const down = below >= 300 || below >= above;
   pop.style.left = `${Math.max(12, Math.min(r.left, window.innerWidth - pop.offsetWidth - 12))}px`;
-  pop.style.maxHeight = `${Math.max(200, Math.min(460, down ? below : above))}px`;
+  pop.style.maxHeight = `${Math.max(200, Math.min(560, down ? below : above))}px`;
   if (down) {
     pop.style.bottom = 'auto';
     pop.style.top = `${r.bottom + 8}px`;

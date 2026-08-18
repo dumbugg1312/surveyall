@@ -321,7 +321,7 @@ function parseDecorLine(body, errors, lineNo) {
     if (token.startsWith('@')) {
       const pos = readPos(token.slice(1));
       if (pos) { out.x = pos.x; out.y = pos.y; } else {
-        errors.push(`Line ${lineNo}: "${raw.slice(1)}" is not a place on the slide — `
+        errors.push(`Line ${lineNo}: "${raw.slice(1)}" is not a place on the slide. `
           + 'use "x,y" as percentages, or a name like top-right.');
       }
       continue;
@@ -653,7 +653,7 @@ function finaliseQuestion(q, errors, number) {
       }
       config.text = text;
       if (text && !/\[[^\]]*\]/.test(text)) {
-        errors.push(`Question ${number}: no blanks — put an answer in [square brackets].`);
+        errors.push(`Question ${number}: no blanks. Put an answer in [square brackets].`);
       }
       break;
     }
@@ -818,7 +818,7 @@ export function serialiseDeck(deck, questions) {
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
 }
 
-export const SAMPLE_DECK = `# Sample deck — first day of class
+export const SAMPLE_DECK = `# Sample deck: first day of class
 theme: lecture-hall
 background: gradient-dusk
 
@@ -826,7 +826,7 @@ background: gradient-dusk
 Join in before we start
 - Open the camera on your phone and point it at the QR code.
 - Or go to the address on screen and type in the code.
-- Leave the page open — questions appear as we go.
+- Leave the page open, and questions appear as we go.
 
 ## word_cloud
 In one word, how are you feeling about this course?

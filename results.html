@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Results — SurveyAll</title>
+<title>Results · SurveyAll</title>
 <!-- Tab icon. The SVG is what modern browsers use; the PNGs are for
      Safari's older raster paths and for a phone home screen. Paths are
      root-relative so they resolve the same from /join and /create as
@@ -15,14 +15,24 @@
 <link rel="stylesheet" href="styles/base.css">
 <link rel="stylesheet" href="styles/charts.css">
 <link rel="stylesheet" href="styles/app.css">
+<link rel="stylesheet" href="styles/print.css">
 </head>
 <body>
 
 <header class="appbar">
   <a class="brand" href="dashboard.html">SurveyAll</a>
-  <span class="muted" id="crumb" style="font-size:.85rem"></span>
+  <span class="muted text-sm" id="crumb"></span>
   <span class="spacer"></span>
-  <button class="btn btn-sm" id="downloadCSV" type="button">Download CSV</button>
+  <!-- Three buttons rather than an Export menu. Exporting is the whole
+       reason this page exists, and every one of these is free here and
+       paywalled by the tools this replaces — burying them one click deep
+       behind a dropdown would be an odd thing to do with the headline. -->
+  <div class="export-group" role="group" aria-label="Export this session">
+    <span class="export-label" aria-hidden="true">Export</span>
+    <button class="btn btn-sm" id="downloadCSV" type="button">CSV</button>
+    <button class="btn btn-sm" id="downloadPDF" type="button">PDF</button>
+    <button class="btn btn-sm" id="downloadPPTX" type="button">PowerPoint</button>
+  </div>
 </header>
 
 <main class="page">
@@ -34,12 +44,14 @@
   <p class="privacy-note">
     The <strong>respondent</strong> column in the CSV holds a random nickname that was
     assigned for this session only. It is not a name, an ID, or a device identifier,
-    and it cannot be matched to the same person in any other session — there is
-    nothing in this export to redact before you share it.
+    and it cannot be matched to the same person in any other session. There is
+    nothing in this export to redact before you share it. The PDF and PowerPoint
+    exports carry the charts and the counts, and name nobody at all — apart from
+    those same session-only nicknames on a quiz leaderboard.
   </p>
 </main>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script type="module" src="app/results-page.js"></script>
 <script type="module" src="app/feedback.js"></script>

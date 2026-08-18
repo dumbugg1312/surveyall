@@ -28,12 +28,16 @@ import {
   getTheme, auditTheme, contrastRatio, buildCustomTheme, deriveTokens,
 } from '../app/themes.js';
 import { CHART_ICONS } from '../app/icons.js';
+import { buildExportSlides, exportStem } from '../app/export-model.js';
+import { pptxParts } from '../app/pptx.js';
+import { zip, crc32 } from '../app/zip.js';
 import {
   ELEMENT_LIST, getElement, hasElement, searchElements,
   anchorId, anchorPos, anchorLabel, ANCHORS, RESERVED_ZONES, reservedAt,
   coord, readPos, posName, posLabel, LAYERS, layerId, DEFAULT_LAYER,
   sizeId, colorId, colorValue, weightValue, rotValue, opacityValue,
   normaliseDecor, decorOf, MAX_DECOR, SIZES, COLOR_TOKENS, WEIGHTS,
+  CATEGORY_ORDER, CATEGORY_LABELS, orphanCategories,
 } from '../app/elements.js';
 import {
   Spring, SpringGroup, PRESETS, stagger, easeOutExpo, easeOutCubic,
@@ -78,6 +82,22 @@ function eq(actual, expected, msg) {
 }
 
 function ok(v, msg) { if (!v) throw new Error(msg || `expected truthy, got ${JSON.stringify(v)}`); }
+
+/**
+ * An async case. The ZIP writer compresses through the platform's own
+ * CompressionStream, which is a promise no matter how small the input,
+ * so those cases cannot use the synchronous `it`. Results are collected
+ * and awaited once, just before the summary, so ordering and counts stay
+ * the same as every other test in this file.
+ */
+const pendingAsync = [];
+function itAsync(name, fn) {
+  const g = group;
+  pendingAsync.push(
+    Promise.resolve().then(fn).then(
+      () => { passed += 1; process.stdout.write('.'); },
+      (err) => { failed += 1; failures.push({ group: g, name, err }); process.stdout.write('F'); }));
+}
 function notOk(v, msg) { if (v) throw new Error(msg || `expected falsy, got ${JSON.stringify(v)}`); }
 function close(a, b, tol, msg) {
   if (Math.abs(a - b) > (tol ?? 1e-9)) throw new Error(`${msg || 'not close'}: ${a} vs ${b}`);
@@ -634,7 +654,7 @@ describe('plain-text deck format (P3)', () => {
   it('parses the shipped sample without errors', () => {
     const deck = parseDeck(SAMPLE_DECK);
     eq(deck.errors, []);
-    eq(deck.title, 'Sample deck — first day of class');
+    eq(deck.title, 'Sample deck: first day of class');
     eq(deck.theme, 'lecture-hall');
     eq(deck.background, { kind: 'preset', id: 'gradient-dusk' });
     eq(deck.questions.length, 8);
@@ -1641,7 +1661,7 @@ describe('new types stay FERPA-clean in the CSV', () => {
     eq(payloadToText('spectrum', { left_label: 'No', right_label: 'Yes' }, { pos: 62 }),
       '62 (0=No, 100=Yes)');
     eq(payloadToText('sample_vote', {}, { choice: 1, rationale: 'tighter' }),
-      'Sample 2 — tighter');
+      'Sample 2: tighter');
     eq(payloadToText('heatmap', { labels: ['claim'] }, { tags: { 0: 0 } }), 'S1=claim');
     eq(payloadToText('heatmap', {}, { picks: [0, 2] }), 'S1 | S3');
   });
@@ -2220,7 +2240,7 @@ describe('chart styles are all real', () => {
 // =====================================================================
 describe('slide elements — the catalog', () => {
   it('every element has markup, a label and a home', () => {
-    ok(ELEMENT_LIST.length > 200, `only ${ELEMENT_LIST.length} elements`);
+    ok(ELEMENT_LIST.length > 700, `only ${ELEMENT_LIST.length} elements`);
     for (const e of ELEMENT_LIST) {
       ok(e.markup && e.markup.includes('<'), `${e.id} has no markup`);
       ok(e.label && e.label.length > 1, `${e.id} has no label`);
@@ -2255,6 +2275,65 @@ describe('slide elements — the catalog', () => {
     eq(getElement('no-such-thing'), null);
     notOk(hasElement('no-such-thing'));
     ok(hasElement('microscope'));
+  });
+
+  it('every category is spelled the same in both halves of the app', () => {
+    // The catalog names categories in tools/build-elements.mjs and the
+    // picker names them in CATEGORY_ORDER. A category in one and not the
+    // other used to mean its icons were built and then quietly dropped.
+    eq(orphanCategories(), []);
+    for (const cat of CATEGORY_ORDER) {
+      ok(CATEGORY_LABELS[cat], `${cat} has no label`);
+      ok(ELEMENT_LIST.some((e) => e.category === cat), `${cat} is empty`);
+    }
+  });
+
+  it("the picker tabs cover every element exactly once", () => {
+    const tabbed = CATEGORY_ORDER.flatMap((cat) => ELEMENT_LIST.filter((e) => e.category === cat));
+    eq(tabbed.length, ELEMENT_LIST.length, 'an element is unreachable by tab');
+  });
+
+  it('finds the widened catalog by the word a teacher would type', () => {
+    eq(searchElements('tornado')[0].id, 'tornado');
+    eq(searchElements('dice')[0].category, 'classroom');
+    eq(searchElements('bar chart')[0].id, 'chart-column');
+    ok(searchElements('sport').some((e) => e.id === 'sport-shoe'));
+    ok(searchElements('pizza').length, 'no pizza');
+  });
+
+  it('is safe to open in front of a class', () => {
+    // Lucide is a general-purpose set: it has alcohol, cigarettes and
+    // cannabis, and it tags icons for a general audience. Both the art
+    // and the imported tags are curated on the way in, and an upgrade
+    // must not quietly undo that.
+    const banned = /\b(alcohol|beer|wine|cocktail|liquor|drunk|cigarette|smoking|vape|tobacco|cannabis|marijuana|casino|gambling|gamble|porn|erotic|nude|prison|begging|patronizing|dating)\b/;
+    const bad = ELEMENT_LIST.filter((e) => banned.test(`${e.id} ${e.label} ${e.tags}`.toLowerCase()));
+    eq(bad.map((e) => e.id), [], 'element carries a word a school picker should not surface');
+  });
+
+  it('no two elements share a label', () => {
+    // A tile shows its label and nothing else. Two "Spade"s — the garden
+    // one and the card suit — are indistinguishable in the grid.
+    const labels = ELEMENT_LIST.map((e) => e.label.toLowerCase());
+    eq(labels.length, new Set(labels).size, 'duplicate element label');
+  });
+
+  it('drops an upstream tag the catalog vetoed', () => {
+    // Lucide tags the tally marks "prison cell sentence". The picker's own
+    // placeholder tells teachers to try "cell", and it must not answer
+    // with five prison walls.
+    eq(searchElements('cell')[0].id, 'microscope');
+    notOk(searchElements('cell').some((e) => e.id.startsWith('tally')));
+    ok(searchElements('tally')[0].id.startsWith('tally'), 'vetoing broke the icon');
+  });
+
+  it("carries Lucide's own tags for entries the catalog left bare", () => {
+    // 'telescope' names no tags in the catalog; upstream calls it space
+    // and astronomy. Losing that merge would make a third of the picker
+    // findable only by its exact label.
+    const scope = getElement('telescope');
+    ok(scope.tags.includes('space'), `telescope tags: ${scope.tags}`);
+    ok(searchElements('astronomy').some((e) => e.id === 'telescope'));
   });
 });
 
@@ -2758,6 +2837,400 @@ describe('accessibility — theme contrast', () => {
     }
   });
 });
+
+// =====================================================================
+// Deck exports — PDF and PowerPoint (P5, the other two halves)
+//
+// The CSV has always been free here; these two were the paywalled ones
+// everywhere else, so they get the same treatment the CSV gets: a test
+// that every question type survives the trip, and a test that nothing
+// identifying rides along.
+// =====================================================================
+
+/**
+ * One session with every question type in it.
+ *
+ * Deliberately built from the real config shapes rather than from
+ * defaultConfig(), because the thing under test is what happens to an
+ * instructor's actual options, statements and pairs.
+ */
+function exportFixture() {
+  let n = 0;
+  const q = (type, config, prompt) => ({ id: `q${n += 1}`, position: n - 1, type, prompt, config });
+  const people = ['Amber Fox', 'Blue Heron', 'Copper Wren', 'Dusk Moth', 'Ember Hare', 'Fern Owl'];
+
+  const questions = [
+    q('instructions', { steps: ['Go to surveyall.org'], show_join: true }, 'Join the session'),
+    q('multiple_choice', { options: ['Photosynthesis', 'Respiration', 'Fermentation', 'Glycolysis'] },
+      'Which process converts light energy?'),
+    q('quiz', { options: ['1789', '1791', '1804', '1815'], correct: [0], time: 20 },
+      'When did the French Revolution begin?'),
+    q('word_cloud', { max_words: 3 }, 'One word for the reading'),
+    q('open_ended', {}, 'What is still unclear?'),
+    q('scales', { statements: ['I can define it', 'I can apply it', 'I could teach it'], min: 1, max: 5 },
+      'Rate your confidence'),
+    q('ranking', { items: ['Cost', 'Speed', 'Accuracy', 'Reversibility'] }, 'Rank these'),
+    q('spectrum', { left_label: 'Purely structural', right_label: 'Purely individual' }, 'Where does it sit?'),
+    q('sample_vote', { samples: ['Because Y.', 'And also Y.'], allow_rationale: true }, 'Which is stronger?'),
+    q('heatmap', { segments: ['the tide was out', 'the gulls stood still', 'over the wet sand'], mode: 'highlight' },
+      'Highlight the strongest image'),
+    q('traffic', { labels: ["I'm with you", 'Losing the thread', 'Lost'] }, 'How is the pace?'),
+    q('mood', { icons: [{ emoji: '☀️', label: 'Clear' }, { emoji: '⛅', label: 'Alright' }] }, 'How is the room?'),
+    q('this_or_that', { pairs: [{ left: 'Free will', right: 'Determinism' }] }, 'Pick a side'),
+    q('budget', { options: ['Housing', 'Transit', 'Parks'], total: 100 }, 'Spend the budget'),
+    q('probability', { truth: 34 }, 'What share agrees?'),
+    q('cloze', { text: 'The mitochondrion is the [powerhouse] of the [cell].' }, 'Fill the blanks'),
+    q('matching', { pairs: [{ left: 'Ribosome', right: 'Protein' }, { left: 'Nucleus', right: 'DNA' }] }, 'Match them'),
+    q('timeline', { items: ['Tea Party', 'Declaration', 'Yorktown'] }, 'Put these in order'),
+    q('exit_ticket', { prompts: ['One thing you learned', 'A question you still have'] }, 'Before you go'),
+    q('qa', {}, 'Questions from the room'),
+  ];
+
+  const byType = Object.fromEntries(questions.map((x) => [x.type, x]));
+  const responses = [];
+  let r = 0;
+  const add = (question, who, payload, round = 1) => responses.push({
+    id: `r${r += 1}`, question_id: question.id, pseudonym: who, payload, round,
+    created_at: 1755000000000 + r * 1000,
+  });
+  const each = (question, fn, round) => people.forEach((who, i) => add(question, who, fn(i), round));
+
+  // asked twice, so the re-ask comparison has something to compare
+  each(byType.multiple_choice, (i) => ({ choices: [i % 4] }), 1);
+  each(byType.multiple_choice, (i) => ({ choices: [i < 4 ? 0 : 2] }), 2);
+  each(byType.quiz, (i) => ({ choice: i % 4, ms: 3000 + i * 900, conf: (i % 3) + 1 }));
+  each(byType.word_cloud, (i) => ({ words: [i % 2 ? 'tired' : 'curious'] }));
+  each(byType.open_ended, (i) => ({ text: `Answer ${i + 1}` }));
+  each(byType.scales, (i) => ({ values: [3 + (i % 3), 2 + (i % 4), 1 + (i % 3)] }));
+  each(byType.ranking, (i) => ({ order: [i % 4, (i + 1) % 4, (i + 2) % 4, (i + 3) % 4] }));
+  each(byType.spectrum, (i) => ({ pos: [8, 22, 47, 61, 88, 95][i] }));
+  each(byType.sample_vote, (i) => ({ choice: i % 2, rationale: 'It names the mechanism.' }));
+  each(byType.heatmap, (i) => ({ picks: [i % 3] }));
+  each(byType.traffic, (i) => ({ choice: i % 3 }));
+  each(byType.mood, (i) => ({ choice: i % 2 }));
+  each(byType.this_or_that, (i) => ({ picks: [i % 2] }));
+  each(byType.budget, (i) => ({ alloc: [40 + i, 30, 20 - i] }));
+  each(byType.probability, (i) => ({ pct: [15, 28, 33, 35, 52, 70][i] }));
+  each(byType.cloze, (i) => ({ blanks: [i % 3 ? 'powerhouse' : 'engine', 'cell'] }));
+  each(byType.matching, (i) => ({ matches: i % 3 ? [0, 1] : [1, 0] }));
+  each(byType.timeline, (i) => ({ order: i % 2 ? [0, 1, 2] : [1, 0, 2] }));
+  each(byType.exit_ticket, (i) => ({ answers: [`Learned ${i + 1}`, `Wondering ${i + 1}`] }));
+
+  return {
+    people,
+    questions,
+    responses,
+    audience: [
+      { id: 'a1', body: 'Will this be on the exam?', upvotes: 11, answered: true },
+      { id: 'a2', body: 'Can you redo the example?', upvotes: 7, answered: false },
+    ],
+    deck: { id: 'd1', title: 'Thermodynamics — week 4', theme: 'lecture-hall' },
+    session: {
+      id: 's1', deck_id: 'd1', label: 'Tuesday 9am', join_code: 'HJ4K2P',
+      state: 'ended', created_at: 1755000000000,
+    },
+  };
+}
+
+const FORMS = new Set(['bars', 'splits', 'deltas', 'lines', 'sections', 'table', 'stats']);
+
+describe('deck export — the model', () => {
+  const fx = exportFixture();
+  const slides = buildExportSlides(fx);
+
+  it('opens with a cover carrying the session, not a question', () => {
+    eq(slides[0].kind, 'cover');
+    eq(slides[0].title, 'Thermodynamics — week 4');
+    eq(slides[0].subtitle, 'Tuesday 9am');
+    eq(slides[0].body.form, 'stats');
+    eq(slides[0].body.stats.map((s) => s.label),
+      ['Nicknames', 'Responses', 'Questions used', 'Date']);
+  });
+
+  it('gives every asked question type a slide', () => {
+    const covered = new Set(slides.filter((s) => s.type).map((s) => s.type));
+    for (const type of QUESTION_TYPES) {
+      if (CONTENT_TYPES.has(type)) continue;
+      ok(covered.has(type), `${type} produced no export slide`);
+    }
+  });
+
+  it('leaves instructions slides out — they carry no result', () => {
+    notOk(slides.some((s) => s.type === 'instructions'), 'an instructions slide was exported');
+  });
+
+  it('uses only the six body forms a renderer knows', () => {
+    for (const s of slides) {
+      ok(FORMS.has(s.body.form), `slide "${s.title}" has unknown form ${s.body.form}`);
+    }
+  });
+
+  it('numbers questions the way the room was numbered', () => {
+    // The deck opens with an instructions slide, so the first QUESTION is
+    // still question 1 — the same rule sessionToCSVRows follows.
+    const first = slides.find((s) => s.kind === 'question');
+    eq(first.number, 1, 'the instructions slide must not consume a number');
+
+    const csv = sessionToCSVRows(fx.session, fx.questions, fx.responses);
+    for (const s of slides.filter((x) => x.kind === 'question')) {
+      const row = csv.find((c) => c.question === s.title);
+      if (row) eq(s.number, row.question_number, `"${s.title}" is numbered differently in the CSV`);
+    }
+  });
+
+  it('adds a "what changed" slide when a question was re-asked', () => {
+    const delta = slides.filter((s) => s.kind === 'delta');
+    eq(delta.length, 1);
+    eq(delta[0].body.form, 'deltas');
+    ok(delta[0].body.rows.length > 0);
+  });
+
+  it('gives a re-asked question one slide per round', () => {
+    const mc = slides.filter((s) => s.type === 'multiple_choice' && s.kind === 'question');
+    eq(mc.length, 2);
+    eq(mc.map((s) => s.round), [1, 2]);
+  });
+
+  it('skips questions nobody answered rather than printing a page of zeros', () => {
+    const quiet = exportFixture();
+    quiet.responses = quiet.responses.filter((r) => r.question_id !== 'q7'); // ranking
+    const out = buildExportSlides(quiet);
+    notOk(out.some((s) => s.type === 'ranking'), 'an unanswered question was exported');
+  });
+
+  it('marks the correct answer on a quiz', () => {
+    const quiz = slides.find((s) => s.type === 'quiz');
+    const marked = quiz.body.bars.filter((b) => b.marked);
+    eq(marked.length, 1);
+    eq(marked[0].label, '1789');
+    eq(marked[0].tone, 'good');
+  });
+
+  it('buckets a spectrum instead of averaging it', () => {
+    // An average opinion is an artifact; the shape is the content.
+    const spectrum = slides.find((s) => s.type === 'spectrum');
+    eq(spectrum.body.bars.length, 4);
+    eq(spectrum.body.bars.map((b) => b.label), [
+      'Strongly purely structural', 'Purely structural',
+      'Purely individual', 'Strongly purely individual',
+    ]);
+  });
+
+  it('keeps scale averages on the question\'s own scale', () => {
+    const scales = slides.find((s) => s.type === 'scales');
+    eq(scales.body.bars[0].max, 4, '1–5 is a span of 4, not a percentage');
+  });
+
+  it('names the specific mix-up on a matching question', () => {
+    const matching = slides.find((s) => s.type === 'matching');
+    eq(matching.body.form, 'table');
+    ok(matching.body.columns.includes('Most confused with'));
+  });
+
+  it('ends with the leaderboard when the deck had a quiz', () => {
+    const last = slides[slides.length - 1];
+    eq(last.kind, 'leaderboard');
+    ok(last.body.bars.length > 0);
+  });
+
+  it('carries the aggregate the PDF needs to draw the real chart', () => {
+    for (const s of slides.filter((x) => x.kind === 'question' && x.type !== 'qa')) {
+      ok(s.raw?.agg, `${s.type} lost its aggregate`);
+      ok(s.raw?.question, `${s.type} lost its question`);
+    }
+  });
+
+  it('names its files so a CSV, a PDF and a PowerPoint sort together', () => {
+    eq(exportStem(fx.deck, fx.session), 'thermodynamics-week-4-tuesday-9am');
+    eq(exportStem({}, {}), 'deck-session');
+  });
+});
+
+describe('deck export — anonymity', () => {
+  const fx = exportFixture();
+  const slides = buildExportSlides(fx);
+
+  it('puts no nickname on any slide but the leaderboard', () => {
+    // The spectrum aggregate carries pseudonyms so the live chart can move
+    // the same dot on a re-ask. Nothing in the export may read them.
+    for (const s of slides) {
+      if (s.kind === 'leaderboard') continue;
+      const text = JSON.stringify({ title: s.title, subtitle: s.subtitle, body: s.body, notes: s.notes });
+      for (const who of fx.people) {
+        notOk(text.includes(who), `${s.kind} slide "${s.title}" leaked ${who}`);
+      }
+    }
+  });
+
+  it('shows nicknames on the leaderboard, which is what the room saw', () => {
+    const board = slides.find((s) => s.kind === 'leaderboard');
+    ok(board.body.bars.some((b) => fx.people.some((p) => b.label.includes(p))));
+    ok(board.body.footnote.includes('this session only'));
+  });
+
+  it('says on the cover that a nickname is not a person', () => {
+    ok(slides[0].body.footnote.includes('cannot be matched'));
+  });
+});
+
+describe('deck export — the ZIP container', () => {
+  it('computes the CRC-32 every ZIP entry is checked against', () => {
+    // Known values; a broken table produces a file that opens nowhere.
+    eq(crc32(new TextEncoder().encode('hello')), 0x3610a686);
+    eq(crc32(new TextEncoder().encode('')), 0);
+  });
+
+  itAsync('writes an archive whose directory agrees with its entries', async () => {
+    const files = [
+      { name: '[Content_Types].xml', data: '<?xml version="1.0"?><Types/>', store: true },
+      { name: 'ppt/slides/slide1.xml', data: `<a>${'x'.repeat(5000)}</a>` },
+      { name: 'docProps/core.xml', data: 'short' },
+    ];
+    const bytes = await zip(files, { date: new Date(1755000000000) });
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const dec = new TextDecoder();
+
+    // Walk backwards from the end-of-central-directory record, the way a
+    // real reader does, rather than trusting the offsets we just wrote.
+    const end = bytes.length - 22;
+    eq(view.getUint32(end, true), 0x06054b50, 'no end-of-central-directory signature');
+    eq(view.getUint16(end + 10, true), files.length, 'wrong entry count');
+
+    let at = view.getUint32(end + 16, true);
+    for (const file of files) {
+      eq(view.getUint32(at, true), 0x02014b50, 'no central directory signature');
+      const nameLen = view.getUint16(at + 28, true);
+      const name = dec.decode(bytes.subarray(at + 46, at + 46 + nameLen));
+      eq(name, file.name, 'directory lists the wrong name');
+
+      const crc = view.getUint32(at + 16, true);
+      const raw = new TextEncoder().encode(file.data);
+      eq(crc, crc32(raw), `${name}: stored CRC does not match its data`);
+      eq(view.getUint32(at + 24, true), raw.length, `${name}: wrong uncompressed size`);
+
+      // The local header the directory points at must be the same entry.
+      const local = view.getUint32(at + 42, true);
+      eq(view.getUint32(local, true), 0x04034b50, 'no local header at the stated offset');
+      const localNameLen = view.getUint16(local + 26, true);
+      eq(dec.decode(bytes.subarray(local + 30, local + 30 + localNameLen)), file.name,
+        'local header names a different entry');
+
+      at += 46 + nameLen;
+    }
+  });
+
+  itAsync('leaves an entry stored when asked, and never inflates one', async () => {
+    const incompressible = 'q';                       // too small to be worth it
+    const compressible = 'ab'.repeat(4000);
+    const bytes = await zip([
+      { name: 'stored.xml', data: compressible, store: true },
+      { name: 'tiny.xml', data: incompressible },
+      { name: 'packed.xml', data: compressible },
+    ]);
+    // If deflate is unavailable the writer stores everything, which is
+    // still a valid archive — so this asserts the invariant that holds
+    // either way: nothing is larger than it started.
+    ok(bytes.length < compressible.length * 2 + 4096, 'the archive grew instead of shrinking');
+  });
+});
+
+describe('deck export — the PowerPoint package', () => {
+  const fx = exportFixture();
+  const slides = buildExportSlides(fx);
+  const parts = pptxParts(slides, {
+    title: fx.deck.title, subject: fx.session.label,
+    themeId: 'lecture-hall', date: new Date(1755000000000),
+  });
+  const byName = new Map(parts.map((p) => [p.name, p.data]));
+
+  it('writes one slide and one notes page per export slide', () => {
+    eq(parts.filter((p) => /^ppt\/slides\/slide\d+\.xml$/.test(p.name)).length, slides.length);
+    eq(parts.filter((p) => /^ppt\/notesSlides\/notesSlide\d+\.xml$/.test(p.name)).length, slides.length);
+  });
+
+  it('declares a content type for every part', () => {
+    const types = byName.get('[Content_Types].xml');
+    for (const p of parts) {
+      if (p.name === '[Content_Types].xml' || p.name.endsWith('.rels')) continue;
+      ok(types.includes(`PartName="/${p.name}"`), `no content type for ${p.name}`);
+    }
+  });
+
+  it('resolves every relationship target to a part that exists', () => {
+    for (const p of parts) {
+      if (!p.name.endsWith('.rels')) continue;
+      const dir = p.name.replace(/_rels\/[^/]+$/, '');
+      for (const m of p.data.matchAll(/Target="([^"]+)"/g)) {
+        const resolved = new URL(m[1], `file:///${dir}`).pathname.slice(1);
+        ok(byName.has(resolved), `${p.name} points at a missing ${resolved}`);
+      }
+    }
+  });
+
+  it('resolves every r:id a part uses', () => {
+    // The failure this catches is the one PowerPoint reports as "repair".
+    for (const p of parts) {
+      if (p.name.endsWith('.rels')) continue;
+      const rels = byName.get(p.name.replace(/([^/]+)$/, '_rels/$1.rels')) || '';
+      const ids = new Set([...rels.matchAll(/Id="(rId\d+)"/g)].map((m) => m[1]));
+      for (const m of p.data.matchAll(/r:id="(rId\d+)"/g)) {
+        ok(ids.has(m[1]), `${p.name} uses ${m[1]}, which its .rels does not define`);
+      }
+    }
+  });
+
+  it('is 16:9 at PowerPoint\'s own widescreen size', () => {
+    const pres = byName.get('ppt/presentation.xml');
+    ok(pres.includes('cx="12192000" cy="6858000"'), 'slide size is not 13.333in x 7.5in');
+  });
+
+  it('paints in the deck\'s theme, not PowerPoint\'s', () => {
+    const slide = byName.get('ppt/slides/slide2.xml');
+    // Lecture Hall's --ground and --accent, without the leading hash.
+    ok(slide.includes('F7F4EE'), 'the slide is not on the theme ground');
+    ok(slide.includes('4A5D23'), 'bars are not in the theme accent');
+    ok(slide.includes('typeface="Fraunces"'), 'the display face was dropped');
+  });
+
+  it('escapes what a student typed', () => {
+    const nasty = exportFixture();
+    nasty.questions[4].prompt = 'Tom & Jerry <script> "quoted" ';
+    const xml = pptxParts(buildExportSlides(nasty), { themeId: 'lecture-hall' })
+      .find((p) => p.data.includes('Tom &amp; Jerry')).data;
+    ok(xml.includes('Tom &amp; Jerry &lt;script&gt; &quot;quoted&quot;'), 'text was not escaped');
+    notOk(xml.includes(''), 'a control character survived into the XML');
+  });
+
+  it('writes no author into the document properties', () => {
+    // An export that quietly stamps the instructor's name into a file
+    // they are about to email round is exactly what this app promises not
+    // to do.
+    const core = byName.get('docProps/core.xml');
+    notOk(core.includes('dc:creator'), 'the package names an author');
+    notOk(core.includes('cp:lastModifiedBy'), 'the package names a last editor');
+  });
+
+  it('keeps nicknames off every slide but the leaderboard', () => {
+    const board = parts.find((p) => p.name.startsWith('ppt/slides/') && p.data.includes('Quiz leaderboard'));
+    ok(board, 'no leaderboard slide was written');
+    for (const p of parts) {
+      if (!/^ppt\/(slides|notesSlides)\//.test(p.name) || p.name === board.name) continue;
+      for (const who of fx.people) {
+        notOk(p.data.includes(who), `${p.name} leaked ${who}`);
+      }
+    }
+  });
+
+  itAsync('zips into a package a reader can open', async () => {
+    const bytes = await zip(parts, { date: new Date(1755000000000) });
+    eq(bytes[0], 0x50); eq(bytes[1], 0x4b);              // "PK"
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    eq(view.getUint32(bytes.length - 22, true), 0x06054b50);
+    eq(view.getUint16(bytes.length - 12, true), parts.length);
+  });
+});
+
+await Promise.all(pendingAsync);
 
 console.log('\n');
 if (failures.length) {

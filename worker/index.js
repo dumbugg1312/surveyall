@@ -646,7 +646,7 @@ async function route(request, env, url, ctx) {
     // by nothing at all. Throttling this per IP would put a network
     // identifier in the database, which the schema forbids on purpose.
     if (!await underGlobalLimit(env, 'feedback', FEEDBACK_MAX_PER_HOUR, 1000 * 60 * 60)) {
-      return fail('Too much feedback at once — try again in an hour.', 429);
+      return fail('Too much feedback at once. Try again in an hour.', 429);
     }
 
     // Signed in? Record the username, so you can reply in person. Signed
@@ -946,7 +946,7 @@ async function participantRoute(request, env, seg, method, body, url) {
       // and inventing one would put a participant identifier in the
       // database — which is the thing this whole app refuses to do.
       if (!await underGlobalLimit(env, `qa:${session.id}`, QA_MAX_PER_HOUR, 1000 * 60 * 60)) {
-        return fail('Too many questions at once — try again shortly.', 429);
+        return fail('Too many questions at once. Try again shortly.', 429);
       }
 
       const approved = session.qa_moderated ? 0 : 1;

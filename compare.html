@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Compare runs — SurveyAll</title>
+<title>Compare runs · SurveyAll</title>
 <!-- Tab icon. The SVG is what modern browsers use; the PNGs are for
      Safari's older raster paths and for a phone home screen. Paths are
      root-relative so they resolve the same from /join and /create as
@@ -20,7 +20,7 @@
 
 <header class="appbar">
   <a class="brand" href="dashboard.html">SurveyAll</a>
-  <span class="muted" id="crumb" style="font-size:.85rem"></span>
+  <span class="muted text-sm" id="crumb"></span>
   <span class="spacer"></span>
   <a class="btn btn-sm" href="dashboard.html">Back to dashboard</a>
 </header>
@@ -35,12 +35,12 @@
     Every run is compared as a whole. Nothing here follows an individual between
     runs: a nickname is issued per run and is deliberately impossible to
     match to the same person in another one, so “the room moved” is the finest
-    grain this comparison can have — by design.
+    grain this comparison can have, by design.
     <a href="privacy.html">What's stored, and who can see it</a>.
   </p>
 </main>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 <p class="sr-only" id="srStatus" role="status" aria-live="polite"></p>
 
 <script type="module" src="app/compare-page.js"></script>

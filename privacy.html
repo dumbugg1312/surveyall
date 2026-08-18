@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Privacy — SurveyAll</title>
+<title>Privacy · SurveyAll</title>
 <!-- Tab icon. The SVG is what modern browsers use; the PNGs are for
      Safari's older raster paths and for a phone home screen. Paths are
      root-relative so they resolve the same from /join and /create as
@@ -38,19 +38,23 @@
   .doc th { font-weight: 600; color: var(--ink-soft); }
   .doc .scroll-x { overflow-x: auto; }
 
+  /* These three used to reference --r-2, --surface-2 and --warn, none of
+     which exist. The radius declaration was simply dropped, so the
+     callouts rendered square against 12px cards everywhere else, and the
+     caveats — the most important paragraphs on the page — wore a
+     hardcoded amber that matched nothing in the palette. */
   .callout {
     border: 1px solid var(--edge); border-left-width: 3px;
-    border-radius: var(--r-2); padding: var(--sp-3); margin: var(--sp-3) 0;
-    background: var(--surface-2, transparent);
+    border-radius: var(--radius); padding: var(--sp-3); margin: var(--sp-3) 0;
+    background: var(--surface);
   }
   .callout p:last-child { margin-bottom: 0; }
   .callout-title { font-weight: 600; margin: 0 0 .35rem; }
 
-  .no { border-left-color: var(--good, #2e7d5b); }
-  .caveat { border-left-color: var(--warn, #b7791f); }
-  .todo { border-left-color: var(--bad, #b3261e); }
+  .caveat { border-left-color: var(--warn); }
+  .caveat .callout-title { color: var(--warn-text); }
 
-  .updated { font-size: .8rem; color: var(--ink-soft); }
+  .updated { font-size: var(--text-sm); color: var(--ink-soft); }
 </style>
 </head>
 <body>
@@ -69,38 +73,26 @@
   </p>
   <p class="updated">Last updated 17 August 2026.</p>
 
-  <div class="callout todo">
-    <p class="callout-title">Before sharing this page</p>
-    <p>
-      Replace the three bracketed placeholders below — the operator's name, the
-      operator's contact address, and the institution name. Then go to
-      <em>Where this sits with your institution</em>, which offers two
-      alternative paragraphs: keep whichever one is true of your deployment and
-      delete the other. Then delete this box. A privacy page with an unfilled
-      placeholder in it undoes the point of having one.
-    </p>
-  </div>
-
   <h2>The short version</h2>
   <ul>
     <li><strong>No student names are stored.</strong> There is no field to put one in.</li>
     <li><strong>Students never create an account and never sign in.</strong> They enter a room code, which is not a password and identifies nobody.</li>
-    <li><strong>No emails, student IDs, or IP addresses are stored</strong> for anyone — student or instructor.</li>
+    <li><strong>No emails, student IDs, or IP addresses are stored</strong> for anyone, student or instructor.</li>
     <li><strong>No cookies, no analytics, no advertising, no third-party trackers.</strong></li>
     <li><strong>Answers are not linked to a person</strong>, and cannot be linked back to one after the fact.</li>
-    <li><strong>Instructors have accounts</strong> — a username and a password, and nothing else. This is the only personal data in the system, and it belongs to staff, not students.</li>
+    <li><strong>Instructors have accounts</strong>, holding a username and a password and nothing else. This is the only personal data in the system, and it belongs to staff, not students.</li>
   </ul>
 
   <h2>What a student's device sends</h2>
   <p>
     When a student joins a session, their device is given a random two-word
-    nickname — “Amber Falcon”, “Teal Juniper”. Their answers are filed under
+    nickname: “Amber Falcon”, “Teal Juniper”. Their answers are filed under
     that nickname. That is the entire record of who answered what.
   </p>
   <p>The nickname:</p>
   <ul>
     <li>is generated at random by the server, not derived from anything about the device or the person;</li>
-    <li>exists only inside one session — the same student in your next class gets an unrelated nickname;</li>
+    <li>exists only inside one session, so the same student in your next class gets an unrelated nickname;</li>
     <li>cannot be joined across sessions, because no key exists that would connect them;</li>
     <li>is only shown to the student at all when the deck contains a scored quiz, so that a leaderboard can work.</li>
   </ul>
@@ -117,7 +109,7 @@
     </thead>
     <tbody>
       <tr>
-        <td>The question text an instructor wrote, and the deck it sits in —
+        <td>The question text an instructor wrote, and the deck it sits in:
             its title, its question types and options, its theme and
             background choice</td>
         <td>It's their teaching material</td>
@@ -132,7 +124,7 @@
         <td>The nicknames already handed out in a session</td>
         <td>So two phones in the same room can never be given the same one,
             which is what makes a quiz leaderboard add up. The row holds the
-            nickname and the moment it was claimed, and nothing else — no
+            nickname and the moment it was claimed, and nothing else: no
             device identifier, and nothing that says whose phone took it</td>
         <td>Until the instructor deletes the session</td>
       </tr>
@@ -150,7 +142,7 @@
         <td>Background images an instructor uploaded</td>
         <td>Projector styling</td>
         <td>30 days after upload, unless the instructor pins the image to
-            keep it — these are the one thing here with an expiry date,
+            keep it. These are the one thing here with an expiry date,
             because they are stored inline and the database is finite</td>
       </tr>
       <tr>
@@ -174,12 +166,12 @@
             when it was last used</td>
         <td>So the operator can tell a live account from one nobody has
             touched since the term it was made. Two timestamps, no page
-            history — nothing records what was done, only that something was</td>
+            history. Nothing records what was done, only that something was</td>
         <td>Until the account is deleted</td>
       </tr>
       <tr>
         <td><strong>Instructor:</strong> a count of recent failed sign-ins</td>
-        <td>To slow down password guessing — each failure in a row makes the next attempt wait longer</td>
+        <td>To slow down password guessing: each failure in a row makes the next attempt wait longer</td>
         <td>Cleared on a successful sign-in; forgotten after a day</td>
       </tr>
       <tr>
@@ -197,7 +189,7 @@
     That is the complete list. Every table in <code>worker/schema.sql</code> is
     represented above, and there is no other file. Some of those rows are
     housekeeping about instructor accounts rather than anything a student
-    sends — they are listed because a page whose whole authority rests on
+    sends. They are listed because a page whose whole authority rests on
     being exhaustive has to actually be exhaustive, not because they change
     anything said above.
   </p>
@@ -206,7 +198,7 @@
   <ul>
     <li>
       <strong>An instructor</strong> sees only their own decks, sessions, and
-      results. Instructors sharing this site cannot see each other's material —
+      results. Instructors sharing this site cannot see each other's material:
       every request is filtered by account, and asking for a colleague's session
       by its ID returns “not found”.
     </li>
@@ -217,7 +209,7 @@
       stripped on the server before a question is sent to a phone.
     </li>
     <li>
-      <strong>The operator</strong> — the person who runs this deployment —
+      <strong>The operator</strong>, the person who runs this deployment,
       administers the database and can therefore read what is in it. This is
       true of any self-hosted application and it is stated here rather than
       glossed over. See below.
@@ -231,7 +223,7 @@
   </p>
 
   <div class="callout caveat">
-    <p class="callout-title">The data is not inaccessible — it is unidentified</p>
+    <p class="callout-title">The data is not inaccessible. It is unidentified</p>
     <p>
       Stored data is encrypted at rest by the hosting provider, but this is not
       end-to-end encryption, and the operator can read the database. The
@@ -245,7 +237,7 @@
     <p class="callout-title">A student can type their own name into an answer</p>
     <p>
       Open-ended and Q&amp;A questions accept free text, so a student can write
-      their name — or something identifying — into one. No polling tool can
+      their name, or something identifying, into one. No polling tool can
       prevent this. Instructors can delete any individual response, and should
       tell students not to include their names.
     </p>
@@ -258,8 +250,8 @@
       Cloudflare's network. Serving any web page necessarily means that
       network handles the request, including the visitor's IP address, and it
       applies its own security logging. SurveyAll neither receives nor stores
-      that. It is governed by the host's privacy terms, not by this page — and
-      if this deployment has been moved to another host, read that host's
+      that. It is governed by the host's privacy terms, not by this page. If
+      this deployment has been moved to another host, read that host's
       terms in Cloudflare's place.
     </p>
   </div>
@@ -269,7 +261,7 @@
     <p>
       Instructor accounts are created with a shared code. That keeps out
       automated sign-ups and passers-by; it is not a strong access control, and
-      anyone who is given the code — or guesses it — can create an account. It
+      anyone who is given the code, or guesses it, can create an account. It
       can be changed at any time. No student ever needs or receives it.
     </p>
   </div>
@@ -287,29 +279,19 @@
 
   <h2>Where this sits with your institution</h2>
   <p>
-    SurveyAll is open source and meant to be forked, so this section depends
-    entirely on who is running the copy you are reading. Two paragraphs
-    follow: <strong>the operator keeps whichever one is true and deletes the
-    other.</strong> Leaving both in place says nothing.
+    This copy of SurveyAll is run <strong>independently by the instructor
+    who operates it</strong>. It is not operated, endorsed, hosted, or
+    reviewed by any university or college, it is not covered by an
+    institution's own agreements with vendors, and it is offered to
+    colleagues as-is.
   </p>
   <p>
-    <strong>If this deployment is independent —</strong> it is run by
-    <strong>[OPERATOR NAME]</strong> personally, and is <strong>not</strong>
-    operated, endorsed, hosted, or reviewed by
-    <strong>[INSTITUTION NAME]</strong>. It is not covered by that
-    institution's own agreements with vendors, and it is offered to colleagues
-    as-is. Departments with a formal software review process should route it
-    through that process before adopting it for coursework.
-  </p>
-  <p>
-    <strong>If this deployment has been adopted by an institution —</strong>
-    it is run by <strong>[OPERATOR NAME]</strong> for
-    <strong>[INSTITUTION NAME]</strong>, which has reviewed and approved it for
-    coursework. What that review covered, and which agreements it falls under,
-    are questions for the operator named at the foot of this page rather than
-    for this document. Everything above about what is stored is true either
-    way; being approved changes who stands behind the tool, not what it
-    records.
+    That is a statement about who stands behind the tool, not about what it
+    records: everything above about what is stored is true either way. A
+    department with a formal software review process should route this
+    through that process before adopting it for coursework. The design was
+    built to survive that review, and every claim on this page is tied to a
+    file you can read.
   </p>
 
   <h2>Deleting things</h2>
@@ -320,7 +302,7 @@
     <li><strong>An instructor account:</strong> ask the operator. Deleting an account removes its username and password hash.</li>
   </ul>
   <p>
-    Deletions are immediate and permanent — there is no recycle bin and no
+    Deletions are immediate and permanent. There is no recycle bin and no
     recovery, so be certain first.
   </p>
 
@@ -337,7 +319,7 @@
     <tbody>
       <tr>
         <td>No column anywhere can hold a student name, email, ID, or IP</td>
-        <td><code>worker/schema.sql</code> — the full database definition, about 340 lines</td>
+        <td><code>worker/schema.sql</code>, the full database definition, about 340 lines</td>
       </tr>
       <tr>
         <td>Quiz answer keys never reach a student's phone</td>
@@ -345,11 +327,11 @@
       </tr>
       <tr>
         <td>Instructors cannot read each other's data</td>
-        <td>The ownership helpers in <code>worker/index.js</code>, and the isolation tests in <code>tests/run-worker-tests.mjs</code> — they drive the real routes as a second instructor and check both halves, that the owner still can and the stranger cannot</td>
+        <td>The ownership helpers in <code>worker/index.js</code>, and the isolation tests in <code>tests/run-worker-tests.mjs</code>. They drive the real routes as a second instructor and check both halves, that the owner still can and the stranger cannot</td>
       </tr>
       <tr>
         <td>Students cannot read raw responses</td>
-        <td><code>participantRoute()</code> in <code>worker/index.js</code> — the participant API in full</td>
+        <td><code>participantRoute()</code> in <code>worker/index.js</code>, the participant API in full</td>
       </tr>
       <tr>
         <td>Failed sign-ins are counted without storing an IP</td>
@@ -367,15 +349,20 @@
   </table>
   </div>
 
-  <h2>Who runs this</h2>
+  <h2>Who runs this, and how to reach them</h2>
   <p>
-    This deployment is operated by <strong>[OPERATOR NAME]</strong>, who
-    controls the hosting account it runs on. The operator administers the
-    database and is the person to contact about anything on this page — a
-    deletion request, an account problem, or a question from a department
-    reviewing the tool.
+    This deployment is operated by the instructor who set it up, who
+    controls the hosting account it runs on, administers the database, and
+    is the person to contact about anything on this page: a deletion
+    request, an account problem, or a question from a department reviewing
+    the tool.
   </p>
-  <p><strong>Contact: [OPERATOR EMAIL ADDRESS]</strong></p>
+  <p>
+    <strong>To reach them, use the feedback button</strong>, the quill in
+    the corner of this page. It goes straight to the operator. Nothing is
+    recorded about you when you use it beyond what you type and, if you
+    happen to be signed in as an instructor, your username.
+  </p>
 
   <p class="updated" style="margin-top:2.5rem">
     If this page and the software ever disagree, the software is what is true.

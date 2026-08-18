@@ -1,7 +1,7 @@
 # SurveyAll — Architecture
 
 **Date:** August 15, 2026 · **Status:** built, not yet deployed
-**Constraints:** free/near-free hosting, no credit card · QR join with no account, app, or name · presenter-driven live sessions · persistent per-session results with CSV export · FERPA-safe by design · heavy deck customisation
+**Constraints:** free/near-free hosting, no credit card · QR join with no account, app, or name · presenter-driven live sessions · persistent per-session results with CSV, PDF and PowerPoint export · FERPA-safe by design · heavy deck customisation
 
 > **Revision note.** This was originally built on Supabase. It moved to Cloudflare when the free plan's **2-active-project limit** turned out to be per *user* across all organisations ([billing docs](https://supabase.com/docs/guides/platform/billing-on-supabase)) — the instructor already had two, and a second organisation would not have helped. §2 keeps the comparison, because the reasoning still explains the shape of what's here.
 
@@ -140,7 +140,7 @@ The goal is not "we handle student data carefully" — it is that **no student d
 4. **The only per-respondent token is a random session-scoped pseudonym** ("Amber Falcon"), assigned by the server from a fixed word list with no relationship to the device or person, and **never reused across sessions** — so two sessions cannot be joined to build a per-student history, which is the step that would turn pseudonymous data back into an education record.
 5. **No cookies, no analytics, no third-party trackers, no fingerprinting.** The pseudonym lives in `sessionStorage` and dies with the tab.
 6. **Quiz leaderboards rank pseudonyms**, resolving the anonymity-vs-competition tension that forces Slido to collect a name for every quiz participant.
-7. **CSV exports contain no identifier column** — `respondent` holds the pseudonym. Nothing to redact before sharing.
+7. **Exports contain no identifier column** — the CSV's `respondent` holds the pseudonym; the PDF and PowerPoint carry charts and counts only, with nicknames appearing solely on a quiz leaderboard. Nothing to redact before sharing, and the PowerPoint names no author in its document properties.
 8. **Q&A is anonymous and moderatable**, with hide-until-approved free.
 
 ### What changed when the backend moved — read this

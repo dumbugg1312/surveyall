@@ -38,9 +38,30 @@ function svg(tag, attrs = {}) {
   return node;
 }
 
+/**
+ * Read a theme token off the chart's own container.
+ *
+ * The container is the source because a theme can be scoped to a subtree
+ * — a deck miniature in the dashboard wears its own colours next to
+ * eleven others. But getComputedStyle on an element that is NOT in the
+ * document returns empty strings for everything, and a caller that
+ * builds its chart before appending it therefore silently got the
+ * hardcoded fallbacks: results.html and compare.html drew every archived
+ * chart in the default blue instead of the deck's palette, for every
+ * deck and every theme.
+ *
+ * Falling back to the document element keeps a detached render on the
+ * page's own theme, which is right far more often than #1d4ed8 is.
+ */
 function token(root, name, fallback) {
   const v = getComputedStyle(root).getPropertyValue(name).trim();
-  return v || fallback;
+  if (v) return v;
+  if (root !== document.documentElement && !root.isConnected) {
+    const onDoc = getComputedStyle(document.documentElement)
+      .getPropertyValue(name).trim();
+    if (onDoc) return onDoc;
+  }
+  return fallback;
 }
 
 /** FNV-1a — a stable colour identity per word, not per rank. */
@@ -74,6 +95,11 @@ function useChart(container, kind) {
  * One note per container, kept across renders so the dots don't restart.
  */
 function awaitNote(container, state, on, text = 'Waiting for the first answer…') {
+  // While a chart is waiting, its values are faded out by CSS but still
+  // sit in the accessibility tree — so the chart read as a rack of "0%"
+  // with the explanation somewhere after it. aria-busy says the thing
+  // the fade is saying: these numbers are not results yet.
+  container.setAttribute('aria-busy', on ? 'true' : 'false');
   if (on && !state.meta.awaitNote) {
     const note = el('p', 'chart-await-note');
     const dots = el('span', 'await-dots');
@@ -151,7 +177,7 @@ function palette(root, count, mode = 'categorical', minContrast = MARK_CONTRAST)
     p = mode === 'uniform'
       ? new Array(Math.max(1, count)).fill(a)
       : mode === 'wheel'
-        ? hueWheel(a, Math.max(1, count), bg, minContrast)
+        ? hueWheel(a, Math.max(1, count), bg, minContrast, b)
         : harmonicSeries(a, b, Math.max(1, count), bg, minContrast);
     paletteCache.set(key, p);
   }
@@ -233,6 +259,9 @@ export function renderChoice(container, agg, opts = {}) {
     const r = state.rows[i];
     if (r.label.textContent !== (opt.label || `Option ${i + 1}`)) {
       r.label.textContent = opt.label || `Option ${i + 1}`;
+      // The label is clamped to three lines in CSS; the title keeps the
+      // rest reachable rather than merely gone.
+      r.label.title = opt.label || '';
     }
 
     const fraction = opts.hidden ? 0 : (max ? opt.count / max : 0);
@@ -269,25 +298,34 @@ export function renderChoice(container, agg, opts = {}) {
     if (c.quad && correct.size) {
       const q4 = c.quad;
       parts.push(
-        `<span class="conf-chip is-alarm">${q4.sureWrong} certain &amp; wrong</span>`,
-        `<span class="conf-chip">${q4.sureRight} certain &amp; right</span>`,
-        `<span class="conf-chip">${q4.unsureRight} unsure &amp; right</span>`,
-        `<span class="conf-chip">${q4.unsureWrong} unsure &amp; wrong</span>`,
+        [`${q4.sureWrong} certain & wrong`, 'is-alarm'],
+        [`${q4.sureRight} certain & right`, ''],
+        [`${q4.unsureRight} unsure & right`, ''],
+        [`${q4.unsureWrong} unsure & wrong`, ''],
       );
     } else {
       parts.push(
-        `<span class="conf-chip">${c.counts[2]} certain</span>`,
-        `<span class="conf-chip">${c.counts[1]} fairly sure</span>`,
-        `<span class="conf-chip">${c.counts[0]} guessing</span>`,
+        [`${c.counts[2]} certain`, ''],
+        [`${c.counts[1]} fairly sure`, ''],
+        [`${c.counts[0]} guessing`, ''],
       );
     }
     // note: the quadrant branch keys off `correct`, which is only
     // populated when the reveal is on — before that, only the harmless
     // certain/fairly-sure/guessing counts are shown (no key leak)
-    const html = parts.join(' ');
-    if (state.meta.confStrip.__html !== html) {
-      state.meta.confStrip.innerHTML = html;
-      state.meta.confStrip.__html = html;
+    //
+    // Built as elements rather than an innerHTML string. The values are
+    // all numbers today, so nothing is injectable — but this was the one
+    // place in the file where data reached the DOM as markup, and the
+    // rule is worth more than the exception.
+    const key = parts.map((p) => p.join(' ')).join('|');
+    if (state.meta.confStrip.__key !== key) {
+      state.meta.confStrip.textContent = '';
+      parts.forEach(([text, cls], i) => {
+        if (i) state.meta.confStrip.append(document.createTextNode(' '));
+        state.meta.confStrip.append(el('span', `conf-chip ${cls}`.trim(), text));
+      });
+      state.meta.confStrip.__key = key;
     }
   } else if (state.meta.confStrip) {
     state.meta.confStrip.remove();
@@ -404,8 +442,13 @@ export function renderChoice(container, agg, opts = {}) {
 
       const pctVal = g.get(`p:${i}`);
       const cntVal = g.get(`c:${i}`);
-      const pctText = state.meta.hidden ? '—' : `${Math.round(pctVal)}%`;
-      const cntText = state.meta.hidden ? '' : NUM.format(Math.round(cntVal));
+      const count = NUM.format(Math.round(cntVal));
+      // "Show counts" in the editor means the raw number is the headline
+      // and the percentage steps aside — not that both appear regardless.
+      const pctText = state.meta.hidden
+        ? '—'
+        : state.meta.showPercent ? `${Math.round(pctVal)}%` : count;
+      const cntText = state.meta.hidden || !state.meta.showPercent ? '' : count;
       if (r.pct.textContent !== pctText) r.pct.textContent = pctText;
       if (r.count.textContent !== cntText) r.count.textContent = cntText;
     });
@@ -586,6 +629,18 @@ function renderDonut(container, agg, opts = {}) {
     state.group.set(`a:${i}`, opts.hidden || !total ? 0 : (opt.count / total) * 100);
     state.group.set(`p:${i}`, opts.hidden ? 0 : opt.pct, { preset: 'precise' });
   });
+
+  // role="img" with no accessible name announces as an unlabelled graphic.
+  // The legend beside it carries the same numbers in text, so the ring
+  // itself gets the summary and the reader is not made to assemble one.
+  s.setAttribute('aria-label', opts.hidden
+    ? 'Results chart, hidden'
+    : awaiting
+      ? 'Results chart, no responses yet'
+      : `Results, ${NUM.format(total)} ${total === 1 ? 'response' : 'responses'}: `
+        + agg.options
+          .map((o) => `${o.label || 'Unlabelled'} ${Math.round(o.pct)}%`)
+          .join(', '));
   state.group.set('total', opts.hidden ? 0 : total, { preset: 'precise' });
 
   function paint() {
@@ -763,7 +818,7 @@ export function renderWordCloud(container, agg, opts = {}) {
     node.style.color = size < smallSize * 1.3 && i !== 0
       ? mixColor(base, inkSoft, 0.22) : base;
     node.style.letterSpacing = i === 0 ? '-.03em' : '';
-    node.title = `${entry.word} — ${entry.count}`;
+    node.title = `${entry.word}: ${entry.count}`;
     node.setAttribute('aria-label',
       `${entry.word}, ${entry.count} ${entry.count === 1 ? 'mention' : 'mentions'}`);
     seen.add(entry.word);
@@ -991,18 +1046,32 @@ export function renderOpenEnded(container, agg, opts = {}) {
   const root = container;
   const colors = palette(root, 5);
 
+  // Only the presenter can bin a response. Everywhere else — the archive,
+  // the comparison view, the shared-results panel on a student's phone —
+  // the button did nothing but still took a tab stop and announced itself,
+  // so a keyboard user walked thirty phantom "Remove this response".
+  const allowDelete = opts.allowDelete === true;
+  if (state.allowDelete !== allowDelete && state.rows.length) {
+    container.textContent = '';
+    state.rows = [];
+  }
+  state.allowDelete = allowDelete;
+
   while (state.rows.length < entries.length) {
     const i = state.rows.length;
     const card = el('div', 'answer-card');
     const rail = el('span', 'answer-rail');
     const text = el('p', 'answer-text');
-    const actions = el('div', 'answer-actions');
-    const del = el('button', 'answer-delete', '×');
-    del.type = 'button';
-    del.title = 'Remove this response';
-    del.setAttribute('aria-label', 'Remove this response');
-    actions.append(del);
-    card.append(rail, text, actions);
+    card.append(rail, text);
+    if (allowDelete) {
+      const actions = el('div', 'answer-actions');
+      const del = el('button', 'answer-delete', '×');
+      del.type = 'button';
+      del.title = 'Remove this response';
+      del.setAttribute('aria-label', 'Remove this response');
+      actions.append(del);
+      card.append(actions);
+    }
     container.append(card);
     state.rows.push({ card, rail, text });
 
@@ -1190,7 +1259,12 @@ export function renderRanking(container, agg, opts = {}) {
 
   if (isNew) state.group = new SpringGroup(() => state.paint?.(), PRESETS.bouncy);
 
-  const ROW_H = 3.0; // em — must match .rank-row height in charts.css
+  // Rows are absolutely stacked and translated by index, so this height
+  // and .rank-row's have to agree exactly. They used to be two literals
+  // in two files with a comment asking the next person to keep them in
+  // step; now JS owns the number and the stylesheet reads it back.
+  const ROW_H = 3.0; // em
+  container.style.setProperty('--rank-row-h', `${ROW_H}em`);
 
   while (state.rows.length < n) {
     const i = state.rows.length;
@@ -1490,7 +1564,8 @@ export function renderLeaderboard(container, entries, opts = {}) {
     state.meta.byName = new Map();
   }
 
-  const ROW_H = 2.6; // em — matches .lb-row in charts.css
+  const ROW_H = 2.6; // em — see the note in the ranking chart
+  state.meta.body.style.setProperty('--lb-row-h', `${ROW_H}em`);
   const best = Math.max(1, top[0].score);
   const seen = new Set();
 
@@ -1788,7 +1863,7 @@ export function renderShowdown(container, agg, opts = {}) {
       state.meta.streamRows.pop().remove();
     }
     rationales.forEach((r, i) => {
-      const txt = `${String.fromCharCode(65 + r.choice)} — ${r.text}`;
+      const txt = `${String.fromCharCode(65 + r.choice)}: ${r.text}`;
       if (state.meta.streamRows[i].textContent !== txt) {
         state.meta.streamRows[i].textContent = txt;
       }
@@ -2672,6 +2747,104 @@ export function renderExitTicket(container, agg, opts = {}) {
 }
 
 // =====================================================================
+// Q&A — the questions themselves are the slide
+// =====================================================================
+
+/**
+ * A Q&A slide used to render nothing at all: the room saw a prompt, an
+ * empty stage and "0 responses", while the questions people had actually
+ * typed sat behind a keyboard shortcut. The approved questions ARE the
+ * content of this slide, so they go on the wall, most-upvoted first.
+ */
+export function renderQA(container, agg, opts = {}) {
+  const state = useChart(container, 'qa');
+  const items = (opts.hidden ? [] : (opts.questions || []))
+    .filter((r) => r.approved)
+    .slice()
+    .sort((a, b) => (b.upvotes || 0) - (a.upvotes || 0));
+
+  if (!items.length) {
+    if (state.rows.length) { container.textContent = ''; state.rows = []; }
+    const waiting = !opts.hidden && opts.awaiting !== false;
+    emptyCard(container, state,
+      opts.hidden ? 'hidden' : waiting ? 'waiting' : 'none',
+      opts.hidden ? 'Questions hidden'
+        : waiting ? 'Waiting for the first question…'
+          : 'No questions were asked.');
+    return;
+  }
+  clearEmptyCard(state);
+
+  const colors = palette(container, 5);
+
+  while (state.rows.length < items.length) {
+    const i = state.rows.length;
+    const card = el('div', 'answer-card qa-slide-card');
+    const rail = el('span', 'answer-rail');
+    const text = el('p', 'answer-text');
+    const votes = el('span', 'qa-slide-votes');
+    card.append(rail, text, votes);
+    container.append(card);
+    state.rows.push({ card, rail, text, votes });
+    if (!prefersReducedMotion()) {
+      card.animate(
+        [
+          { opacity: 0, transform: 'translateY(14px) scale(.97)' },
+          { opacity: 1, transform: 'none' },
+        ],
+        { duration: 460, easing: 'cubic-bezier(.22,.9,.28,1)', delay: stagger(i, 0.03, 0.3) * 1000, fill: 'backwards' },
+      );
+    }
+  }
+  while (state.rows.length > items.length) state.rows.pop().card.remove();
+
+  items.forEach((row, i) => {
+    const r = state.rows[i];
+    if (r.text.textContent !== row.body) r.text.textContent = row.body;
+    const len = (row.body || '').length;
+    r.card.style.setProperty('--card-scale',
+      len > 220 ? '0.74' : len > 140 ? '0.84' : len > 70 ? '0.94' : '1');
+    r.card.classList.toggle('is-answered', !!row.answered);
+    r.rail.style.background = colors[i % colors.length];
+    const n = Number(row.upvotes) || 0;
+    const votes = n > 0 ? `▲ ${NUM.format(n)}` : '';
+    if (r.votes.textContent !== votes) r.votes.textContent = votes;
+  });
+}
+
+// =====================================================================
+
+/**
+ * The opts an ARCHIVED question is drawn with.
+ *
+ * Several renderers take their labels from opts rather than from the
+ * aggregate — the spectrum's two poles, the heatmap's anchors, whether
+ * bars show percentages or counts. The projector assembles all of that
+ * from q.config (see present-page.js); the archive and its exports were
+ * assembling a three-key subset, so a spectrum whose poles an instructor
+ * had written as "Purely structural / Purely individual" came back after
+ * class labelled "Disagree / Agree".
+ *
+ * Everything here is config, not session state: nothing is hidden, the
+ * voting is over, and every answer key is safe to show.
+ */
+export function archiveOpts(question) {
+  const cfg = question?.config || {};
+  return {
+    style: cfg.chart || 'bars',
+    // Archived data: zero responses is a fact, not a wait.
+    awaiting: false,
+    revealCorrect: true,
+    revealStyle: question?.type === 'quiz' ? 'correct' : 'best',
+    showPercent: cfg.show_counts !== true,
+    leftLabel: cfg.left_label,
+    rightLabel: cfg.right_label,
+    corners: !!cfg.corners,
+    anchors: cfg.anchors,
+    showAnchors: true,
+    showRationales: true,
+  };
+}
 
 export function renderAggregate(container, type, agg, opts = {}) {
   if (!agg) return undefined;
@@ -2711,6 +2884,8 @@ export function renderAggregate(container, type, agg, opts = {}) {
       return renderTimeline(container, agg, opts);
     case 'exit_ticket':
       return renderExitTicket(container, agg, opts);
+    case 'qa':
+      return renderQA(container, agg, opts);
     default:
       container.textContent = '';
       return undefined;

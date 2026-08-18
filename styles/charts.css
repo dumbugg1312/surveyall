@@ -132,12 +132,21 @@
     inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent),
     inset 0 1px 2px color-mix(in srgb, var(--ink) 10%, transparent);
 }
-/* letterpress: matte ink takes no specular highlight */
-[data-theme-id="letterpress"] .chart-sheen { display: none; }
+/* Print themes: ink on paper takes no specular highlight. A gloss sheen
+   on a letterpress or newsprint bar is the tell that the theme is a skin
+   over a web widget rather than a printed thing. */
+[data-theme-id="letterpress"] .chart-sheen,
+[data-theme-id="broadsheet"] .chart-sheen,
+[data-theme-id="gallery"] .chart-sheen,
+[data-theme-id="rice-paper"] .chart-sheen { display: none; }
 /* chalkboard: chalk is dusty, not glossy */
 [data-theme-id="chalkboard"] .chart-sheen { opacity: .5; }
-/* botanical: its pill bars breathe a little more */
-[data-theme-id="botanical"] .chart { gap: .75em; }
+/* The pill-bar themes breathe a little more — round ends need the air to
+   read as separate objects rather than one segmented tube. */
+[data-theme-id="botanical"] .chart,
+[data-theme-id="sorbet"] .chart,
+[data-theme-id="kiln"] .chart,
+[data-theme-id="observatory"] .chart { gap: .75em; }
 /* high-contrast: no gradients, no gloss — a 2px rule around every well */
 [data-theme-id="high-contrast"] .chart-track {
   background: transparent;
@@ -154,12 +163,22 @@
   gap: 1em;
 }
 
+/* Capped at three lines. The track beside it is a fixed 2.15em, so a
+   label that wrapped to five or six lines left a small bar floating in
+   the middle of a very tall row — and an option nobody can read at the
+   back of the room is not being helped by its sixth line. The full text
+   is on the title attribute, and the phone shows it in full. */
 .chart-label {
   font-size: .82em;
   font-weight: 600;
   line-height: 1.22;
   letter-spacing: -.005em;
   overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .chart-track {
@@ -480,23 +499,44 @@ svg.donut {
 
 .answer-text { margin: 0; }
 
+/* Half-lit rather than invisible: a touch screen has no hover, so an
+   opacity:0 control is simply unreachable there. Same fix the slide rail
+   actions already carry. */
 .answer-actions {
   position: absolute; top: .25em; right: .3em;
-  opacity: 0;
+  opacity: .5;
   transition: opacity var(--duration-fast) var(--ease-out);
 }
 .answer-card:hover .answer-actions,
 .answer-card:focus-within .answer-actions { opacity: 1; }
 
+@media (hover: hover) and (pointer: fine) {
+  .answer-actions { opacity: 0; }
+}
+
 .answer-delete {
   border: none; background: transparent; cursor: pointer;
   color: var(--ink-soft); font-size: 1.15em; line-height: 1;
-  padding: .1em .32em; border-radius: 6px;
+  border-radius: 6px;
+  /* WCAG 2.2 target size — this used to be roughly 20px square */
+  min-width: 24px; min-height: 24px;
+  display: inline-flex; align-items: center; justify-content: center;
 }
 .answer-delete:hover {
   color: var(--bad-text);
   background: color-mix(in srgb, var(--bad) 12%, transparent);
 }
+
+/* Q&A slide: the approved questions, biggest vote count first */
+.qa-slide-card { padding-right: 3.2em; }
+.qa-slide-votes {
+  position: absolute; top: .8em; right: .9em;
+  font-variant-numeric: tabular-nums;
+  font-size: .85em; font-weight: 600;
+  color: var(--accent-text);
+}
+.qa-slide-card.is-answered { opacity: .55; }
+.qa-slide-card.is-answered .answer-text { text-decoration: line-through; }
 
 /* ============================================================== scales */
 
@@ -581,7 +621,10 @@ svg.donut {
 .rank-row {
   position: absolute;
   left: 0; right: 0; top: 0;
-  height: 3em;                 /* must match ROW_H in charts.js */
+  /* charts.js owns this number: it translates each row by index × this
+     height, so the two cannot be allowed to drift. The fallback is the
+     same value, for the miniature previews that never run the renderer. */
+  height: var(--rank-row-h, 3em);
   display: grid;
   grid-template-columns: 2.2em minmax(6em, 26%) 1fr auto;
   align-items: center;
@@ -754,7 +797,7 @@ svg.donut {
 .lb-row {
   position: absolute;
   left: 0; right: 0; top: 0;
-  height: 2.6em;               /* must match ROW_H in charts.js */
+  height: var(--lb-row-h, 2.6em);   /* set by charts.js — see .rank-row */
   display: grid;
   grid-template-columns: 2.2em minmax(6em, 30%) 1fr auto;
   align-items: center;

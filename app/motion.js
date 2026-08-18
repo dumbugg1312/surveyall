@@ -58,10 +58,31 @@ export const PRESETS = {
   precise: { stiffness: 210, damping: 30, mass: 1 },
 };
 
+/**
+ * Force every spring, counter and delay to land instantly, regardless of
+ * what the operating system asked for.
+ *
+ * The export does this while it draws (see export-print.js). A printed
+ * page has no frames: a chart caught mid-flight prints a bar at whatever
+ * length it had reached, which is a number that was never true. The same
+ * rule the PRESETS comment states — never draw a quantity you are still
+ * travelling toward — applies hardest to paper, because paper cannot
+ * correct itself a frame later.
+ *
+ * Scoped and restored by the caller. Groups read this at construction, so
+ * charts already on screen keep the physics they were built with.
+ */
+let forcedStill = false;
+
+export function setMotionStill(on) {
+  forcedStill = !!on;
+}
+
 export function prefersReducedMotion() {
-  return typeof window !== 'undefined'
-    && window.matchMedia
-    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  return forcedStill
+    || (typeof window !== 'undefined'
+      && window.matchMedia
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 }
 
 // =====================================================================
@@ -606,13 +627,43 @@ function maxChromaAt(L, h) {
  * @param {string} bg   the background these sit on (theme `--ground`)
  * @param {number} minContrast  WCAG floor; large chart text/shapes want ~3+
  */
-export function hueWheel(anchor, count, bg = '#ffffff', minContrast = 3.3) {
+export function hueWheel(anchor, count, bg = '#ffffff', minContrast = 3.3, toward = null) {
   if (count <= 1) return [anchor];
   const [, A0, B0] = srgbToOklab(anchor);
   const H0 = Math.atan2(B0, A0);
   const out = [];
+  // A SECTOR, not the whole circle. Walking the full 360° gave four poll
+  // bars in olive, teal, purple and orange on a theme whose entire palette
+  // is olive and rust — the largest coloured surface in the room ignoring
+  // the theme it was supposed to be wearing. The sector keeps what the
+  // wheel is for (each option owns a hue, and holds it across the reveal)
+  // while keeping the whole set inside one region of the wheel, so the
+  // bars read as this theme rather than as a default chart library.
+  // Step size grows with the option count and the total span caps at
+  // ~198°, so two options sit a comfortable 36° apart and eight still
+  // clear 28° — past that, more separation buys no legibility, it just
+  // walks back out to the rainbow.
+  // `toward` is the theme's second accent. It sets which WAY the sector
+  // sweeps, so the series walks the ground the theme already covers —
+  // olive through amber to rust — instead of walking off into whatever
+  // hue happens to sit counter-clockwise of the accent. Without it a warm
+  // theme's third bar is teal. Direction only: the arc is still spaced by
+  // STEP, so two accents that sit almost on top of each other still yield
+  // options that can be told apart.
+  const STEP = 0.62;                 // ~36° between neighbours
+  const MAX_ARC = Math.PI * 1.1;     // ~198° end to end
+  const arc = Math.min(MAX_ARC, (count - 1) * STEP);
+  let dir = 1;
+  if (toward) {
+    const [, A1, B1] = srgbToOklab(toward);
+    // shortest signed way round from the accent to the second accent
+    let d = Math.atan2(B1, A1) - H0;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    if (d < 0) dir = -1;
+  }
   for (let i = 0; i < count; i += 1) {
-    const h = H0 + (i / count) * Math.PI * 2;
+    const h = H0 + dir * (i / (count - 1)) * arc;
     let best = null;
     let bestChroma = -1;
     let fallback = null;

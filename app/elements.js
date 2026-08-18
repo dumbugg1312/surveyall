@@ -371,8 +371,8 @@ export function anchorPos(at) {
 // =====================================================================
 
 export const LAYERS = [
-  ['front', 'In front', 'Over the question and the results — for marks that point at something'],
-  ['back', 'Behind', 'Under the question and the results — for watermarks and scene-setting'],
+  ['front', 'In front', 'Over the question and the results, for marks that point at something'],
+  ['back', 'Behind', 'Under the question and the results, for watermarks and scene-setting'],
 ];
 export const DEFAULT_LAYER = 'front';
 
@@ -508,21 +508,59 @@ export function opacityValue(value) {
 
 export const CATEGORY_LABELS = {
   marks: 'Marks & annotation',
+  arrows: 'Arrows',
+  signals: 'Signals & status',
+  classroom: 'Classroom',
+  people: 'People & feelings',
   science: 'Science & nature',
   maths: 'Maths & shapes',
-  humanities: 'Humanities & arts',
-  classroom: 'Classroom',
-  computing: 'Computing & data',
-  health: 'Health & body',
-  money: 'Money & society',
-  signals: 'Signals & status',
-  arrows: 'Arrows',
+  charts: 'Charts & data',
+  humanities: 'Humanities',
+  arts: 'Music, art & media',
+  computing: 'Computing',
+  health: 'Health, body & sport',
+  money: 'Money & work',
+  world: 'Places & travel',
+  everyday: 'Everyday things',
 };
 
-/** Marks first: they are the ones that do teaching work. */
+/**
+ * One word per tab where one word will do.
+ *
+ * The tab strip wraps, and at fifteen categories the full names cost it
+ * three rows out of a popover that is only so tall — the grid underneath
+ * is what people came for. The long name stays as the tab's title.
+ */
+export const CATEGORY_TABS = {
+  marks: 'Marks',
+  arrows: 'Arrows',
+  signals: 'Signals',
+  classroom: 'Classroom',
+  people: 'People',
+  science: 'Science',
+  maths: 'Maths',
+  charts: 'Charts',
+  humanities: 'Humanities',
+  arts: 'Arts',
+  computing: 'Computing',
+  health: 'Health',
+  money: 'Money',
+  world: 'Places',
+  everyday: 'Everyday',
+};
+
+/**
+ * Marks first: they are the ones that do teaching work.
+ *
+ * Must stay in step with the CATALOG in tools/build-elements.mjs — a
+ * category that exists there and not here has its icons built into
+ * elements-data.js and then dropped by ELEMENT_LIST, which is a silent
+ * loss rather than an error. checkCatalog() below is the guard.
+ */
 export const CATEGORY_ORDER = [
-  'marks', 'arrows', 'signals', 'classroom', 'science',
-  'maths', 'humanities', 'computing', 'health', 'money',
+  'marks', 'arrows', 'signals', 'classroom', 'people', 'science',
+  'maths', 'charts', 'humanities', 'arts', 'computing', 'health',
+  'money', 'world', 'everyday',
 ];
 
 const ELEMENTS = new Map();
@@ -537,9 +575,28 @@ ICON_INDEX.forEach(([id, label, category, tags]) => {
   ELEMENTS.set(id, { id, label, tags, category, markup: ICON_PATHS[id] });
 });
 
-/** Every element, in category order — the picker's source of truth. */
-export const ELEMENT_LIST = CATEGORY_ORDER.flatMap((cat) =>
-  [...ELEMENTS.values()].filter((e) => e.category === cat));
+/**
+ * Every element, in category order — the picker's source of truth.
+ *
+ * Sorted rather than filtered by category, so an element whose category
+ * isn't in CATEGORY_ORDER lands at the end instead of disappearing. A
+ * missing picker tab is a bug someone will notice; an element that exists
+ * in a deck file and cannot be found in the picker is one they won't.
+ */
+const catRank = (cat) => {
+  const i = CATEGORY_ORDER.indexOf(cat);
+  return i === -1 ? CATEGORY_ORDER.length : i;
+};
+
+export const ELEMENT_LIST = [...ELEMENTS.values()]
+  .sort((a, b) => catRank(a.category) - catRank(b.category));
+
+/** Categories present in the data but missing from CATEGORY_ORDER. Tests assert this is empty. */
+export function orphanCategories() {
+  return [...new Set([...ELEMENTS.values()].map((e) => e.category))]
+    .filter((cat) => !CATEGORY_ORDER.includes(cat))
+    .sort();
+}
 
 export function getElement(id) {
   return ELEMENTS.get(String(id || '').trim().toLowerCase()) || null;
@@ -551,7 +608,7 @@ export function hasElement(id) { return ELEMENTS.has(String(id || '').trim().toL
  * Search by id, label and tags.
  *
  * Whole-word-prefix scoring, so typing "arc" surfaces the curved arrows
- * ahead of "search" — a substring match on 234 items ranks by accident
+ * ahead of "search" — a substring match on 700-odd items ranks by accident
  * otherwise, and the picker is only useful if the first row is right.
  */
 export function searchElements(query) {

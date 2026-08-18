@@ -82,9 +82,9 @@ export const TYPE_BLURBS = {
   quiz: 'Right answer, a clock, points.',
   qa: 'The room asks; you choose what to show.',
   spectrum: 'Place yourself between two poles.',
-  sample_vote: 'Two samples side by side — which works, and why?',
+  sample_vote: 'Two samples side by side. Which works, and why?',
   heatmap: 'Tap the sentence that does the work.',
-  traffic: 'Green, yellow, red — am I going too fast?',
+  traffic: 'Green, yellow, red. Am I going too fast?',
   mood: 'One icon each. How the room walked in.',
   this_or_that: 'A stack of either/ors, answered on instinct.',
   budget: 'A hundred points to spend. Trade-offs, not preferences.',
@@ -305,7 +305,7 @@ function sameModeVocabulary(a, b) {
 export const DEFAULT_JOIN_STEPS = [
   'Open the camera on your phone and point it at the QR code.',
   'Or go to the address on screen and type in the code.',
-  'Leave the page open — questions appear as we go.',
+  'Leave the page open, and questions appear as we go.',
 ];
 
 /**
@@ -732,8 +732,8 @@ export function validateResponse(type, config, raw) {
         return {
           ok: false,
           error: spent > total
-            ? `That's ${spent} of ${total} — take ${spent - total} back.`
-            : `That's ${spent} of ${total} — ${total - spent} still to place.`,
+            ? `That's ${spent} of ${total}. Take ${spent - total} back.`
+            : `That's ${spent} of ${total}, with ${total - spent} still to place.`,
         };
       }
       return { ok: true, payload: withRiders({ alloc }, raw) };
@@ -1484,7 +1484,7 @@ export function payloadToText(type, config, payload) {
     }
     case 'sample_vote': {
       const base = Number.isInteger(payload.choice) ? `Sample ${payload.choice + 1}` : '';
-      return payload.rationale ? `${base} — ${payload.rationale}` : base;
+      return payload.rationale ? `${base}: ${payload.rationale}` : base;
     }
     case 'heatmap': {
       const labels = Array.isArray(cfg.labels) ? cfg.labels : [];

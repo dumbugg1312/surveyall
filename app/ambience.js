@@ -225,7 +225,7 @@ function latticePitch(id) {
  *            from a quarter strength is a hue appearing, which the eye
  *            catches at far lower amplitudes than movement.
  *
- * Alphas stay inside the range the static presets already use (0.06–0.22)
+ * Alphas stay inside the range the static presets already use (0.04–0.14)
  * so a bloom reads as part of the backdrop rather than laid over it —
  * and, more practically, so the projected text on top of it never has to
  * compete. Dark themes get a white bloom where light themes get an ink

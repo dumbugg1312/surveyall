@@ -25,7 +25,7 @@ const PHONE = { w: 390, h: 844 };
  * because the one dangerous misreading of this screen is "the class can
  * see this" — or, once the switch is on, "somebody answered".
  */
-const NOTE_IDLE = 'Preview — nothing is saved and nobody can join. '
+const NOTE_IDLE = 'Preview. Nothing is saved and nobody can join. '
   + 'Your real join code is unused.';
 const NOTE_TESTING = 'Invented answers, from nobody. Nothing is saved.';
 
@@ -81,7 +81,7 @@ export function openPreview(deck, questions) {
     'Projector preview');
   projector.fit.append(sized(projectorFrame, PROJECTOR));
 
-  const phone = pane('A student\'s phone', 'Answer here — it lands on the projector.');
+  const phone = pane('A student\'s phone', 'Answer here, and it lands on the projector.');
   phone.wrap.classList.add('preview-pane-phone');
   const phoneFrame = frame(`join.html?preview=1#${encodeURIComponent(room.joinCode)}`,
     'Participant preview');
