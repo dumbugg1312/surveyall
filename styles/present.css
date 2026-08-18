@@ -181,6 +181,15 @@
 .stage.is-transitioning #timerHost { opacity: .001; }
 
 @media (prefers-reduced-motion: reduce) {
+  /* The urgency beats are the one place a reduced-motion user loses
+     information, so the colour change stays and only the movement goes.
+     .timer.is-urgent and .pair-clock.is-done both already recolour to
+     --bad-text, which carries the message on its own. */
+  .timer.is-urgent, .pair-clock.is-done { animation: none; }
+  .progress-dots::before { transition: none; }
+  .stage-flash { transition: opacity .25s ease; transform: none; }
+  .stage-flash.is-visible { transform: none; }
+
   /* captureSlide() already refuses to build a ghost, so this is the
      belt to that pair of braces — the preference can flip mid-session
      and a stranded overlay would cover the class's slide. */
@@ -452,6 +461,32 @@
 .progress-dot.is-done { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .progress-dot.is-current { background: var(--accent); transform: scale(1.6); }
 
+/* Where the deck has been, drawn as one continuous line rather than as
+   a row of independently-filled dots.
+   The dots alone answer "which slide is this" but say nothing about
+   which way you just moved, so stepping back looked exactly like
+   stepping forward. The rail is painted by a single scaleX on a bar
+   behind the dots: going forward it grows, going back it retracts, and
+   because it is one element easing between two widths the direction is
+   legible from the back of the room even though the dots themselves are
+   nearly too small to see. */
+.progress-dots {
+  position: relative;
+  padding-inline: .1em;
+}
+.progress-dots::before {
+  content: '';
+  position: absolute;
+  left: .1em; top: 50%;
+  height: 2px;
+  width: var(--rail-width, 0px);
+  transform: translateY(-50%);
+  background: color-mix(in srgb, var(--accent) 38%, transparent);
+  border-radius: 999px;
+  transition: width .34s var(--ease-snap);
+  pointer-events: none;
+}
+
 /* --------------------------------------------------------------- timer */
 
 .timer {
@@ -466,9 +501,28 @@
 .timer.is-urgent {
   background: color-mix(in srgb, var(--bad) 16%, transparent);
   color: var(--bad-text);
-  animation: timer-tick 1s steps(2) infinite;
+  animation: timer-beat .95s var(--ease-in-out) infinite;
 }
-@keyframes timer-tick { 50% { opacity: .55; } }
+
+/* A pulse, not a blink.
+   This used to be `timer-tick 1s steps(2)` — a hard opacity chop to .55
+   twice a second. Two problems with that on a projected slide. It reads
+   cheap: a hard step is the visual language of a broken fluorescent
+   tube, not of urgency. And it is a flash, which is the one category of
+   motion WCAG puts a hard ceiling on (2.3.1); at 2Hz over a large bright
+   pill it was well inside the range worth avoiding even though it never
+   reached the three-per-second threshold.
+   A scale heartbeat carries the same "time is nearly up" message through
+   a channel that has no flash risk at all — the pill breathes, the
+   colour holds steady, and nothing about the number gets harder to read
+   while it moves. The number is the quantity here, and it stays
+   perfectly legible because the transform is tiny and the type is
+   tabular. */
+@keyframes timer-beat {
+  0%, 100% { transform: scale(1); }
+  38%      { transform: scale(1.055); }
+  62%      { transform: scale(.995); }
+}
 
 /* ------------------------------------------------------------ controls */
 
@@ -588,7 +642,19 @@
   color: color-mix(in srgb, var(--accent-text) 85%, var(--ink));
   line-height: 1;
 }
-.pair-clock.is-done { color: var(--bad-text); animation: timer-tick 1s steps(2) infinite; }
+/* The discussion clock is 3.2em of display type in the middle of a
+   takeover overlay, so it gets a shallower beat than the corner pill —
+   the same proportional movement on something that large would swing
+   far enough to read as a wobble. */
+.pair-clock.is-done {
+  color: var(--bad-text);
+  animation: timer-beat 1.15s var(--ease-in-out) infinite;
+  animation-name: pair-clock-beat;
+}
+@keyframes pair-clock-beat {
+  0%, 100% { transform: scale(1); }
+  40%      { transform: scale(1.022); }
+}
 .pair-sub { font-size: .75em; color: var(--ink-soft); }
 
 /* Mazur's decision band, tray-only */
@@ -767,9 +833,13 @@
   font-weight: 700;
   opacity: 0;
   pointer-events: none;
-  transition: opacity .25s ease;
+  /* Rises as it arrives, like the base .toast. A pure opacity fade on
+     something this large reads as a rendering hiccup rather than as a
+     thing that was handed to you. */
+  transform: translateY(.5em);
+  transition: opacity .25s ease, transform .25s var(--ease-out);
 }
-.stage-flash.is-visible { opacity: 1; }
+.stage-flash.is-visible { opacity: 1; transform: none; }
 
 /* The keyboard shortcut is printed on the control it triggers, so there
    is no separate hint bar. It used to list the same eight shortcuts a

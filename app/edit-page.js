@@ -226,6 +226,33 @@ function selectSlide(id) {
 
 function renderRail() {
   const list = $('railList');
+
+  // FLIP, keyed on slide id.
+  //
+  // The rail is rebuilt wholesale on every change, so a drag-reorder, an
+  // insert or a delete used to TELEPORT every slide below the edit to its
+  // new place. That is the single biggest reason the editor felt cheaper
+  // than the projector it produces: the one gesture in the app that is
+  // literally about moving something showed no movement at all.
+  //
+  // offsetTop/offsetLeft rather than getBoundingClientRect: the rail is a
+  // scrolling container, and a viewport-relative measurement taken either
+  // side of a rebuild silently folds any scroll change into the delta —
+  // which is how a FLIP ends up flinging rows across the screen when the
+  // list happens to scroll. Layout offsets are immune to that.
+  //
+  // Both axes are measured because the rail is vertical on a desktop and
+  // a horizontal strip under 720px (styles/app.css), and this way neither
+  // orientation needs to know about the other.
+  const before = new Map();
+  if (!prefersReducedMotion()) {
+    for (const child of list.children) {
+      if (child.dataset?.id) {
+        before.set(child.dataset.id, { top: child.offsetTop, left: child.offsetLeft });
+      }
+    }
+  }
+
   list.textContent = '';
   $('railCount').textContent = questions.length
     ? `${questions.length} slide${questions.length === 1 ? '' : 's'}` : '';
@@ -239,6 +266,21 @@ function renderRail() {
   }
 
   questions.forEach((q, i) => list.append(railItem(q, i)));
+
+  if (!before.size) return;
+  for (const child of list.children) {
+    const old = before.get(child.dataset?.id);
+    if (!old) continue;                       // a slide that was just added
+    const dx = old.left - child.offsetLeft;
+    const dy = old.top - child.offsetTop;
+    // Sub-pixel noise is not movement, and animating it costs a
+    // compositor layer per thumbnail for nothing.
+    if (Math.abs(dx) < 2 && Math.abs(dy) < 2) continue;
+    child.animate(
+      [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }],
+      { duration: 300, easing: 'cubic-bezier(.2, 0, 0, 1)' },
+    );
+  }
 }
 
 function railItem(q, index) {

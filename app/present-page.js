@@ -429,6 +429,16 @@ function paintDots() {
       + (i === cur ? ' is-current' : '');
     ui.dots.append(dot);
   });
+
+  // The rail behind the dots, reaching the middle of the current one.
+  // Written as a width in em because the whole slide scales from one root
+  // font-size, and it is a single value on a single element so the
+  // browser eases it between the old position and the new one — which is
+  // the entire point: the dots are rebuilt from scratch every paint and
+  // therefore cannot animate anything themselves, but this bar persists
+  // and so the direction of travel survives the rebuild.
+  // .5em dot + .3em gap = .8em per step, +.25em to reach the dot's centre.
+  ui.dots.style.setProperty('--rail-width', cur < 0 ? '0px' : `${cur * 0.8 + 0.25}em`);
 }
 
 /** Write a control's caption without disturbing the <kbd> key printed on it. */

@@ -585,6 +585,22 @@ function renderQuestion(q, isNew) {
       btn.classList.add('is-sent');
       btn.textContent = multi ? 'Sent. Add another' : 'Answer sent ✓';
       announce(multi ? 'Sent. You can add another.' : 'Answer sent.');
+      // A haptic tick, where the phone has one. This is the only feedback
+      // that survives the two things that actually happen in a lecture
+      // hall: a phone held low under a desk, and a student who has
+      // already looked back up at the screen.
+      //
+      // Deliberately NOT behind the reduced-motion gate. That preference
+      // is about vestibular safety — motion the eye tracks — and a 10ms
+      // tick moves nothing on screen. Someone who has asked for less
+      // animation has, if anything, more need of a non-visual
+      // confirmation. Optional-chained and wrapped because vibrate() is
+      // absent on every iPhone and throws inside cross-origin iframes,
+      // and a thrown error here would abandon the rest of the success
+      // path — leaving the button stuck mid-send after the answer was
+      // already accepted.
+      try { navigator.vibrate?.(10); } catch { /* no haptics here */ }
+
       // one small physical beat on success — the green text alone is
       // easy to miss mid-lecture with the phone at arm's length
       if (!prefersReducedMotion()) {

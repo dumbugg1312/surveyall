@@ -263,6 +263,96 @@ the worst place to discover a browser-specific fallback path. The clone
 works identically everywhere, and charts here are SVG and DOM, never
 canvas.
 
+## 9. The elevation pass — what got sharper
+
+Alongside the transitions, a sweep over motion that already existed.
+
+**The quiz verdict now has a losing side.** Wrong rows used to darken and
+fade, which reads as "still in the running, just quieter". They now also
+lose their *saturation*, driven straight off the same `dim` spring — a bar
+that has lost its colour has visibly stopped competing, and saturation is
+the only channel available here that can say so without touching the
+encoded length. The correct row gets one beat of extra brightness at the
+instant it is named, because the spring-driven ring underneath blooms over
+~400ms and the room needs something that happens *on* the beat.
+
+**Confetti is two elements per piece.** One element can only carry one
+transform, and a single span has to spend it on the fall — which is why
+the old confetti dropped on rails, every piece rotating about the same
+axis at a constant rate. The outer element now owns the journey (fall +
+drift, one pass) and the inner owns the tumble (two axes, alternating, on
+its own short loop with a negative delay so the field never starts in
+lockstep). `rotateY` is what sells it: a flake turning edge-on briefly
+narrows to nothing, which is the flicker real paper has. Three shapes in a
+fixed ratio, so every celebration has the same mix rather than the luck of
+the draw.
+
+**The timer beats instead of blinking.** `timer-tick` was a hard opacity
+chop to .55 twice a second — the visual language of a failing fluorescent
+tube, and a flash, which is the one category of motion WCAG puts a hard
+ceiling on (2.3.1). A scale heartbeat carries the same urgency through a
+channel with no flash risk, and the tabular numerals stay perfectly legible
+while it moves. The discussion clock gets a shallower version, because the
+same proportional movement on 3.2em of display type reads as a wobble.
+Under reduced motion the movement goes and the `--bad-text` recolour stays,
+so nothing is actually lost.
+
+**The progress dots grew a rail.** The dots said which slide you were on
+but nothing about which way you just moved, so stepping back looked exactly
+like stepping forward. A single bar behind them eases between two widths —
+and because the dots are rebuilt from scratch on every paint they cannot
+animate anything themselves, while the rail persists and therefore survives
+the rebuild.
+
+**The editor rail FLIPs.** A drag-reorder, insert or delete rebuilt the
+list and every thumbnail teleported. This was the single biggest reason the
+editor felt cheaper than the projector it produces: the one gesture in the
+app that is literally about moving something showed no movement at all. The
+measurement uses `offsetTop`/`offsetLeft` rather than
+`getBoundingClientRect()`, because the rail scrolls and a viewport-relative
+measurement taken either side of a rebuild folds any scroll change into the
+delta — which is how a FLIP ends up flinging rows across the screen. Both
+axes are measured so the vertical rail and the sub-720px horizontal strip
+need no knowledge of each other.
+
+**Cloud words arrive out of focus.** `filter` is the one channel on a cloud
+word that `paint()` does not write every frame, so a one-shot blur→0 lives
+there with no coordination with the springs at all. It reads as the word
+coming *into focus* rather than merely being scaled up — which matters,
+because scale on this chart already encodes how many people said it, and a
+second thing that looks like magnitude would be a lie.
+
+**A place changing hands reads both ways.** The leaderboard flashed a climb
+and said nothing about the person overtaken, so half of every swap looked
+like a rendering artefact. Falls now wash neutral and clear faster than
+climbs, and both scale with the size of the move.
+
+**The phone got a haptic tick**, deliberately *not* behind the
+reduced-motion gate: that preference is about vestibular safety, and a 10ms
+tick moves nothing on screen. Someone who asked for less animation has, if
+anything, more need of a non-visual confirmation. It is wrapped in a
+try/catch because `vibrate()` throws inside cross-origin iframes, and a
+throw there would abandon the rest of the success path — leaving the button
+stuck mid-send on an answer the server had already accepted.
+
+### Not done, and why
+
+- **The `wait-bounce` duplicate** (`join.css` vs `charts.css`) is still two
+  definitions. They are not equivalent — `rem` vs `em` amplitude — and
+  because `join.html` loads `charts.css` first, the `rem` version currently
+  wins on the phone. Unifying them is a behaviour change on the student's
+  screen dressed as hygiene, and it wants its own pass.
+- **The motion-token sweep** (hard-coded `.3s ease` onto `--duration-*`)
+  is untouched, and `styles/elements.css` has four of them nobody has
+  counted before.
+- **The word cloud's "#1 changed hands" pulse.** Leadership is not tracked
+  — top place is only ever ephemeral within a paint — and the natural
+  channel for it, scale, is already spoken for by the count. Adding
+  bookkeeping for a pulse that would compete with the size change was not
+  worth it.
+- **`docs/accessibility.md` should gain a 2.3.1 line** now that the flash
+  is gone and there is something to record.
+
 ## Infrastructure
 
 `qrcode-generator` is vendored (`app/vendor/`, MIT) instead of imported from

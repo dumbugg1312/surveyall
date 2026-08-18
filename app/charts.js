@@ -358,6 +358,24 @@ export function renderChoice(container, agg, opts = {}) {
       state.rows.forEach((r, i) => {
         state.group.set(`dim:${i}`, correct.has(i) ? 0 : dimTo);
         r.row.classList.toggle(markClass, correct.has(i));
+        // One beat of extra light on the answer, at the instant it is
+        // named. The spring-driven ring underneath (see paint()) already
+        // blooms as `dim` settles, but a ring grows in over ~400ms and
+        // the room needs something that happens ON the beat, not around
+        // it. Brightness, deliberately: it composes with the ring rather
+        // than competing with it, it is the same filter channel the dim
+        // is already using so nothing else has to change, and it cannot
+        // move or resize a bar whose length is a number.
+        if (correct.has(i) && !prefersReducedMotion()) {
+          r.fill.animate(
+            [
+              { filter: 'brightness(1) saturate(1)' },
+              { filter: 'brightness(1.42) saturate(1.15)', offset: 0.18 },
+              { filter: 'brightness(1) saturate(1)' },
+            ],
+            { duration: 780, easing: 'cubic-bezier(0, 0, .2, 1)' },
+          );
+        }
       });
     });
   } else if (revealOn) {
@@ -424,6 +442,17 @@ export function renderChoice(container, agg, opts = {}) {
       r.fill.style.background =
         `linear-gradient(180deg, ${mixColor(shown, '#ffffff', 0.10)} 0%, ${shown} 52%, ${mixColor(shown, '#000000', 0.06)} 100%)`;
       r.fill.style.opacity = String(1 - dim * 0.35);
+
+      // Dimming alone was not enough separation at the verdict. A bar
+      // that is only darker still reads as a bar that is still in the
+      // running; a bar that has lost its COLOUR has visibly stopped
+      // competing, which is what the moment is trying to say. Saturation
+      // is the one channel here that can carry "this is no longer the
+      // answer" without touching the encoded length — scale, width and
+      // height are all off limits on something that represents a count.
+      // Driven straight off the same dim spring, so it costs no new
+      // state and arrives on the same critically damped curve.
+      r.fill.style.filter = dim > 0.01 ? `saturate(${(1 - dim * 0.55).toFixed(3)})` : '';
 
       // the verdict glow blooms as the correct row's dim spring settles
       // back to zero — tied to the spring, so it fades in, never pops
@@ -795,10 +824,12 @@ export function renderWordCloud(container, agg, opts = {}) {
           if (container.__chart !== state) return;
           if (state.nodes.get(entry.word) !== node) return;
           state.group.set(`s:${entry.word}`, 1);
+          focusIn(node);
         });
       } else {
         // new words fly in from nothing at the centre
         state.group.set(`s:${entry.word}`, 1, { from: 0, preset: 'bouncy' });
+        focusIn(node);
       }
     } else {
       state.group.set(`s:${entry.word}`, 1);
@@ -962,6 +993,29 @@ export function renderWordCloud(container, agg, opts = {}) {
       state.meta.positioned?.delete(word);
     });
   });
+
+  /**
+   * A word arrives slightly out of focus and resolves.
+   *
+   * `filter` is the one visual channel on a cloud word that paint() does
+   * NOT write every frame — transform and opacity are both spring-owned
+   * and would be stomped on the very next tick — so a one-shot lives
+   * here without any coordination with the springs at all.
+   *
+   * It reads as the word coming into focus rather than simply being
+   * scaled up, which matters because scale on this chart already means
+   * something: it encodes how many people said it. The blur adds the
+   * arrival WITHOUT adding a second thing that looks like magnitude.
+   * Kept to 2px and 420ms — roughly how long the scale spring takes to
+   * arrive — so the two land together.
+   */
+  function focusIn(node) {
+    if (prefersReducedMotion()) return;
+    node.animate(
+      [{ filter: 'blur(2px)' }, { filter: 'blur(0px)' }],
+      { duration: 420, easing: 'cubic-bezier(0, 0, .2, 1)' },
+    );
+  }
 
   function paint() {
     const g = state.group;
@@ -1606,14 +1660,32 @@ export function renderLeaderboard(container, entries, opts = {}) {
     }
     r.name.textContent = entry.pseudonym;
 
-    // climbing a place flashes the row with a wash of the accent —
-    // rows have no CSS background of their own, so a one-shot WAAPI
-    // animation conflicts with nothing (transform stays spring-owned)
-    if (r.__rank != null && entry.rank < r.__rank && !prefersReducedMotion()) {
+    // A place changing hands washes the row — rows have no CSS
+    // background of their own, so a one-shot WAAPI animation conflicts
+    // with nothing (transform stays spring-owned, and the className
+    // rebuild below cannot clobber an animation).
+    //
+    // Both directions, and they are deliberately not symmetrical. A
+    // climb washes the accent and holds; a fall washes neutral and
+    // clears faster. Without the second half the board only ever told
+    // half the story — someone overtaking was lit up while the person
+    // they overtook simply slid down in silence, which reads as a
+    // rendering artefact rather than as the thing that just happened.
+    // Intensity scales with the size of the move (capped), so gaining
+    // four places is visibly bigger news than gaining one.
+    if (r.__rank != null && entry.rank !== r.__rank && !prefersReducedMotion()) {
+      const climbed = entry.rank < r.__rank;
+      const places = Math.min(4, Math.abs(entry.rank - r.__rank));
+      const weight = 0.55 + (places / 4) * 0.45;
+      const tint = climbed
+        ? rgba(token(root, '--accent', '#1d4ed8'), 0.16 * weight)
+        : rgba(token(root, '--ink', '#0b1220'), 0.07 * weight);
       r.row.animate(
-        [{ background: rgba(token(root, '--accent', '#1d4ed8'), 0.14) },
-          { background: 'transparent' }],
-        { duration: 900, easing: 'cubic-bezier(0, 0, .2, 1)' },
+        [{ background: tint }, { background: 'transparent' }],
+        {
+          duration: climbed ? 900 : 520,
+          easing: 'cubic-bezier(0, 0, .2, 1)',
+        },
       );
     }
 
@@ -2901,21 +2973,46 @@ export function celebrate(host) {
   const tokens = ['--good', '--accent', '--good', '--accent-2'];
   const colors = tokens.map((t) => token(host, t, '#888'));
 
+  // Three shapes in a fixed ratio rather than per-piece randomness, so
+  // every celebration has the same mix — a run that happened to roll
+  // eight streamers would read as a different effect.
+  const SHAPES = ['', '', 'is-round', '', 'is-streamer'];
+
   let slowest = 0;
   for (let i = 0; i < 54; i += 1) {
-    const bit = el('span', 'confetti-bit');
+    const shape = SHAPES[i % SHAPES.length];
+    const bit = el('span', `confetti-bit ${shape}`.trim());
     const c = colors[i % colors.length];
     const wait = Math.random() * 0.5;
     const dur = 1.9 + Math.random() * 1.4;
     slowest = Math.max(slowest, wait + dur);
+
+    const streamer = shape === 'is-streamer';
     bit.style.left = `${Math.random() * 100}%`;
-    bit.style.background = c;
-    bit.style.width = `${5 + Math.random() * 7}px`;
-    bit.style.height = `${9 + Math.random() * 9}px`;
+    bit.style.setProperty('--flake', c);
+    // Streamers are long and thin; the rest stay roughly card-shaped.
+    bit.style.width = `${streamer ? 2 + Math.random() * 2 : 5 + Math.random() * 7}px`;
+    bit.style.height = `${streamer ? 16 + Math.random() * 12 : 9 + Math.random() * 9}px`;
     bit.style.animationDelay = `${wait}s`;
     bit.style.animationDuration = `${dur}s`;
     bit.style.setProperty('--drift', `${(Math.random() - 0.5) * 300}px`);
-    bit.style.setProperty('--spin', `${540 + Math.random() * 900}deg`);
+
+    // The tumble runs on its OWN clock, deliberately unrelated to the
+    // fall: a piece that completed exactly one rotation per descent
+    // would land the same way up every time, which is the tell that
+    // nothing is really spinning. Streamers tumble slower — a long thin
+    // piece whipping round reads as a glitch rather than as paper.
+    const turns = streamer ? 0.9 + Math.random() * 0.6 : 1.5 + Math.random() * 2.5;
+    bit.style.setProperty('--spin', `${360 * (Math.random() < 0.5 ? -1 : 1)}deg`);
+    bit.style.setProperty('--spin-half', `${180 * (Math.random() < 0.5 ? -1 : 1)}deg`);
+    bit.style.setProperty('--sway', `${(Math.random() - 0.5) * 18}px`);
+
+    const flake = el('span', 'confetti-flake');
+    flake.style.animationDuration = `${dur / turns}s`;
+    // Negative delay starts each piece part-way through its tumble, so
+    // the field does not begin in lockstep with every flake face-on.
+    flake.style.animationDelay = `${-Math.random() * dur}s`;
+    bit.append(flake);
     layer.append(bit);
   }
   host.append(layer);

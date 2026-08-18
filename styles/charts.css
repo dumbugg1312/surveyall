@@ -1153,19 +1153,52 @@ svg.donut {
   overflow: hidden;
   z-index: 5;
 }
+/* Two elements per piece, and the nesting is the whole trick.
+   One element can only carry one transform, so a single span has to
+   spend it on the fall — which is why the old confetti dropped on rails,
+   every piece spinning about the same axis at a constant rate. Real
+   confetti tumbles about its own centre while it wanders sideways, and
+   those are two different motions on two different clocks. The outer
+   element owns the journey (fall + drift, one pass, forwards), the inner
+   owns the tumble (two axes, alternating, on its own short loop). */
 .confetti-bit {
   position: absolute;
   top: -8vh;
-  border-radius: 2px;
   animation: confetti-fall cubic-bezier(.25, .5, .4, 1) forwards;
+  will-change: transform, opacity;
 }
+/* The colour rides on the OUTER element as a custom property but is
+   painted only by the inner one. Painting it on both would put a square
+   behind every round piece, since the shape lives on the flake. */
+.confetti-flake {
+  display: block;
+  width: 100%; height: 100%;
+  border-radius: 2px;
+  background: var(--flake, currentColor);
+  animation: confetti-tumble linear infinite;
+}
+/* Shape variants. A field of identical rectangles reads as a particle
+   system; a mix reads as paper. */
+.confetti-bit.is-round > .confetti-flake { border-radius: 50%; }
+.confetti-bit.is-streamer > .confetti-flake { border-radius: 1px; }
+
 @keyframes confetti-fall {
-  0% { transform: translate3d(0, 0, 0) rotate(0deg); opacity: 1; }
+  0% { transform: translate3d(0, 0, 0); opacity: 1; }
   85% { opacity: 1; }
   100% {
-    transform: translate3d(var(--drift, 0), 112vh, 0) rotate(var(--spin, 720deg));
+    transform: translate3d(var(--drift, 0), 112vh, 0);
     opacity: 0;
   }
+}
+
+/* rotateY is what sells it: a flake turning edge-on briefly narrows to
+   nothing, which is the flicker real confetti has and a flat spin never
+   does. --sway rocks the piece off vertical so the fall is not a plumb
+   line. */
+@keyframes confetti-tumble {
+  0%   { transform: rotateY(0deg) rotateZ(0deg) translateX(0); }
+  50%  { transform: rotateY(180deg) rotateZ(var(--spin-half, 180deg)) translateX(var(--sway, 0)); }
+  100% { transform: rotateY(360deg) rotateZ(var(--spin, 360deg)) translateX(0); }
 }
 
 /* =================================================== prefers-contrast */
@@ -1186,7 +1219,11 @@ svg.donut {
 @media (prefers-reduced-motion: reduce) {
   .answer-card { transition: none; }
   .answer-card:hover { transform: none; }
+  /* the layer never mounts under reduced motion (celebrate() returns
+     early); this covers a preference that flips mid-celebration, and it
+     has to reach the inner flake now that a piece is two elements */
   .confetti-layer { display: none; }
+  .confetti-flake { animation: none; }
   .cloud-word { transition: none; }
   [data-awaiting] .chart-track::after,
   [data-awaiting] .scale-track::after,
