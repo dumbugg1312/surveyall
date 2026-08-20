@@ -1427,6 +1427,10 @@ details.panel[open] > .panel-head::after {
   isolation: isolate;
   color: var(--ink);
   font-family: var(--body);
+  /* The rail thumbnail and the gallery tile are buttons, whose UA
+     text-align is centre. Without this the same slide draws two
+     different ways depending on which pane you look at it in. */
+  text-align: left;
   font-size: 12px;        /* fallback where container units are missing */
   font-size: 5.6cqw;
   line-height: 1.3;
@@ -1445,7 +1449,12 @@ details.panel[open] > .panel-head::after {
   gap: .45em;
 }
 
+/* --prompt-align is the deck's heading alignment, stamped on .sp-slide by
+   renderSlide(). Only the head takes it: the sketch underneath stands for
+   a chart or a wall of cards, which have their own layout on the
+   projector and do not move with the words. */
 .sp-kicker {
+  text-align: var(--prompt-align, left);
   font-size: .4em;
   font-weight: 600;
   letter-spacing: .09em;
@@ -1454,6 +1463,7 @@ details.panel[open] > .panel-head::after {
 }
 
 .sp-prompt {
+  text-align: var(--prompt-align, left);
   font-family: var(--display);
   font-size: calc(1.05em * var(--prompt-scale, 1));
   font-weight: 650;
@@ -1851,10 +1861,12 @@ details.panel[open] > .panel-head::after {
   color: var(--bad-text);
 }
 
-/* ---- segmented control (decor editor) --------------------------------
+/* ---- segmented control (decor editor, heading alignment) -------------
    Named `decor-seg`, not `seg`: the dashboard's response filter owns
    `.seg`, and while both lived under that one name this block — being
-   later in the file — silently restyled the dashboard's control too. */
+   later in the file — silently restyled the dashboard's control too.
+   The name is where it was born; the slide form's Heading alignment uses
+   the same control, and inherits its focus ring from base.css with it. */
 
 .decor-seg {
   display: inline-flex;

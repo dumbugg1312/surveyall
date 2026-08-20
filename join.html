@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- interactive-widget: when the on-screen keyboard opens, resize the PAGE
+     rather than just the visual viewport, so 100dvh and a sticky send bar
+     both account for the keyboard. Chrome honours it; Safari ignores it,
+     which is why join-page.js also tracks visualViewport by hand. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#f7f4ee">
 <meta name="robots" content="noindex">
 <!-- No analytics, no trackers, no third-party scripts. See docs/architecture.md §5. -->

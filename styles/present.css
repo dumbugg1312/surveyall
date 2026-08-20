@@ -210,7 +210,10 @@
   padding: 1.1em 1.4em .6em;
 }
 
-.stage-heading { flex: 1; min-width: 0; }
+/* --prompt-align is the deck's heading alignment, set on the root by
+   present-page.js. The head takes it; the chart under it keeps its own
+   layout, which is about the data and not about the words. */
+.stage-heading { flex: 1; min-width: 0; text-align: var(--prompt-align, left); }
 
 .stage-kicker {
   font-size: .58em;

@@ -185,6 +185,15 @@ export const updateDeck = (id, patch) =>
 export const deleteDeck = (id) =>
   api(`/api/decks/${id}`, { method: 'DELETE', auth: true });
 
+/**
+ * Copy a deck — slides and look, a new permanent join code, no results.
+ *
+ * One deck per class: two sections cannot share a code, because a code
+ * is how a phone finds the room it is answering in.
+ */
+export const copyDeck = (id, fields = {}) =>
+  api(`/api/decks/${id}/copy`, { method: 'POST', body: fields, auth: true });
+
 /** Rotate a deck's permanent join code. @returns {Promise<{join_code: string}>} */
 export const regenerateDeckCode = (id) =>
   api(`/api/decks/${id}/code`, { method: 'POST', auth: true });

@@ -18,7 +18,7 @@ import {
   aggregate, computeDelta, quizLeaderboard, sortedQuestions,
   neighbourQuestion, joinURL, joinURLPretty, TYPE_LABELS, correctIndices, optionLabels,
   promptKey, isContentSlide, fillJoinPlaceholders, DEFAULT_JOIN_STEPS,
-  questionNumber, promptScale, showSlideLabel,
+  questionNumber, promptScale, promptAlign, resolvePromptAlign, showSlideLabel,
 } from './logic.js';
 import {
   applyTheme, backgroundStyles, scrimOpacity, resolveTheme,
@@ -96,7 +96,8 @@ const state = {
  * before boot() and after the imports on purpose — db.js reads
  * `window.fetch` when it calls, not when it loads.
  */
-if (new URLSearchParams(window.location.search).has('preview')) {
+const isRehearsal = new URLSearchParams(window.location.search).has('preview');
+if (isRehearsal) {
   await import('./preview-net.js');
 }
 
@@ -129,6 +130,10 @@ async function boot() {
   // whether the room is told which slide it is looking at.
   document.documentElement.style.setProperty('--prompt-scale',
     String(promptScale(state.deck)));
+  // The deck's default, for the lobby and for anything drawn before the
+  // first slide. render() overrides it per slide from there on.
+  document.documentElement.style.setProperty('--prompt-align',
+    promptAlign(state.deck));
   paintBackground();
   // awaited: an instructions slide stamps the encoded QR straight into the
   // slide, so it has to exist before the first render, not one frame later
@@ -306,6 +311,11 @@ async function render() {
     : `${TYPE_LABELS[q.type] || q.type} · Question ${n.number} of ${n.total}`
       + (s.current_round > 1 ? ` · Round ${s.current_round}` : '');
   ui.prompt.textContent = q.prompt || '';
+  // Per slide, not once at startup: a slide can sit its heading somewhere
+  // other than the rest of the deck, which is what a title slide in the
+  // middle of a deck of questions is usually for.
+  document.documentElement.style.setProperty('--prompt-align',
+    resolvePromptAlign(q, state.deck));
 
   // The instructions slide already shows a QR the size of a dinner plate;
   // the corner copy on top of it is just clutter.
@@ -1212,9 +1222,70 @@ async function go(step) {
   await patch({ current_question_id: next.id, current_round: 1, accepting: true });
 }
 
-async function patch(fields) {
-  state.session = await updateSession(state.session.id, fields);
-  await render();
+/**
+ * Change the session: on the projector FIRST, then on the server.
+ *
+ * This used to await the round trip before anything moved, so pressing
+ * Next in a lecture hall showed the old slide for as long as the network
+ * took — seconds, on the wifi these rooms actually have — and the honest
+ * reading of that is "the key didn't work", so the instructor presses it
+ * again and skips a slide.
+ *
+ * Nothing here needs the server's permission. Every field is the
+ * instructor's own decision about their own session; the server stores it
+ * and echoes it back over the session subscription, which is the same
+ * path a second projector window already learns about it through.
+ *
+ * Three things this owes in exchange for going first:
+ *  - ORDER. The writes are chained, so two fast presses reach the server
+ *    in the order they were made rather than racing.
+ *  - NO REWIND. Only the newest request's reply is merged. An older
+ *    reply landing late describes a slide the room has already left, and
+ *    merging it would walk the projector backwards.
+ *  - A WAY BACK. If the write fails and nothing newer has happened, the
+ *    session goes back to what it was and the room is told, rather than
+ *    the projector showing a slide the server never accepted.
+ */
+let patchSeq = 0;
+let patchChain = Promise.resolve();
+
+function patch(fields, { confirm = false } = {}) {
+  const before = state.session;
+  const seq = patchSeq + 1;
+  patchSeq = seq;
+
+  // Ending the session is the one change that waits. The others are
+  // recoverable — a slide that did not save is one more press of Next —
+  // but an instructor who sees "Session ended" and shuts the laptop has
+  // no way to learn that the room is still open and still collecting.
+  if (confirm) {
+    patchChain = patchChain.then(() => updateSession(before.id, fields)).then((row) => {
+      if (seq === patchSeq) state.session = { ...state.session, ...row };
+      return render();
+    });
+    return patchChain;
+  }
+
+  state.session = { ...before, ...fields };
+  const painted = render();
+
+  patchChain = patchChain.then(() => updateSession(before.id, fields)).then(
+    (row) => {
+      if (seq !== patchSeq) return;   // superseded; its reply is stale
+      state.session = { ...state.session, ...row };
+      queueRepaint();
+    },
+    (err) => {
+      console.error(err);
+      if (seq === patchSeq) {
+        state.session = before;
+        render();
+      }
+      flash(err?.message || 'That didn\'t reach the server. Check your connection');
+    },
+  );
+
+  return painted;
 }
 
 async function toggleReveal() {
@@ -1263,7 +1334,20 @@ async function endSession() {
     confirmLabel: 'End session',
   });
   if (!ok) return;
-  await patch({ state: 'ended', accepting: false, ended_at: new Date().toISOString() });
+  await patch({ state: 'ended', accepting: false, ended_at: new Date().toISOString() },
+    { confirm: true });
+
+  // Back to the deck you were teaching from. A projector showing "Session
+  // ended" is a dead screen with the class still in the room, and the
+  // next thing anyone does with a deck is edit it or run it again —
+  // neither of which is reachable from here.
+  //
+  // Only after the write is confirmed (patch waits for this one), and
+  // never in rehearsal, where this page is an iframe inside the editor
+  // and navigating it would replace the editor's own preview.
+  if (!isRehearsal) {
+    window.location.href = `edit.html?deck=${state.deck.id}`;
+  }
 }
 
 async function resetQuestion() {

@@ -61,6 +61,7 @@
 .print-head { flex: 0 0 auto; }
 
 .print-kicker {
+  text-align: var(--prompt-align, left);
   font-size: 0.52em;
   font-weight: 600;
   letter-spacing: 0.1em;
@@ -70,6 +71,7 @@
 }
 
 .print-prompt {
+  text-align: var(--prompt-align, left);
   font-family: var(--display);
   font-size: calc(1.45em * var(--prompt-scale, 1));
   font-weight: 600;

@@ -26,7 +26,7 @@
 
 import { renderAggregate, renderDelta, renderLeaderboard, archiveOpts } from './charts.js';
 import { setMotionStill } from './motion.js';
-import { promptScale } from './logic.js';
+import { promptScale, promptAlign, resolvePromptAlign } from './logic.js';
 
 const DECK_ID = 'printDeck';
 
@@ -55,6 +55,11 @@ function el(tag, cls, text) {
 function drawSlide(host, slide, index, total, deck) {
   const page = el('article', `print-slide${slide.kind === 'cover' ? ' is-cover' : ''}`);
   host.append(page);
+
+  // Per page: a slide that sat its heading in the middle on the
+  // projector prints there too. The cover has no question behind it, so
+  // it takes the deck's default.
+  page.style.setProperty('--prompt-align', resolvePromptAlign(slide.raw?.question, deck));
 
   const head = el('header', 'print-head');
   const kicker = slide.kind === 'cover'
@@ -220,6 +225,7 @@ export async function buildPrintDeck(slides, deck) {
   // The per-deck question size the instructor chose in the editor, so a
   // deck designed for short prompts prints as loud as it projected.
   host.style.setProperty('--prompt-scale', String(promptScale(deck)));
+  host.style.setProperty('--prompt-align', promptAlign(deck));
 
   // In the document before anything is drawn — see drawSlide().
   document.body.append(host);

@@ -828,6 +828,66 @@ describe('cross-account isolation', () => {
   });
 });
 
+describe('copying a deck', () => {
+  it('copies the slides and the look, with a code of its own', async () => {
+    const { env, alice, deck } = await twoInstructors();
+    await call(env, 'PATCH', `/api/decks/${deck.id}`, {
+      token: alice,
+      body: { theme: 'chalkboard', settings: { promptAlign: 'center' } },
+    });
+
+    const copy = (await call(env, 'POST', `/api/decks/${deck.id}/copy`,
+      { token: alice, body: { title: 'Alice deck — section 2' } })).data;
+
+    eq(copy.title, 'Alice deck — section 2');
+    eq(copy.theme, 'chalkboard');
+    eq(copy.settings?.promptAlign, 'center');
+    // The whole reason to copy rather than re-run: one code cannot be two
+    // rooms, so the copy must not inherit the original's.
+    ok(copy.join_code, 'the copy has a join code');
+    ok(copy.join_code !== deck.join_code, 'and it is not the original\'s');
+    ok(copy.id !== deck.id);
+
+    const slides = (await call(env, 'GET', `/api/decks/${copy.id}/questions`,
+      { token: alice })).data;
+    eq(slides.length, 1);
+    eq(slides[0].prompt, 'Pick one');
+    eq(slides[0].config.options, ['a', 'b']);
+    // New rows, not the same ones moved: editing the copy must not edit
+    // the deck it came from.
+    ok(slides[0].id !== undefined);
+    eq(env.DB.db.prepare('select count(*) as n from questions where deck_id = ?')
+      .get(deck.id).n, 1, 'the original still has its slide');
+  });
+
+  it('carries no sessions or answers into the new deck', async () => {
+    const { env, alice, deck } = await twoInstructors();
+    const copy = (await call(env, 'POST', `/api/decks/${deck.id}/copy`,
+      { token: alice })).data;
+    // The fixture's deck has a live session with a real answer in it.
+    eq(env.DB.db.prepare('select count(*) as n from sessions where deck_id = ?')
+      .get(copy.id).n, 0);
+    // …and the original keeps every one of them.
+    ok(env.DB.db.prepare('select count(*) as n from sessions where deck_id = ?')
+      .get(deck.id).n > 0);
+  });
+
+  it('names the copy after the original when nobody names it', async () => {
+    const { env, alice, deck } = await twoInstructors();
+    const copy = (await call(env, 'POST', `/api/decks/${deck.id}/copy`,
+      { token: alice })).data;
+    eq(copy.title, 'Alice deck (copy)');
+  });
+
+  it('refuses to copy another instructor\'s deck', async () => {
+    const { env, bob, deck } = await twoInstructors();
+    eq((await call(env, 'POST', `/api/decks/${deck.id}/copy`,
+      { token: bob, body: { title: 'Stolen' } })).status, 404);
+    eq(env.DB.db.prepare('select count(*) as n from decks').get().n, 1,
+      'no deck was created for Bob');
+  });
+});
+
 describe('students still cannot reach anything', () => {
   it('serves the live question with no answer key', async () => {
     const env = freshEnv();

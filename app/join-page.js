@@ -89,6 +89,52 @@ if (new URLSearchParams(window.location.search).has('preview')) {
   await import('./preview-net.js');
 }
 
+/**
+ * Keep the send bar above the phone's keyboard.
+ *
+ * The keyboard covers the bottom of the screen without telling the page:
+ * on iOS it does not resize the layout viewport at all, so `100dvh` still
+ * measures the whole screen and a bar stuck to the bottom of it is behind
+ * the keyboard. A student types their answer and then cannot see, or
+ * reach, the button that sends it — which reads as an app that has
+ * stopped working, and their answer never arrives.
+ *
+ * visualViewport is the only thing that knows: it reports the part of the
+ * page still actually visible. The difference between that and the layout
+ * viewport IS the keyboard, and it is published as a CSS variable that
+ * styles/join.css lifts the bar by.
+ *
+ * `offsetTop` is in the sum because a short page cannot scroll, so the
+ * browser pans the visible area instead of shrinking it — the keyboard is
+ * covering the same amount either way.
+ *
+ * The floor of 24px is for browser chrome, not keyboards: the URL bar
+ * collapsing changes these numbers by a few pixels, and a send bar that
+ * crept upward every time somebody scrolled would be worse than the bug.
+ */
+function trackKeyboard() {
+  const vv = window.visualViewport;
+  // No visualViewport (older browsers) means no measurement, and the bar
+  // stays where it has always been rather than moving on a guess.
+  if (!vv) return;
+
+  const root = document.documentElement;
+  let last = -1;
+  const sync = () => {
+    const covered = Math.round(window.innerHeight - vv.height - vv.offsetTop);
+    const inset = covered > 24 ? covered : 0;
+    if (inset === last) return;      // scroll fires constantly on iOS
+    last = inset;
+    root.style.setProperty('--keyboard-inset', `${inset}px`);
+  };
+
+  vv.addEventListener('resize', sync);
+  vv.addEventListener('scroll', sync);
+  sync();
+}
+
+trackKeyboard();
+
 init().catch((err) => {
   console.error(err);
   showState('⚠️', 'Something went wrong', err.message || String(err));

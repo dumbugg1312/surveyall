@@ -321,6 +321,48 @@ export const PROMPT_SCALES = {
 
 export const DEFAULT_PROMPT_SCALE = 'medium';
 
+/**
+ * Where the heading sits on the slide.
+ *
+ * Deck-wide for the same reason the size is: a room reading a question
+ * that jumps from the left edge to the middle and back is being shown the
+ * software rather than the material. Left by default — a long question
+ * read off a projector is easier to track back to a fixed left edge — but
+ * a deck of short prompts often wants the middle, and a deck built around
+ * artwork on the left wants the right.
+ *
+ * The keys are the CSS keywords, so nothing has to translate between the
+ * setting and `text-align`.
+ */
+export const PROMPT_ALIGNS = {
+  left: { name: 'Left' },
+  center: { name: 'Centre' },
+  right: { name: 'Right' },
+};
+
+export const DEFAULT_PROMPT_ALIGN = 'left';
+
+/** The deck's default heading alignment, as a `text-align` keyword. */
+export function promptAlign(deck) {
+  const key = deck?.settings?.promptAlign;
+  return PROMPT_ALIGNS[key] ? key : DEFAULT_PROMPT_ALIGN;
+}
+
+/**
+ * Which alignment THIS slide's heading takes.
+ *
+ * Per-slide wins, the deck default is the fallback — the same two tiers
+ * the transition has, and for the same reason: a title slide often wants
+ * the middle in a deck whose questions all sit left, and that is a
+ * decision about one slide rather than about the deck. The absence of the
+ * key is what "follows the deck" means, so a slide that has never been
+ * touched keeps moving with the deck setting.
+ */
+export function resolvePromptAlign(question, deck) {
+  const own = question?.config?.align;
+  return PROMPT_ALIGNS[own] ? own : promptAlign(deck);
+}
+
 /** The multiplier for a deck's chosen question size. */
 export function promptScale(deck) {
   const key = deck?.settings?.promptScale;

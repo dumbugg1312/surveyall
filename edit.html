@@ -106,10 +106,25 @@
     <details class="panel" data-panel="slides" open>
       <summary class="panel-head"><h3>Slides</h3></summary>
       <div class="panel-body">
+        <!-- The quoted example is the line the slide you have open will
+             actually print, written in by describeSlideLabel(). A fixed
+             “Word cloud · Question 1 of 8” quoted a deck nobody has open. -->
         <label class="checkline">
           <input type="checkbox" id="showSlideLabel" checked>
-          Show “Word cloud · Question 1 of 8” above each question
+          <span id="showSlideLabelText">Show the type-and-number line above each question</span>
         </label>
+
+        <!-- Where every heading sits, unless a slide says otherwise. It
+             is here rather than beside the question because it is the
+             deck's own setting; the slide form carries the override. -->
+        <div class="field">
+          <span class="label" id="deckAlignLabel">Heading alignment</span>
+          <div class="decor-seg" id="deckAlign" role="group"
+               aria-labelledby="deckAlignLabel" aria-describedby="deckAlignHint"></div>
+          <p class="field-hint" id="deckAlignHint">
+            Every heading in the deck, unless one slide opts out under its question.
+          </p>
+        </div>
 
         <!-- One movement for the whole deck. A room reading a different
              transition on every slide is a room being shown the software

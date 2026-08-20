@@ -27,6 +27,7 @@ import {
   TYPE_LABELS, TYPE_BLURBS, splitPassage, DEFAULT_JOIN_STEPS, isContentSlide,
   joinURL, joinURLPretty,
   PROMPT_SCALES, DEFAULT_PROMPT_SCALE, promptScale, showSlideLabel, questionNumber,
+  PROMPT_ALIGNS, promptAlign,
   defaultConfig, retypeQuestion, clozeParts,
 } from './logic.js';
 import { typeIcon, chartIcon } from './icons.js';
@@ -869,6 +870,7 @@ function renderStage() {
   renderCanvas();
   renderSlideEditor();
   renderElementsPanel();
+  describeSlideLabel();
 }
 
 function renderCanvas() {
@@ -963,6 +965,7 @@ function slideForm(q) {
     }),
   ));
   body.append(promptSizeField(q));
+  body.append(promptAlignField(q));
 
   // ---- type-specific -------------------------------------------------
   if (q.type === 'instructions') body.append(stepsEditor(q));
@@ -2149,6 +2152,20 @@ function wireSlideSettings() {
   label.addEventListener('change',
     guard(() => setDeckSetting('showSlideLabel', label.checked)));
 
+  // The deck's own alignment. Every slide follows it unless its own
+  // control says otherwise, so changing it here rebuilds the slide form
+  // too — the override's hint prints the word this setting chose.
+  const alignPaint = segBar(
+    $('deckAlign'),
+    alignOptions(),
+    async (value) => {
+      await setDeckSetting('promptAlign', value);
+      alignPaint();
+      renderStage();
+    },
+    () => promptAlign(deck),
+  );
+
   const trans = $('deckTransition');
   const hint = $('deckTransitionHint');
   for (const t of SLIDE_TRANSITIONS) {
@@ -2616,6 +2633,121 @@ function slideKicker(q, index) {
   }
   const n = questionNumber(questions, q.id);
   return `${TYPE_LABELS[q.type] || q.type} · Question ${n.number} of ${n.total}`;
+}
+
+/**
+ * Quote the line the open slide will actually print in the Slides panel.
+ *
+ * The tick used to quote a fixed “Word cloud · Question 1 of 8”, which
+ * belongs to no deck anyone has open — you could not read it and tell what
+ * was about to leave your own slide. It reads the open slide through the
+ * same slideKicker() the canvas does, so the two never disagree.
+ */
+function describeSlideLabel() {
+  const host = $('showSlideLabelText');
+  if (!host) return;
+  const q = selected();
+  if (!q) {
+    host.textContent = 'Show the type-and-number line above each question';
+    return;
+  }
+  const index = questions.findIndex((x) => x.id === q.id);
+  host.textContent = `Show “${slideKicker(q, index)}” above each question`;
+}
+
+/**
+ * A row of exclusive buttons. Returns a repaint, because the thing being
+ * chosen can also change from somewhere else on the page.
+ */
+function segBar(host, options, onPick, current) {
+  host.textContent = '';
+  const buttons = options.map(([value, label, title]) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'decor-seg-btn';
+    b.textContent = label;
+    b.dataset.value = value;
+    if (title) b.title = title;
+    b.addEventListener('click', guard(() => onPick(value)));
+    host.append(b);
+    return b;
+  });
+  const paint = () => {
+    const now = current();
+    for (const b of buttons) {
+      const on = b.dataset.value === now;
+      b.classList.toggle('is-on', on);
+      b.setAttribute('aria-pressed', String(on));
+    }
+  };
+  paint();
+  return paint;
+}
+
+/** [value, label] pairs for the three alignments. */
+function alignOptions() {
+  return Object.entries(PROMPT_ALIGNS).map(([id, a]) => [id, a.name]);
+}
+
+/**
+ * Where THIS slide's heading sits, under the box you type it into.
+ *
+ * Buttons rather than a dropdown: three positions you can see all of, one
+ * click apart, which is what every other program that sets type does. The
+ * first segment is the deck default and is where every slide starts —
+ * absence of the key, not a value standing in for it, so a deck whose
+ * default changes carries its untouched slides with it.
+ *
+ * Two tiers rather than one because the exception is real: a title slide
+ * in the middle of a deck of questions usually wants the middle, and
+ * making that choice deck-wide would move every question with it.
+ */
+function promptAlignField(q) {
+  const cfg = q.config || (q.config = {});
+  const bar = document.createElement('div');
+  // Shared with the decor editor's control — see styles/app.css.
+  bar.className = 'decor-seg';
+  bar.setAttribute('role', 'group');
+  bar.setAttribute('aria-labelledby', 'promptAlignLabel');
+
+  const hint = document.createElement('p');
+  hint.className = 'field-hint';
+  hint.id = 'promptAlignHint';
+  bar.setAttribute('aria-describedby', hint.id);
+  const describe = () => {
+    hint.textContent = PROMPT_ALIGNS[cfg.align]
+      ? 'This slide only.'
+      : `Follows the deck — ${PROMPT_ALIGNS[promptAlign(deck)].name.toLowerCase()}. `
+        + 'Change the deck’s own setting under Slides, on the right.';
+  };
+
+  const paint = segBar(
+    bar,
+    [['', 'Deck', 'Follow the deck’s alignment'], ...alignOptions()],
+    (value) => {
+      // "Deck" is the ABSENCE of the key, not an empty string stored in
+      // its place — the same rule the per-slide transition follows, and
+      // for the same reason: a stored '' would freeze this slide against
+      // a later change to the deck default.
+      if (value) cfg.align = value;
+      else delete cfg.align;
+      // save() repaints the canvas and this slide's thumbnail for us.
+      save(q, { config: cfg });
+      paint();
+      describe();
+    },
+    () => (PROMPT_ALIGNS[cfg.align] ? cfg.align : ''),
+  );
+  describe();
+
+  const wrap = document.createElement('div');
+  wrap.className = 'field';
+  const label = document.createElement('span');
+  label.className = 'label';
+  label.id = 'promptAlignLabel';
+  label.textContent = q.type === 'instructions' ? 'Heading alignment' : 'Question alignment';
+  wrap.append(label, bar, hint);
+  return wrap;
 }
 
 function wireBackgroundControls() {

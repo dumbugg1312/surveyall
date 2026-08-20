@@ -1229,6 +1229,59 @@ async function instructorRoute(request, env, seg, method, body, url, ctx, user) 
       }
     }
 
+    // ---- copy a deck ---------------------------------------------------
+    // One set of slides, one deck per class. The copy is a NEW deck with
+    // its own permanent join code, so two sections can be in two rooms at
+    // the same time without their answers meeting — which is the whole
+    // reason to copy rather than re-run: a session belongs to one deck,
+    // and one code cannot be two rooms.
+    //
+    // What is deliberately NOT copied: sessions and their responses. A
+    // fresh section starts empty, and last term's answers stay with the
+    // deck that collected them.
+    if (deckId && seg[2] === 'copy' && method === 'POST') {
+      const src = await ownedDeck(DB, deckId, user);
+      if (!src) return notYours();
+
+      const { results } = await DB.prepare(
+        'select * from questions where deck_id = ? order by position asc',
+      ).bind(deckId).all();
+
+      const id = uid();
+      const t = now();
+      const title = String(body.title || `${src.title} (copy)`);
+      // Same retry as creating a deck: the unique index on join_code is
+      // what makes a collision an error rather than two decks sharing a
+      // room, and eight attempts at 6 characters is not a real risk.
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        try {
+          await DB.prepare(`
+            insert into decks (id, owner_id, join_code, title, theme, background, settings, created_at, updated_at)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(
+            id, user.id, generateJoinCode(6), title,
+            src.theme, src.background, src.settings, t, t,
+          ).run();
+          break;
+        } catch (err) {
+          if (attempt === 7) throw err;
+        }
+      }
+
+      if (results?.length) {
+        // config and prompt travel as the stored strings — copying the
+        // row rather than a re-serialised object means a slide this build
+        // has never heard of survives the copy intact.
+        await DB.batch(results.map((q, i) => DB.prepare(`
+          insert into questions (id, deck_id, position, type, prompt, config, created_at)
+          values (?, ?, ?, ?, ?, ?, ?)
+        `).bind(uid(), id, i, q.type, q.prompt, q.config, t)));
+      }
+
+      return json(rowToDeck(
+        await DB.prepare('select * from decks where id = ?').bind(id).first()));
+    }
+
     if (deckId && method === 'PATCH') {
       if (!(await ownedDeck(DB, deckId, user))) return notYours();
       const fields = [];

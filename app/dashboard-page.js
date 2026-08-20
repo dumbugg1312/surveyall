@@ -14,7 +14,7 @@
  */
 
 import {
-  configured, currentUser, signOut, listDecks, createDeck, deleteDeck,
+  configured, currentUser, signOut, listDecks, createDeck, copyDeck, deleteDeck,
   listSessions, createSession, deleteSession, listQuestions, replaceQuestions,
   adminSummary, changePassword,
 } from './db.js';
@@ -245,6 +245,10 @@ function deckCard(deck, gen) {
     linkBtn('Edit', 'btn-sm', href),
     button('Start session', 'btn-sm btn-primary', () => onStart(deck)),
     el('span', 'spacer'),
+    // Beside Delete rather than in the row of primary actions: copying is
+    // something you do once a term, when a second section starts.
+    iconBtn(COPY_ICON, `Copy ${deck.title} for another class`, 'btn-sm btn-ghost',
+      () => onCopyDeck(deck)),
     iconBtn(TRASH_ICON, `Delete ${deck.title}`, 'btn-sm btn-ghost deck-del',
       () => onDeleteDeck(deck)),
   );
@@ -438,6 +442,34 @@ async function onNewDeck() {
   if (title == null) return;
   const deck = await createDeck({ title: title || 'Untitled deck' });
   window.location.href = `edit.html?deck=${deck.id}`;
+}
+
+/**
+ * One deck per class, from one set of slides.
+ *
+ * The copy is a separate deck with its own permanent join code, and that
+ * is the point rather than a side effect: a code is how a phone finds the
+ * room it is answering in, so two sections sharing one code would pool
+ * their answers into one word cloud. Nothing is carried over from the
+ * original's sessions — a new section starts empty.
+ *
+ * The name is asked for up front because a copy nobody renames is how you
+ * end up with four decks called "W1D2 ENC1101 (copy)" a fortnight later.
+ */
+async function onCopyDeck(deck) {
+  const title = await askText({
+    title: `Copy “${deck.title}”`,
+    blurb: 'The copy gets all the same slides and its own join code, so you can run '
+      + 'it for another class without the two rooms sharing answers. Sessions and '
+      + 'results stay with the deck that collected them.',
+    label: 'Name for the copy',
+    value: `${deck.title} (copy)`,
+    confirmLabel: 'Make a copy',
+  });
+  if (title == null) return;
+  const copy = await copyDeck(deck.id, { title: title || `${deck.title} (copy)` });
+  toast(`Copied — the new deck's code is ${copy.join_code}`);
+  await refresh();
 }
 
 async function onDeleteDeck(deck) {
@@ -811,6 +843,11 @@ function timeBucket(ts) {
 // =====================================================================
 // Bits
 // =====================================================================
+
+/** Two stacked pages, drawn to match app/icons.js: filled, on a 24×24 grid. */
+const COPY_ICON =
+  '<path d="M8.2 1.9h7.2a2.3 2.3 0 0 1 2.3 2.3v10.4a2.3 2.3 0 0 1-2.3 2.3H8.2a2.3 2.3 0 0 1-2.3-2.3V4.2a2.3 2.3 0 0 1 2.3-2.3z"/>'
+  + '<path d="M4.3 5.9v10.9a3.4 3.4 0 0 0 3.4 3.4h7.2v.5a2.3 2.3 0 0 1-2.3 2.3H5.6a2.3 2.3 0 0 1-2.3-2.3V8.2a2.3 2.3 0 0 1 1-1.9z" fill-opacity=".55"/>';
 
 /** A trash can, drawn to match app/icons.js: filled, on a 24×24 grid. */
 const TRASH_ICON =

@@ -60,6 +60,10 @@
  * slide, and `transition: none` is how a single slide opts back out of a
  * deck that otherwise moves.
  *
+ * `align:` works the same two ways (left, center, right): in the header
+ * it sets where every heading sits, and on a question it moves that one
+ * slide's heading — a title slide centred in a deck that reads left.
+ *
  * A "+" line places an element on the slide:
  *
  *   ## multiple_choice
@@ -76,7 +80,7 @@
 
 import {
   QUESTION_TYPES, splitPassage, DEFAULT_JOIN_STEPS,
-  DEFAULT_TRAFFIC, DEFAULT_EXIT_PROMPTS,
+  DEFAULT_TRAFFIC, DEFAULT_EXIT_PROMPTS, PROMPT_ALIGNS, DEFAULT_PROMPT_ALIGN,
 } from './logic.js';
 import {
   hasElement, readPos, posName, anchorPos, sizeId, colorId, weightValue,
@@ -428,6 +432,8 @@ const KNOWN_SETTINGS = new Set([
   // how this slide arrives on the projector; also legal in the header,
   // where it sets the default for the whole deck
   'transition',
+  // where the heading sits — likewise legal in both places
+  'align',
 ]);
 
 function isKnownSetting(key) { return KNOWN_SETTINGS.has(key); }
@@ -485,6 +491,13 @@ function applyDeckSetting(deck, key, value) {
     const id = normalizeTransition(value);
     if (id) deck.settings = { ...(deck.settings || {}), transition: id };
   }
+  else if (key === 'align') {
+    // Merged for the same reason, and an unknown word is dropped rather
+    // than guessed at: "align: centre" is a typo for a real setting, not
+    // a licence to restyle the deck.
+    const id = normalizeAlign(value);
+    if (id) deck.settings = { ...(deck.settings || {}), promptAlign: id };
+  }
   else if (key === 'background') {
     const prev = deck.background || {};
     deck.background = parseBackground(value);
@@ -514,6 +527,16 @@ function applyDeckSetting(deck, key, value) {
   } else if (key === 'title') deck.title = String(value);
 }
 
+/** A written alignment, or null if it is not one of the three. */
+function normalizeAlign(value) {
+  if (value == null) return null;
+  const id = String(value).trim().toLowerCase();
+  // "centre" is how half the world spells it, and the label in the editor
+  // spells it that way too — refusing to read it back would be a trap.
+  const spelled = id === 'centre' ? 'center' : id;
+  return PROMPT_ALIGNS[spelled] ? spelled : null;
+}
+
 function parseBackground(value) {
   const v = String(value).trim();
   if (!v || v === 'theme') return { kind: 'theme' };
@@ -537,6 +560,13 @@ function applyQuestionSetting(q, key, value) {
     // build has not got should still present.
     const id = normalizeTransition(value);
     if (id) q.config.transition = id;
+    return;
+  }
+  if (key === 'align') {
+    // Never through coerce() either — "align: left" is a word, and the
+    // three words are the CSS keywords the stylesheets write out.
+    const id = normalizeAlign(value);
+    if (id) q.config.align = id;
     return;
   }
   if (key === 'labels') {
@@ -758,6 +788,9 @@ export function serialiseDeck(deck, questions) {
   // add a line to every exported deck that has never been touched.
   const deckTrans = normalizeTransition(deck.settings?.transition);
   if (deckTrans && deckTrans !== 'none') out.push(`transition: ${deckTrans}`);
+  // Left is the absence of the setting, the way 'none' is for transition.
+  const deckAlign = normalizeAlign(deck.settings?.promptAlign);
+  if (deckAlign && deckAlign !== DEFAULT_PROMPT_ALIGN) out.push(`align: ${deckAlign}`);
   out.push('');
 
   for (const q of questions || []) {
@@ -845,8 +878,11 @@ export function serialiseDeck(deck, questions) {
     // it is the only key here whose 'none' is meaningful: it is how a
     // single slide opts OUT of a deck-wide transition, so it has to be
     // written even though it looks like a default.
+    // 'align' rides here with 'transition' and for the same reason: every
+    // one of its values is meaningful on a slide, 'left' included, since
+    // that is how one slide opts out of a deck that reads centred.
     for (const key of ['mode', 'confidence', 'hold', 'max_picks', 'corners',
-                       'transition']) {
+                       'transition', 'align']) {
       if (cfg[key] != null && cfg[key] !== '' && cfg[key] !== false) {
         out.push(`${key}: ${cfg[key]}`);
       }

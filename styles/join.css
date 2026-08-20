@@ -21,6 +21,9 @@
   max-width: 34rem;
   margin: 0 auto;
   padding: max(1rem, env(safe-area-inset-top)) 1rem 0;
+  /* Room under the content for the keyboard, so everything above the send
+     bar can still be scrolled into view while it is open. */
+  padding-bottom: var(--keyboard-inset, 0px);
 }
 
 /* ---------------------------------------------------------------- head */
@@ -390,9 +393,15 @@ button.seg-body { cursor: pointer; transition: border-color var(--duration-fast)
 
 /* ------------------------------------------------------------- actions */
 
+/* --keyboard-inset is how much of the page the phone's keyboard is
+   covering, measured by join-page.js. On iOS the keyboard does not resize
+   the page at all, so a bar stuck to bottom: 0 sits UNDERNEATH it — the
+   student types an answer and cannot see, or reach, the button that sends
+   it. Sticking it that far up from the bottom instead puts it just above
+   the keyboard, and leaves it exactly where it was when there is none. */
 .join-actions {
   position: sticky;
-  bottom: 0;
+  bottom: var(--keyboard-inset, 0px);
   padding: .8rem 0 max(.8rem, env(safe-area-inset-bottom));
   background: linear-gradient(to top, var(--ground) 72%, transparent);
   display: flex; flex-direction: column; gap: .5rem;

@@ -16,7 +16,7 @@ import {
   correctIndices, optionLabels, generateJoinCode, joinURL, joinURLPretty,
   neighbourQuestion, sortedQuestions, MULTI_SUBMIT_TYPES,
   splitPassage, promptKey, isContentSlide, fillJoinPlaceholders, DEFAULT_JOIN_STEPS,
-  questionNumber, retypeQuestion, defaultConfig, TYPE_LABELS, promptScale, showSlideLabel, QUESTION_TYPES, CONTENT_TYPES,
+  questionNumber, retypeQuestion, defaultConfig, TYPE_LABELS, promptScale, promptAlign, resolvePromptAlign, showSlideLabel, QUESTION_TYPES, CONTENT_TYPES,
   clozeParts, clozeMatches, answerCorrectness,
 } from '../app/logic.js';
 import { readFileSync, statSync } from 'node:fs';
@@ -900,6 +900,66 @@ describe('slide transitions', () => {
 });
 
 // =====================================================================
+// Heading alignment. Two tiers, like the transition: a deck default and a
+// per-slide override, where the ABSENCE of the slide's key is what
+// "follows the deck" means. The value is written straight into
+// text-align by four stylesheets, so anything that is not one of the
+// three keywords must never reach them.
+describe('heading alignment', () => {
+  it('lets a slide override the deck, and falls back when it does not', () => {
+    const deck = { settings: { promptAlign: 'center' } };
+    eq(resolvePromptAlign({ config: { align: 'right' } }, deck), 'right');
+    eq(resolvePromptAlign({ config: {} }, deck), 'center');
+    eq(resolvePromptAlign({}, deck), 'center');
+    // An explicit per-slide 'left' is an opt-OUT of a centred deck, not
+    // an absent value — the same shape as transition's explicit 'none'.
+    eq(resolvePromptAlign({ config: { align: 'left' } }, deck), 'left');
+    // Nothing set anywhere is the look every existing deck already has.
+    eq(resolvePromptAlign({ config: {} }, {}), 'left');
+    eq(resolvePromptAlign(null, null), 'left');
+    // Garbage at either level falls through rather than reaching CSS.
+    eq(resolvePromptAlign({ config: { align: 'justify' } }, deck), 'center');
+    eq(resolvePromptAlign({ config: {} }, { settings: { promptAlign: 'middle' } }), 'left');
+  });
+
+  it('round-trips both tiers through the text format', () => {
+    const parsed = parseDeck('# D\nalign: center\n\n## open_ended\nWhy?\nalign: left\n');
+    eq(parsed.settings?.promptAlign, 'center');
+    eq(parsed.questions[0].config.align, 'left');
+    const text = serialiseDeck({ title: parsed.title, settings: parsed.settings },
+      parsed.questions);
+    ok(/^align: center$/m.test(text), 'header line is written');
+    const again = parseDeck(text);
+    // The slide that opted out has to survive, or a centred deck quietly
+    // recentres the one slide that was written to sit left.
+    eq(resolvePromptAlign(again.questions[0], again), 'left');
+  });
+
+  it('never writes an alignment nobody chose', () => {
+    const text = serialiseDeck({ title: 'D' }, [{ type: 'qa', prompt: 'Ask', config: {} }]);
+    notOk(/align:/.test(text), 'no align line on an untouched deck');
+    notOk(/align:/.test(serialiseDeck({ title: 'D', settings: { promptAlign: 'left' } },
+      [{ type: 'qa', prompt: 'Ask', config: {} }])), 'left is the absence of the setting');
+  });
+
+  it('drops an unknown alignment without eating the prompt', () => {
+    // Same trap `transition` fell into: an unrecognised "key: value" line
+    // is appended to the prompt, so a deck written by a newer build would
+    // project "Why? align: justify" as the question.
+    const deck = parseDeck('## open_ended\nWhy?\nalign: justify\n');
+    eq(deck.questions[0].prompt, 'Why?');
+    eq(deck.questions[0].config.align, undefined);
+    eq(resolvePromptAlign(deck.questions[0], deck), 'left');
+  });
+
+  it('reads the spelling the editor prints', () => {
+    // The button says "Centre". Refusing to read that word back would be
+    // a trap laid for anyone who types what they see.
+    eq(parseDeck('## open_ended\nWhy?\nalign: Centre\n').questions[0].config.align, 'center');
+  });
+});
+
+// =====================================================================
 // "Decks are plain text and round-trip" is the headline promise of the
 // format, and SAMPLE_DECK alone is far too well-behaved to test it: it
 // has no colons in a prompt, no blank options, no "#" prompt. These are
@@ -1136,6 +1196,15 @@ join: false`);
     ok(promptScale({ settings: { promptScale: 'compact' } }) < 1);
     ok(promptScale({ settings: { promptScale: 'large' } }) > 1);
     notOk(showSlideLabel({ settings: { showSlideLabel: false } }));
+
+    // Alignment is written straight into text-align by four stylesheets,
+    // so the value has to BE a CSS keyword and an unknown one must never
+    // reach them.
+    eq(promptAlign({}), 'left');
+    eq(promptAlign({ settings: {} }), 'left');
+    eq(promptAlign({ settings: { promptAlign: 'center' } }), 'center');
+    eq(promptAlign({ settings: { promptAlign: 'right' } }), 'right');
+    eq(promptAlign({ settings: { promptAlign: 'justify' } }), 'left');
   });
 
   it('contributes no rows to a CSV export', () => {

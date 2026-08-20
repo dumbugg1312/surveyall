@@ -20,6 +20,7 @@
 import {
   TYPE_LABELS, optionLabels, DEFAULT_JOIN_STEPS, fillJoinPlaceholders,
   trafficLabels, moodIcons, pairList, clozeParts, exitPrompts, timelineItems,
+  resolvePromptAlign,
 } from './logic.js';
 import { getTheme, applyTheme, backgroundStyles, scrimOpacity } from './themes.js';
 import { ambiencePlan, applyAmbience } from './ambience.js';
@@ -70,6 +71,12 @@ export function renderSlide(host, q, deck, themeRef, opts = {}) {
   if (q?.id != null) slide.dataset.qid = String(q.id);
   applyTheme(slide, themeRef);
   slide.style.backgroundColor = theme.tokens['--ground'];
+  // Set here rather than on the host, because the three hosts are not the
+  // same kind of element: the rail thumbnail and the gallery tile are
+  // buttons, and a button's UA text-align is `center`. That is why the
+  // rail used to draw a centred heading for a slide the canvas drew flush
+  // left — two pictures of one slide, neither of them the projector's.
+  slide.style.setProperty('--prompt-align', resolvePromptAlign(q, deck));
 
   const backdrop = el('div', 'sp-backdrop');
   Object.assign(backdrop.style, backgroundStyles(deck?.background, themeRef));
