@@ -28,13 +28,13 @@ import {
   joinURL, joinURLPretty,
   PROMPT_SCALES, DEFAULT_PROMPT_SCALE, promptScale, showSlideLabel, questionNumber,
   PROMPT_ALIGNS, promptAlign,
-  defaultConfig, retypeQuestion, clozeParts,
+  defaultConfig, retypeQuestion, clozeParts, claimKey,
 } from './logic.js';
-import { typeIcon, chartIcon } from './icons.js';
+import { typeIcon, chartIcon, cloudIcon } from './icons.js';
 import { TEMPLATES } from './templates.js';
 import {
   THEMES, BACKGROUND_PRESETS, getTheme, applyTheme,
-  backgroundStyles, scrimOpacity, CHART_STYLES,
+  backgroundStyles, scrimOpacity, CHART_STYLES, CLOUD_STYLES, AUDIENCES,
   resolveTheme, buildCustomTheme, CUSTOM_FONTS, CUSTOM_RADII, auditTheme,
 } from './themes.js';
 import { ambiencePlan, ambienceLevel } from './ambience.js';
@@ -602,6 +602,9 @@ const SLIDE_TYPES = [
   ['timeline', 'Put events in order. Marked against the real sequence.'],
   ['sample_vote', 'Two or more samples; the room picks the strongest and says why.'],
   ['heatmap', 'A short passage the room highlights or labels.'],
+  ['buckets', 'Sort cards into columns. Contested cards sit visibly on the fence.'],
+  ['quadrant', 'Two axes, free placement. Agreement is a tight cloud; a split room is two.'],
+  ['consensus', 'The room writes claims and votes on them all. Common ground, surfaced.'],
   ['exit_ticket', 'Learned it, still wondering, muddiest point. The classic closer.'],
   ['qa', 'Open floor. Questions from the room, upvoted, moderated by you.'],
 ];
@@ -618,10 +621,11 @@ const SLIDE_CATEGORIES = [
   ['start', 'Start here', ['instructions']],
   ['pulse', 'Quick pulse', ['traffic', 'mood', 'this_or_that']],
   ['ask', 'Ask the room', ['multiple_choice', 'scales', 'ranking', 'budget',
-    'probability', 'spectrum']],
-  ['words', 'In their words', ['word_cloud', 'open_ended', 'exit_ticket', 'qa']],
+    'probability', 'spectrum', 'quadrant']],
+  ['words', 'In their words', ['word_cloud', 'open_ended', 'consensus',
+    'exit_ticket', 'qa']],
   ['check', 'Check understanding', ['quiz', 'cloze', 'matching', 'timeline',
-    'sample_vote', 'heatmap']],
+    'sample_vote', 'heatmap', 'buckets']],
 ];
 
 /** The tab you last used, so a deck built of quizzes stops costing a click. */
@@ -989,6 +993,12 @@ function slideForm(q) {
   if (q.type === 'timeline') body.append(listEditor(q, 'items', 'Events, in the CORRECT order'));
   if (q.type === 'exit_ticket') body.append(listEditor(q, 'prompts', 'The three prompts'));
   if (q.type === 'cloze') body.append(clozeEditor(q));
+  if (q.type === 'buckets') body.append(bucketsEditor(q));
+  if (q.type === 'quadrant') {
+    body.append(listEditor(q, 'items',
+      'Things to place (leave empty and everyone places themselves)'));
+  }
+  if (q.type === 'consensus') body.append(claimsEditor(q));
 
   // Elements are not here. They live in the design panel on the right,
   // beside the theme and the background — the other three things that
@@ -1739,6 +1749,98 @@ function settingsFor(q) {
   }));
 
   /**
+   * Headline the count or the percentage.
+   *
+   * The setting has existed since the charts were written and was
+   * reachable only by hand-editing the deck text, which meant the
+   * instructors most likely to want it — the ones teaching students whose
+   * proportional reasoning is still forming, for whom "18 of us" is a
+   * fact and "42%" is a conversion — were the ones least likely to find
+   * it. Three states, because "follow the deck" has to be the absence of
+   * the key rather than a value stored over it.
+   */
+  const countsField = () => {
+    const s = document.createElement('select');
+    const younger = deck.settings?.audience === 'younger';
+    const opts = [
+      ['', `Deck default — ${younger ? 'counts' : 'percentages'}`],
+      ['pct', 'Percentages (42%)'],
+      ['count', 'Counts (18)'],
+    ];
+    for (const [value, text] of opts) {
+      const o = document.createElement('option');
+      o.value = value;
+      o.textContent = text;
+      s.append(o);
+    }
+    s.id = 'slideCounts';
+    s.value = cfg.show_counts == null ? '' : (cfg.show_counts ? 'count' : 'pct');
+    s.addEventListener('change', () => {
+      if (!s.value) delete cfg.show_counts;
+      else cfg.show_counts = s.value === 'count';
+      save(q, { config: cfg });
+      renderCanvas();
+    });
+    const wrap = field('Numbers', s);
+    wrap.classList.add('field-wide');
+    wrap.querySelector('label').htmlFor = s.id;
+    grid.append(wrap);
+  };
+
+  /**
+   * The sentence that lands with the verdict.
+   *
+   * Peer discussion plus the instructor's explanation beats either alone
+   * (Smith et al. 2011), and the words should arrive with the graphic
+   * rather than a slide after it — so it is written here, on the
+   * question, and appears under the bars the moment the answer is named.
+   * The worker strips it from the phone payload: it is the answer key in
+   * sentences.
+   */
+  const explainField = () => {
+    const t = document.createElement('textarea');
+    t.id = 'slideExplain';
+    t.rows = 2;
+    t.setAttribute('aria-describedby', 'slideExplainHint');
+    t.placeholder = 'Because a thesis has to be arguable — B is the only one you could disagree with.';
+    t.value = cfg.explain ?? '';
+    t.addEventListener('input', () => {
+      const v = t.value.trim();
+      if (v) cfg.explain = t.value;
+      else delete cfg.explain;
+      save(q, { config: cfg });
+    });
+    const hint = document.createElement('p');
+    hint.id = 'slideExplainHint';
+    hint.className = 'field-hint';
+    hint.textContent = 'Shown on the projector when you reveal the answer. Never sent to phones.';
+    const wrap = field('Why (optional)', t);
+    wrap.classList.add('field-wide');
+    wrap.querySelector('label').htmlFor = t.id;
+    wrap.append(hint);
+    grid.append(wrap);
+  };
+
+  /**
+   * A donut is a part-of-whole picture, and it stops being one somewhere
+   * around five slices — past that the thin arcs are read by area, badly,
+   * and the legend does all the work. A hint rather than a rule: a
+   * six-option donut is the instructor's call, but it should be a call.
+   */
+  const donutHint = () => {
+    const n = (cfg.options || []).length;
+    if (cfg.chart !== 'donut' || n <= 5) return;
+    // Appended bare rather than through field(): there is nothing here to
+    // label, and an empty <label> is a promise to a screen reader that
+    // this file does not keep anywhere else.
+    const p = document.createElement('p');
+    p.className = 'field-hint field-wide';
+    p.textContent = `${n} options is a lot for a donut — thin slices are hard to compare. `
+      + 'Bars read more accurately.';
+    grid.append(p);
+  };
+
+  /**
    * How this slide arrives on the projector.
    *
    * The first setting in this file that applies to every slide type, so
@@ -1817,6 +1919,9 @@ function settingsFor(q) {
       if (cfg.multiple) num('max_choices', 'Max choices', 1, 20, (cfg.options || []).length);
       bool('confidence', 'Ask “how sure are you?”');
       iconRow('chart', 'Chart', CHART_STYLES, 'bars', chartIcon);
+      donutHint();
+      countsField();
+      if (cfg.mode === 'best') explainField();
       break;
     case 'quiz':
       num('time', 'Seconds to answer', 5, 300, 20);
@@ -1825,11 +1930,15 @@ function settingsFor(q) {
       // quiz results go through renderChoice too, so the same four
       // shapes are available — this was simply never wired up
       iconRow('chart', 'Chart', CHART_STYLES, 'bars', chartIcon);
+      donutHint();
+      countsField();
+      explainField();
       break;
     case 'word_cloud':
       num('max_words', 'Words per person', 1, 10, 1);
       num('max_length', 'Max characters', 5, 60, 25);
       bool('hold', 'Hold answers for review before they show');
+      iconRow('chart', 'Chart', CLOUD_STYLES, 'cloud', cloudIcon);
       break;
     case 'open_ended':
       num('max_length', 'Max characters', 20, 1000, 200);
@@ -1900,11 +2009,151 @@ function settingsFor(q) {
     case 'exit_ticket':
       num('max_length', 'Max characters each', 20, 1000, 200);
       break;
+    case 'quadrant':
+      text('x_left', 'Left pole', 'Disagree');
+      text('x_right', 'Right pole', 'Agree');
+      text('y_low', 'Bottom pole', 'Matters less');
+      text('y_high', 'Top pole', 'Matters a lot');
+      break;
+    case 'consensus':
+      bool2('allow_submissions', 'Let the room add its own claims', true);
+      num('max_claims', 'Most claims on screen', 2, 20, 12);
+      break;
     default:
       break;
   }
 
   return grid;
+}
+
+/**
+ * Card sort: the columns, then the cards — each card with an optional
+ * home column. Pick homes and the sort becomes checkable (the reveal
+ * flies misfiled cards to where they belong); leave every card on
+ * "anywhere" and it is an opinion sort with no right answer on it.
+ */
+function bucketsEditor(q) {
+  const frag = document.createDocumentFragment();
+  frag.append(listEditor(q, 'buckets', 'Columns (2–4)'));
+
+  const wrap = document.createElement('div');
+  wrap.className = 'opt-editor';
+  const l = document.createElement('span');
+  l.className = 'label';
+  l.textContent = 'Cards — give one a home column to make the sort checkable';
+  wrap.append(l);
+
+  const cards = Array.isArray(q.config.cards) ? q.config.cards : [];
+  const buckets = (Array.isArray(q.config.buckets) ? q.config.buckets : [])
+    .map((b) => String(b ?? ''));
+  if (!Array.isArray(q.config.correct)) q.config.correct = [];
+
+  cards.forEach((card, i) => {
+    const line = document.createElement('div');
+    line.className = 'opt-line pair-line';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = typeof card === 'string' ? card : (card?.label ?? '');
+    input.placeholder = `Card ${i + 1}`;
+    input.addEventListener('input', () => {
+      q.config.cards[i] = input.value;
+      save(q, { config: q.config });
+    });
+
+    const home = document.createElement('select');
+    const any = document.createElement('option');
+    any.value = '';
+    any.textContent = 'Anywhere';
+    home.append(any);
+    buckets.forEach((b, bi) => {
+      const o = document.createElement('option');
+      o.value = String(bi);
+      o.textContent = b.trim() || `Column ${bi + 1}`;
+      home.append(o);
+    });
+    const cur = q.config.correct[i];
+    home.value = Number.isInteger(cur) && cur >= 0 && cur < buckets.length ? String(cur) : '';
+    home.addEventListener('change', () => {
+      q.config.correct[i] = home.value === '' ? null : Number(home.value);
+      save(q, { config: q.config });
+    });
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'opt-remove';
+    remove.textContent = '×';
+    remove.addEventListener('click', () => {
+      q.config.cards.splice(i, 1);
+      q.config.correct.splice(i, 1);
+      save(q, { config: q.config });
+      renderStage();
+    });
+
+    line.append(input, home, remove);
+    wrap.append(line);
+  });
+
+  wrap.append(btn('+ Add card', 'btn-sm', () => {
+    q.config.cards = [...cards, ''];
+    save(q, { config: q.config });
+    renderStage();
+    focusLast(wrap.parentElement);
+  }));
+
+  frag.append(wrap);
+  return frag;
+}
+
+/**
+ * Consensus seed claims. Optional — the slide's whole premise is that
+ * the room writes them — but seeding one or two sets the register and
+ * gives early phones something to vote on while the first student is
+ * still typing.
+ */
+function claimsEditor(q) {
+  const wrap = document.createElement('div');
+  wrap.className = 'opt-editor';
+  const l = document.createElement('span');
+  l.className = 'label';
+  l.textContent = 'Seed claims (optional — the room adds the rest live)';
+  wrap.append(l);
+
+  const claims = Array.isArray(q.config.claims) ? q.config.claims : [];
+
+  claims.forEach((c, i) => {
+    const line = document.createElement('div');
+    line.className = 'opt-line';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.maxLength = 140;
+    input.value = typeof c === 'string' ? c : (c?.text ?? '');
+    input.placeholder = `Claim ${i + 1}`;
+    input.addEventListener('input', () => {
+      const text = input.value;
+      q.config.claims[i] = { key: claimKey(text), text };
+      save(q, { config: q.config });
+    });
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'opt-remove';
+    remove.textContent = '×';
+    remove.addEventListener('click', () => {
+      q.config.claims.splice(i, 1);
+      save(q, { config: q.config });
+      renderStage();
+    });
+    line.append(input, remove);
+    wrap.append(line);
+  });
+
+  wrap.append(btn('+ Add', 'btn-sm', () => {
+    q.config.claims = [...claims, { key: claimKey(''), text: '' }];
+    save(q, { config: q.config });
+    renderStage();
+    focusLast(wrap.parentElement);
+  }));
+
+  return wrap;
 }
 
 /**
@@ -2188,6 +2437,27 @@ function wireSlideSettings() {
     // pointer is on is this one, in the other pane.
     renderStage();
   }));
+
+  const audience = $('deckAudience');
+  for (const [id, name] of Object.entries(AUDIENCES)) {
+    const o = document.createElement('option');
+    o.value = id;
+    o.textContent = name;
+    audience.append(o);
+  }
+  audience.value = AUDIENCES[deck.settings?.audience] ? deck.settings.audience : 'standard';
+  audience.addEventListener('change', guard(async () => {
+    await setDeckSetting('audience', audience.value);
+    // The slide form's "Numbers" and "Chart" controls both print the word
+    // this setting chose in their "deck default" option, so both are now
+    // showing the wrong one. Safe to rebuild: the control under the
+    // pointer is this one, in the other pane.
+    renderStage();
+  }));
+
+  const pace = $('deckPace');
+  pace.checked = deck.settings?.pace === true;
+  pace.addEventListener('change', guard(() => setDeckSetting('pace', pace.checked)));
 }
 
 async function setDeckSetting(key, value) {
@@ -3039,6 +3309,18 @@ function deckIssues() {
     }
     if (q.type === 'mood' && !(c.icons || []).filter((m) => String(m?.emoji || '').trim()).length) {
       issues.push(`${at(i)} has no moods to pick from.`);
+    }
+    if (q.type === 'buckets') {
+      if (listed('buckets').length < 2) {
+        issues.push(`${at(i)} is a card sort with fewer than two columns.`);
+      }
+      if (listed('cards').length < 1) {
+        issues.push(`${at(i)} is a card sort with nothing to sort.`);
+      }
+    }
+    if (q.type === 'consensus' && c.allow_submissions === false
+        && !(c.claims || []).filter((cl) => String(cl?.text ?? cl ?? '').trim()).length) {
+      issues.push(`${at(i)} has no claims and the room isn't allowed to add any — nothing to vote on.`);
     }
   });
   return issues;

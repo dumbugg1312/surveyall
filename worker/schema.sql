@@ -182,7 +182,8 @@ create table if not exists questions (
                'traffic','mood','this_or_that',
                'budget','probability',
                'cloze','matching','timeline',
-               'exit_ticket')),
+               'exit_ticket',
+               'buckets','quadrant','consensus')),
   prompt     text not null default '',
   config     text not null default '{}',
   created_at integer not null
@@ -347,3 +348,28 @@ create table if not exists feedback (
 );
 
 create index if not exists feedback_created_idx on feedback (created_at desc);
+
+-- ---------------------------------------------------------------------
+-- FLARES — the "lost me" button (pace channel).
+--
+-- One row per tap: which session, which slide was up, when. That is the
+-- entire record — a flare is a hand half-raised, not an answer, and the
+-- strip it draws needs nothing but counts per slide.
+--
+-- FERPA NOTE: `pseudonym` here is the same session-scoped random label
+-- the responses table carries, stored for ONE purpose — the server-side
+-- cooldown that stops a bored thumb from filling the table. It is never
+-- displayed, never exported, and never joined to anything. The CSV and
+-- the projector see flare COUNTS only.
+-- ---------------------------------------------------------------------
+create table if not exists flares (
+  id          integer primary key autoincrement,
+  session_id  text not null references sessions (id) on delete cascade,
+  question_id text references questions (id) on delete cascade,
+  round       integer not null default 1,
+  pseudonym   text not null,
+  created_at  integer not null
+);
+
+create index if not exists flares_session_idx
+  on flares (session_id, created_at desc);

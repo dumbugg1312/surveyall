@@ -787,6 +787,37 @@ export const CHART_STYLES = {
   dots: 'Dot plot',
 };
 
+/**
+ * The word cloud's two shapes.
+ *
+ * A cloud encodes frequency as area, which sits near the bottom of the
+ * accuracy ranking for magnitude judgments; a bar's length on a common
+ * baseline sits at the top. Both are right, for different questions —
+ * the cloud for "what did the room say", the list for "which of these
+ * did it say more" — so the instructor picks, and the presenter can flip
+ * between them live.
+ */
+export const CLOUD_STYLES = {
+  cloud: 'Cloud',
+  list: 'Ranked list',
+};
+
+/**
+ * Who the deck is for.
+ *
+ * Not a learning style — those do not survive contact with the evidence
+ * (Pashler et al. 2008). This is about prior knowledge and development,
+ * which do: proportional reasoning is still forming through middle
+ * school, so a younger room is defaulted to counts rather than
+ * percentages, and to the dot plot, where one mark is one classmate and
+ * nobody has to trust the arithmetic. Every default it sets is still
+ * overridable per slide.
+ */
+export const AUDIENCES = {
+  standard: 'Standard',
+  younger: 'Younger — counts first, one dot per person',
+};
+
 // =====================================================================
 // My Themes — the custom theme builder (proposal: Mentimeter parity).
 //

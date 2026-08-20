@@ -22,6 +22,7 @@ import {
   SpringGroup, PRESETS, stagger, delay, countTo, prefersReducedMotion,
   rgba, mixColor, harmonicSeries, hueWheel, readableOn, luminance,
 } from './motion.js';
+import { splitIcon } from './logic.js';
 
 const NUM = new Intl.NumberFormat();
 
@@ -160,6 +161,140 @@ function clearEmptyCard(state) {
  */
 const paletteCache = new Map();
 
+/**
+ * Write an option's label into a two-part label node.
+ *
+ * Dual coding (Paivio; the picture-superiority effect): a congruent
+ * picture beside the word gives the room a second way to hold the option,
+ * and on a projector it is what lets a student re-find their own answer
+ * without reading four labels. The icon is always an addition — the text
+ * is never replaced by it — because an unlabelled icon is a guess.
+ *
+ * Nothing here decides WHETHER there is an icon; splitIcon() does, off
+ * the label text itself, so the projector, the phone and the editor
+ * preview cannot disagree about it.
+ */
+function setLabel(node, text) {
+  const { icon, text: rest } = splitIcon(text);
+  if (node.__icon !== icon) {
+    node.__icon = icon;
+    node.firstChild.textContent = icon;
+  }
+  if (node.lastChild.textContent !== rest) node.lastChild.textContent = rest;
+  // the title carries the whole thing, icon included: it is what the
+  // three-line clamp is hiding
+  node.title = text || '';
+}
+
+/** The two-span label node setLabel() writes into. */
+function labelNode(cls = 'chart-label') {
+  const node = el('div', cls);
+  node.append(el('span', 'chart-icon'), el('span', 'chart-text'));
+  return node;
+}
+
+/**
+ * Mark a node as something the presenter can point at.
+ *
+ * Signalling is the best-evidenced lever in the multimedia literature
+ * (three meta-analyses, g≈0.38–0.50, strongest for the students with the
+ * least prior knowledge), and until now the only signal this app could
+ * produce was "this one is correct" — there was no way to say "look at
+ * these two" during a discussion. Renderers tag their marks; the
+ * presenter toggles `is-spotlit` on them and `data-spotting` on the
+ * container, and one CSS block does the rest for every chart at once.
+ *
+ * Deliberately not spring-driven: what changes is opacity and saturation,
+ * never an encoded length, so CSS may own it.
+ */
+function spot(node, key) {
+  if (node.dataset.spot !== String(key)) node.dataset.spot = String(key);
+  return node;
+}
+
+/**
+ * Re-order rows without teleporting them.
+ *
+ * Sorting by frequency turns "which won" from an arithmetic comparison
+ * into a shape the eye reads for free — but only if the room can see the
+ * rows travel, which is what makes it the same data rather than a new
+ * chart. Rows keep their identity (index-keyed, as everywhere in this
+ * file); only the flex `order` changes, and a FLIP animates the gap.
+ *
+ * offsetTop, not getBoundingClientRect(): the archive scrolls, and a
+ * viewport-relative measurement taken either side of a reflow folds the
+ * scroll change into the delta — which is how a FLIP flings rows across
+ * the screen.
+ */
+function flipOrder(rows, order) {
+  const nodes = rows.map((r) => r.row);
+  const before = nodes.map((n) => n.offsetTop);
+  let changed = false;
+  order.forEach((idx, place) => {
+    const n = nodes[idx];
+    if (!n) return;
+    const want = String(place);
+    if (n.style.order !== want) { n.style.order = want; changed = true; }
+  });
+  if (!changed || prefersReducedMotion()) return;
+  const after = nodes.map((n) => n.offsetTop);
+  nodes.forEach((n, i) => {
+    const dy = before[i] - after[i];
+    if (!dy) return;
+    n.animate(
+      [{ transform: `translateY(${dy}px)` }, { transform: 'translateY(0)' }],
+      { duration: 620, easing: 'cubic-bezier(.22,1,.36,1)' },
+    );
+  });
+}
+
+/**
+ * The text equivalent of a chart, for the surfaces where the chart is the
+ * content rather than something a presenter is narrating.
+ *
+ * docs/accessibility.md has called this the largest remaining gap since
+ * the charts were written: three aria-labels across the whole file and no
+ * table anywhere. On the projector it matters least (the instructor is
+ * the narration); on the student's phone and in the results archive the
+ * chart is all there is, so those callers ask for it.
+ *
+ * The visual chart is marked aria-hidden when this is on, or a reader
+ * hears every number twice — once as a rack of divs and once as the
+ * table. Prepended, not appended: awaitNote() and emptyCard() both work
+ * off the end of the container, and sr-only is out of flow anyway.
+ */
+function srSummary(container, rows, caption) {
+  let table = container.__srTable;
+  if (!table) {
+    table = el('table', 'sr-only');
+    table.dataset.srSummary = '';
+    container.prepend(table);
+    container.__srTable = table;
+  } else if (table.parentNode !== container) {
+    container.prepend(table);
+  }
+  const key = `${caption}|${rows.map((r) => r.join('')).join('')}`;
+  if (table.__key === key) return;
+  table.__key = key;
+  table.textContent = '';
+  const cap = el('caption', null, caption);
+  const head = el('tr');
+  head.append(el('th', null, 'Answer'), el('th', null, 'Responses'), el('th', null, 'Share'));
+  const body = el('tbody');
+  body.append(head);
+  rows.forEach(([label, count, pct]) => {
+    const tr = el('tr');
+    tr.append(el('th', null, label), el('td', null, count), el('td', null, pct));
+    body.append(tr);
+  });
+  table.append(cap, body);
+}
+
+function clearSrSummary(container) {
+  container.__srTable?.remove();
+  container.__srTable = null;
+}
+
 /** 1.4.11 — a shape carrying meaning. Bars, segments, dots. */
 const MARK_CONTRAST = 3.05;
 /** 1.4.3 — the same palette when the mark IS a word. Cloud words, headings. */
@@ -208,6 +343,31 @@ export function renderChoice(container, agg, opts = {}) {
   const max = Math.max(1, ...agg.options.map((o) => o.count));
   const isNew = !state.group;
 
+  /**
+   * What a full track means.
+   *
+   * While the votes are still landing, a bar is a share of the LEADER:
+   * that is the scale with the most resolution, it makes every arrival
+   * visible, and nobody is drawing conclusions yet. The moment voting
+   * closes it becomes a share of the ROOM — because the conclusion the
+   * room is about to draw is a room-share judgment ("half of us said B"),
+   * and share-of-leader draws a 20/19/18 split as three nearly-full bars,
+   * which is a landslide in a picture and a divided room in the numbers.
+   * Students read the picture (Shah & Hoeffner: they do not compute from
+   * the labels), so the picture has to be the one that is true at the
+   * moment it is read.
+   *
+   * The change rides the springs already on `w:` — the bars visibly
+   * relax rather than cutting.
+   *
+   * Multi-select breaks the arithmetic (six people may cast eighteen
+   * votes, so a count can exceed the respondent total); there, share of
+   * the leader is the only honest full track, so the switch is off.
+   */
+  const totals = agg.total || 0;
+  const roomScale = opts.roomScale && totals > 0 && max <= totals;
+  const denom = roomScale ? totals : max;
+
   // Live question, zero responses: the state every question opens in,
   // in front of the whole room. Callers that show archived data pass
   // `awaiting: false` so a question nobody answered doesn't claim to wait.
@@ -222,13 +382,24 @@ export function renderChoice(container, agg, opts = {}) {
   while (state.rows.length < n) {
     const i = state.rows.length;
     const row = el('div', 'chart-row');
+    spot(row, i);
 
-    const label = el('div', 'chart-label');
+    const label = labelNode();
     const track = el('div', 'chart-track');
     const fill = el('div', 'chart-fill');
+    // Conviction washes (confidence rider): two right-anchored veils over
+    // the fill's tip. The solid base is the certain vote; the veils are
+    // the fairly-sures and, palest of all at the very tip, the guesses.
+    // Saturation is already this chart's "conviction" channel (the quiz
+    // verdict drains it from the losers), so the same channel now says,
+    // pre-reveal, whether a tall bar is held or merely hoped. Children of
+    // the fill, like the glint, so they ride the spring for free and can
+    // never alter the encoded length.
+    const wash1 = el('span', 'chart-conv');
+    const wash2 = el('span', 'chart-conv is-tip');
     const sheen = el('div', 'chart-sheen');
     const glint = el('span', 'chart-glint');
-    fill.append(sheen, glint);
+    fill.append(wash1, wash2, sheen, glint);
     track.append(fill);
 
     const value = el('div', 'chart-value');
@@ -239,7 +410,7 @@ export function renderChoice(container, agg, opts = {}) {
     row.append(label, track, value);
     row.style.setProperty('--row-i', String(i)); // phases the awaiting sweep
     container.append(row);
-    state.rows.push({ row, label, track, fill, glint, value, pct, count });
+    state.rows.push({ row, label, track, fill, glint, value, pct, count, wash1, wash2 });
 
     // entrance: rise and grow, staggered down the list
     if (isNew) {
@@ -257,14 +428,12 @@ export function renderChoice(container, agg, opts = {}) {
   const prevCounts = state.meta.lastCounts || null;
   agg.options.forEach((opt, i) => {
     const r = state.rows[i];
-    if (r.label.textContent !== (opt.label || `Option ${i + 1}`)) {
-      r.label.textContent = opt.label || `Option ${i + 1}`;
-      // The label is clamped to three lines in CSS; the title keeps the
-      // rest reachable rather than merely gone.
-      r.label.title = opt.label || '';
-    }
+    // The label is clamped to three lines in CSS; setLabel puts the rest
+    // on the title, so it is reachable rather than merely gone.
+    setLabel(r.label, opt.label || `Option ${i + 1}`);
 
-    const fraction = opts.hidden ? 0 : (max ? opt.count / max : 0);
+    const fraction = opts.hidden ? 0
+      : (denom ? Math.min(1, opt.count / denom) : 0);
     state.group.set(`w:${i}`, fraction);
     state.group.set(`c:${i}`, opts.hidden ? 0 : opt.count, { preset: 'precise' });
     state.group.set(`p:${i}`, opts.hidden ? 0 : opt.pct, { preset: 'precise' });
@@ -281,6 +450,17 @@ export function renderChoice(container, agg, opts = {}) {
       );
     }
 
+    // Conviction targets. `conf` is [guessing, fairly sure, certain] for
+    // this option's votes; absent unless the rider is on and someone
+    // reported. The veils cover everything that ISN'T a certain vote —
+    // a voter who skipped the rider rides under the lighter veil, which
+    // slightly understates conviction rather than ever overstating it.
+    const conv = opt.conf || null;
+    const reported = conv ? conv[0] + conv[1] + conv[2] : 0;
+    const veil = conv && reported && opt.count ? (opt.count - conv[2]) / opt.count : 0;
+    const tip = conv && reported && opt.count ? conv[0] / opt.count : 0;
+    state.group.set(`cw1:${i}`, opts.hidden ? 0 : veil);
+    state.group.set(`cw2:${i}`, opts.hidden ? 0 : tip);
   });
   state.meta.lastCounts = agg.options.map((o) => o.count);
 
@@ -327,9 +507,65 @@ export function renderChoice(container, agg, opts = {}) {
       });
       state.meta.confStrip.__key = key;
     }
+
+    // The calibration sentence — the one line the whole rider exists to
+    // produce, set large enough to be the discussion prompt it is. "Of
+    // the 12 who felt certain, 5 were right" says what no bar can: how
+    // good this room currently is at knowing when it knows.
+    const q4 = c.quad && correct.size ? c.quad : null;
+    const certain = q4 ? q4.sureRight + q4.sureWrong : 0;
+    if (q4 && certain > 0) {
+      if (!state.meta.confVerdict) {
+        const line = el('p', 'conf-verdict');
+        state.meta.confVerdict = line;
+        state.meta.confStrip.before(line);
+      }
+      const vkey = `${certain}|${q4.sureRight}`;
+      if (state.meta.confVerdict.__key !== vkey) {
+        const first = !state.meta.confVerdict.__key;
+        state.meta.confVerdict.__key = vkey;
+        const line = state.meta.confVerdict;
+        line.textContent = '';
+        line.append(
+          document.createTextNode(`Of the ${NUM.format(certain)} who felt certain, `),
+          el('strong', 'conf-verdict-n', String(first ? 0 : q4.sureRight)),
+          document.createTextNode(` ${q4.sureRight === 1 ? 'was' : 'were'} right.`),
+        );
+        if (first) {
+          const strong = line.querySelector('.conf-verdict-n');
+          countTo(0, q4.sureRight, 0.9, (v) => {
+            strong.textContent = NUM.format(Math.round(v));
+          });
+        }
+      }
+    } else if (state.meta.confVerdict) {
+      state.meta.confVerdict.remove();
+      state.meta.confVerdict = null;
+    }
   } else if (state.meta.confStrip) {
     state.meta.confStrip.remove();
     state.meta.confStrip = null;
+    state.meta.confVerdict?.remove();
+    state.meta.confVerdict = null;
+  }
+
+  // ---- sort on close ------------------------------------------------
+  // Ranking by eye is a comparison the room should not have to compute:
+  // sorted bars make "which won" a shape rather than an arithmetic
+  // problem. But only once voting has closed — while the room is still
+  // answering, students are tracking their OWN option, and a chart whose
+  // rows swap under them mid-vote is the transient-information effect
+  // wearing a helpful face. Never on a keyed question either: A/B/C is
+  // load-bearing there, and the answer being discussed is named by
+  // position.
+  const sortable = opts.sorted && !opts.hidden && !correct.size && totals > 0;
+  const order = sortable
+    ? agg.options.map((o, i) => i).sort((a, b) => (
+      agg.options[b].count - agg.options[a].count || a - b))
+    : agg.options.map((_, i) => i);
+  if (state.meta.orderKey !== order.join(',')) {
+    state.meta.orderKey = order.join(',');
+    flipOrder(state.rows, order);
   }
 
   // ---- quiz reveal: breath, then verdict ---------------------------
@@ -400,6 +636,40 @@ export function renderChoice(container, agg, opts = {}) {
     });
   }
 
+  // ---- the "because" ------------------------------------------------
+  // Smith et al. 2011: peer discussion PLUS the instructor's explanation
+  // beats either alone — and Mayer's temporal contiguity principle says
+  // the words and the graphic have to arrive together, not a slide apart.
+  // So the reasoning is part of the verdict beat rather than the next
+  // thing the instructor has to remember to click to.
+  //
+  // Written on the question, and stripped from the phone payload in the
+  // worker, because it is the answer key in sentences.
+  const explain = revealOn ? String(opts.explain || '').trim() : '';
+  if (explain) {
+    if (!state.meta.explainLine) {
+      const p = el('p', 'chart-explain');
+      state.meta.explainLine = p;
+      container.append(p);
+    }
+    const line = state.meta.explainLine;
+    if (line.textContent !== explain) line.textContent = explain;
+    // On the same 450ms beat as the verdict, and only the first time —
+    // the backstop poll re-rendering a settled reveal must not replay it.
+    if (!state.meta.explainShown) {
+      state.meta.explainShown = true;
+      line.classList.remove('is-in');
+      delay(0.45, () => {
+        if (container.__chart !== state) return;
+        line.classList.add('is-in');
+      });
+    }
+  } else if (state.meta.explainLine) {
+    state.meta.explainLine.remove();
+    state.meta.explainLine = null;
+    state.meta.explainShown = false;
+  }
+
   // Object.assign, not reassignment: meta also carries the await note.
   Object.assign(state.meta, {
     colors, correct, showPercent: opts.showPercent !== false, hidden: opts.hidden, root,
@@ -407,7 +677,9 @@ export function renderChoice(container, agg, opts = {}) {
   });
   awaitNote(container, state, awaiting);
   state.group.prune(new Set([
-    ...agg.options.flatMap((_, i) => [`w:${i}`, `c:${i}`, `p:${i}`, `dim:${i}`, `in:${i}`]),
+    ...agg.options.flatMap((_, i) => [
+      `w:${i}`, `c:${i}`, `p:${i}`, `dim:${i}`, `in:${i}`, `cw1:${i}`, `cw2:${i}`,
+    ]),
   ]));
 
   // ---- one write per frame ------------------------------------------
@@ -415,6 +687,7 @@ export function renderChoice(container, agg, opts = {}) {
     const g = state.group;
     const good = token(root, '--good', '#15803d');
     const ink = token(root, '--ink', '#111');
+    const ground = token(root, '--ground', '#ffffff');
 
     state.rows.forEach((r, i) => {
       const enter = g.get(`in:${i}`, 1);
@@ -468,6 +741,16 @@ export function renderChoice(container, agg, opts = {}) {
           ? `0 1px 2px ${rgba(ink, 0.10)}, 0 6px 16px ${rgba(shown, 0.26)}`
           : 'none';
       }
+
+      // Conviction veils: widths ride the same frame as the fill, pushed
+      // toward the page ground so the tip visibly pales without a second
+      // hue entering the chart.
+      const veil = Math.max(0, g.get(`cw1:${i}`, 0));
+      const tip = Math.max(0, g.get(`cw2:${i}`, 0));
+      r.wash1.style.width = `${(veil * 100).toFixed(2)}%`;
+      r.wash1.style.background = rgba(ground, 0.34);
+      r.wash2.style.width = `${(tip * 100).toFixed(2)}%`;
+      r.wash2.style.background = rgba(ground, 0.30);
 
       const pctVal = g.get(`p:${i}`);
       const cntVal = g.get(`c:${i}`);
@@ -533,7 +816,8 @@ function renderDotPlot(container, agg, opts = {}) {
   while (state.rows.length < n) {
     const i = state.rows.length;
     const row = el('div', 'dotp-row');
-    const label = el('div', 'chart-label');
+    spot(row, i);
+    const label = labelNode();
     const field = el('div', 'dotp-field');
     const value = el('div', 'chart-value');
     const pct = el('span', 'chart-pct');
@@ -562,7 +846,7 @@ function renderDotPlot(container, agg, opts = {}) {
   agg.options.forEach((opt, i) => {
     const r = state.rows[i];
     const shown = target[i];
-    r.label.textContent = opt.label || `Option ${i + 1}`;
+    setLabel(r.label, opt.label || `Option ${i + 1}`);
     r.row.classList.toggle('is-correct', correct.has(i));
     r.row.style.setProperty('--dot-color', colors[i]);
 
@@ -643,18 +927,37 @@ function renderDonut(container, agg, opts = {}) {
     s.append(arc);
     arcs.push(arc);
 
+    // The percentage, written on the slice it belongs to.
+    //
+    // Spatial contiguity is the largest single effect in the multimedia
+    // literature (d≈1.1): a number beside its mark is read, a number in a
+    // legend is a lookup — find the swatch, match the colour, carry the
+    // value back. The legend stays, because a slice too thin to hold its
+    // own label still needs a name, but the room no longer has to use it
+    // for the figures it will actually talk about.
+    const tag = svg('text', {
+      class: 'donut-tag', 'text-anchor': 'middle', 'dominant-baseline': 'central',
+    });
+    s.append(tag);
+
     const item = el('div', 'donut-item');
+    spot(item, arcs.length - 1);
     const dot = el('span', 'donut-dot');
-    const name = el('span', 'donut-name');
+    const name = labelNode('donut-name');
     const num = el('span', 'donut-num');
     item.append(dot, name, num);
     legend.append(item);
-    state.meta.items.push({ item, dot, name, num });
+    state.meta.items.push({ item, dot, name, num, tag });
   }
-  while (arcs.length > n) { arcs.pop().remove(); state.meta.items.pop().item.remove(); }
+  while (arcs.length > n) {
+    arcs.pop().remove();
+    const dead = state.meta.items.pop();
+    dead.item.remove();
+    dead.tag.remove();
+  }
 
   agg.options.forEach((opt, i) => {
-    state.meta.items[i].name.textContent = opt.label || `Option ${i + 1}`;
+    setLabel(state.meta.items[i].name, opt.label || `Option ${i + 1}`);
     state.group.set(`a:${i}`, opts.hidden || !total ? 0 : (opt.count / total) * 100);
     state.group.set(`p:${i}`, opts.hidden ? 0 : opt.pct, { preset: 'precise' });
   });
@@ -678,6 +981,7 @@ function renderDonut(container, agg, opts = {}) {
     track.setAttribute('stroke', rgba(ink, 0.08));
 
     let offset = 25; // start the first arc at 12 o'clock
+    let sweep = 0;   // percent of the ring consumed so far, for label angles
     arcs.forEach((arc, i) => {
       const pct = Math.max(0, g.get(`a:${i}`));
       arc.setAttribute('stroke', colors[i] || colors[0]);
@@ -691,6 +995,23 @@ function renderDonut(container, agg, opts = {}) {
       const it = state.meta.items[i];
       if (it.num.textContent !== txt) it.num.textContent = txt;
       it.dot.style.background = colors[i] || colors[0];
+
+      // The slice's own label, parked at the middle of its arc. Below
+      // ~9% of the ring the band is thinner than the digits are tall, so
+      // the tag would sit half on its neighbour — that slice keeps the
+      // legend and nothing else. Drawn in the ink that is readable ON the
+      // slice, since it sits inside the stroke.
+      const mid = sweep + pct / 2;
+      sweep += pct;
+      const show = !opts.hidden && !state.meta.awaiting && pct >= 9;
+      it.tag.style.opacity = show ? '1' : '0';
+      if (show) {
+        const a = (mid / 100) * Math.PI * 2 - Math.PI / 2;
+        it.tag.setAttribute('x', (21 + Math.cos(a) * R).toFixed(2));
+        it.tag.setAttribute('y', (21 + Math.sin(a) * R).toFixed(2));
+        it.tag.setAttribute('fill', readableOn(colors[i] || colors[0]));
+        if (it.tag.textContent !== txt) it.tag.textContent = txt;
+      }
     });
 
     const t = state.meta.awaiting ? '—' : String(Math.round(g.get('total')));
@@ -725,7 +1046,105 @@ function renderDonut(container, agg, opts = {}) {
  */
 export const CLOUD_MAX_WORDS = 80;
 
+/**
+ * How many words the list mode ranks. A cloud is a picture of the whole
+ * room; a ranked list is an argument about the top of it, and past ten
+ * rows the projector is a spreadsheet.
+ */
+const WORD_LIST_ROWS = 10;
+
+/**
+ * The same answers, ranked.
+ *
+ * A cloud encodes frequency as AREA, which is near the bottom of
+ * Cleveland & McGill's accuracy ranking — fine for "what did the room
+ * say", useless for "was 'warrant' really said twice as often as
+ * 'claim'". Length on a common baseline is the top of that ranking, so
+ * the same data gets a second view and the instructor picks the one that
+ * matches the question being asked: cloud for the arrival, list for the
+ * argument.
+ *
+ * Colour is carried over from the cloud unchanged — same hash, same
+ * accent for the leader — so a word keeps its identity across the toggle
+ * and the room can see it is the same data in a different shape.
+ */
+function renderWordList(container, agg, opts = {}) {
+  const state = useChart(container, 'wordlist');
+  const root = container;
+  const words = (agg.words || []).slice(0, WORD_LIST_ROWS);
+
+  if (opts.hidden || !words.length) {
+    const waiting = !opts.hidden && opts.awaiting !== false;
+    emptyCard(container, state,
+      opts.hidden ? 'hidden' : waiting ? 'waiting' : 'none',
+      opts.hidden ? 'Responses hidden'
+        : waiting ? 'Waiting for the first word…' : 'No responses.');
+    return;
+  }
+  clearEmptyCard(state);
+
+  const colors = palette(root, 12, 'wheel', TYPE_CONTRAST);
+  const top = words[0].count || 1;
+  const spoken = agg.total || words.reduce((s, w) => s + w.count, 0);
+
+  if (!state.group) {
+    state.group = new SpringGroup(() => state.paint?.(), PRESETS.smooth);
+  }
+
+  while (state.rows.length < words.length) {
+    const i = state.rows.length;
+    const row = el('div', 'chart-row');
+    spot(row, i);
+    const label = labelNode();
+    const track = el('div', 'chart-track');
+    const fill = el('div', 'chart-fill');
+    fill.append(el('div', 'chart-sheen'));
+    track.append(fill);
+    const value = el('div', 'chart-value');
+    const pct = el('span', 'chart-pct');
+    value.append(pct);
+    row.append(label, track, value);
+    row.style.setProperty('--row-i', String(i));
+    container.append(row);
+    state.rows.push({ row, label, fill, pct });
+  }
+  while (state.rows.length > words.length) state.rows.pop().row.remove();
+
+  words.forEach((w, i) => {
+    const r = state.rows[i];
+    setLabel(r.label, w.word);
+    state.group.set(`w:${i}`, w.count / top);
+    state.group.set(`c:${i}`, w.count, { preset: 'precise' });
+    // the cloud's rule, unchanged: leader wears the accent, everyone else
+    // keeps the hue their own letters hash to
+    r.fill.style.background = i === 0 ? colors[0] : colors[hashStr(w.word) % colors.length];
+  });
+
+  state.group.prune(new Set(words.flatMap((_, i) => [`w:${i}`, `c:${i}`])));
+
+  state.paint = () => {
+    const g = state.group;
+    state.rows.forEach((r, i) => {
+      r.fill.style.setProperty('--bar-size', `${Math.max(0, g.get(`w:${i}`)) * 100}%`);
+      const c = Math.round(g.get(`c:${i}`));
+      const txt = `${NUM.format(c)}`;
+      if (r.pct.textContent !== txt) r.pct.textContent = txt;
+    });
+  };
+
+  if (opts.srSummary) {
+    srSummary(container, words.map((w) => [
+      w.word, String(w.count),
+      spoken ? `${Math.round((w.count / spoken) * 100)}%` : '—',
+    ]), `Most frequent answers, ${NUM.format(words.length)} shown`);
+  }
+
+  state.group.kick();
+  state.paint();
+}
+
 export function renderWordCloud(container, agg, opts = {}) {
+  if (opts.style === 'list') return renderWordList(container, agg, opts);
   const state = useChart(container, 'cloud');
   const root = container;
 
@@ -1173,7 +1592,7 @@ export function renderScales(container, agg, opts = {}) {
 
   while (state.rows.length < n) {
     const i = state.rows.length;
-    const row = el('div', 'scale-row');
+    const row = spot(el('div', 'scale-row'), i);
     const label = el('div', 'scale-label');
     const track = el('div', 'scale-track');
     const dist = el('div', 'scale-dist');
@@ -1322,7 +1741,7 @@ export function renderRanking(container, agg, opts = {}) {
 
   while (state.rows.length < n) {
     const i = state.rows.length;
-    const row = el('div', 'rank-row');
+    const row = spot(el('div', 'rank-row'), i);
     const place = el('div', 'rank-place');
     const label = el('div', 'rank-label');
     const track = el('div', 'rank-track');
@@ -1885,7 +2304,7 @@ export function renderShowdown(container, agg, opts = {}) {
 
   while (state.rows.length < n) {
     const i = state.rows.length;
-    const card = el('div', 'sample-card');
+    const card = spot(el('div', 'sample-card'), i);
     const tag = el('span', 'sample-tag', String.fromCharCode(65 + i));
     const quote = el('blockquote', 'sample-quote');
     const track = el('div', 'sample-track');
@@ -2003,6 +2422,7 @@ export function renderHeatmap(container, agg, opts = {}) {
   while (state.rows.length < segs.length) {
     const i = state.rows.length;
     const seg = el('span', 'passage-seg');
+    spot(seg, i);
     const text = el('span', 'passage-seg-text');
     const chip = el('sup', 'seg-count');
     seg.append(text, chip);
@@ -2033,8 +2453,18 @@ export function renderHeatmap(container, agg, opts = {}) {
       const title = top >= 0 && !opts.hidden
         ? `${agg.labels[top]} × ${topCount}` : '';
       if (r.seg.title !== title) r.seg.title = title;
+      // The winning label, written on the segment.
+      //
+      // A colour that means "warrant" is a lookup: find the chip in the
+      // legend, match the hue, carry the word back to the sentence — and
+      // the tooltip that carried the answer before is unreachable on a
+      // projector, where there is no pointer to hover with. Three letters
+      // beside the count is the whole trip, in place.
+      r.__labelTag = top >= 0 && !opts.hidden
+        ? String(agg.labels[top] || '').slice(0, 3).toLowerCase() : '';
     } else {
       r.__labelColor = null;
+      r.__labelTag = '';
     }
   });
 
@@ -2049,7 +2479,7 @@ export function renderHeatmap(container, agg, opts = {}) {
       const color = r.__labelColor || accent;
       r.seg.style.background = h > 0.01 ? rgba(color, 0.14 + h * 0.34) : 'transparent';
       r.seg.style.boxShadow = h > 0.6 ? `inset 0 -2px 0 ${rgba(color, 0.75)}` : 'none';
-      const chipTxt = c > 0 ? String(c) : '';
+      const chipTxt = c > 0 ? `${r.__labelTag ? `${r.__labelTag} ` : ''}${c}` : '';
       if (r.chip.textContent !== chipTxt) r.chip.textContent = chipTxt;
     });
   }
@@ -2198,7 +2628,7 @@ export function renderMood(container, agg, opts = {}) {
 
   while (state.rows.length < rows.length) {
     const i = state.rows.length;
-    const cell = el('div', 'mood-cell');
+    const cell = spot(el('div', 'mood-cell'), i);
     const glyph = el('div', 'mood-glyph');
     const label = el('div', 'mood-label');
     const num = el('div', 'mood-num');
@@ -2257,7 +2687,7 @@ export function renderTugOfWar(container, agg, opts = {}) {
 
   while (state.rows.length < pairs.length) {
     const i = state.rows.length;
-    const row = el('div', 'tug-row');
+    const row = spot(el('div', 'tug-row'), i);
     const left = el('div', 'tug-side tug-left');
     const leftName = el('span', 'tug-name');
     const leftNum = el('span', 'tug-num');
@@ -2336,7 +2766,7 @@ export function renderBudget(container, agg, opts = {}) {
   if (!state.group) state.group = new SpringGroup(() => state.paint?.(), PRESETS.smooth);
 
   while (state.rows.length < rows.length) {
-    const row = el('div', 'budget-row');
+    const row = spot(el('div', 'budget-row'), state.rows.length);
     const label = el('div', 'budget-label');
     const track = el('div', 'budget-track');
     const fill = el('div', 'budget-fill');
@@ -2577,7 +3007,7 @@ export function renderMatching(container, agg, opts = {}) {
   if (!state.group) state.group = new SpringGroup(() => state.paint?.(), PRESETS.smooth);
 
   while (state.rows.length < rows.length) {
-    const row = el('div', 'match-row');
+    const row = spot(el('div', 'match-row'), state.rows.length);
     const label = el('div', 'match-label');
     const track = el('div', 'match-track');
     const note = el('div', 'match-note');
@@ -2903,9 +3333,15 @@ export function renderQA(container, agg, opts = {}) {
 export function archiveOpts(question) {
   const cfg = question?.config || {};
   return {
-    style: cfg.chart || 'bars',
+    style: cfg.chart || (question?.type === 'word_cloud' ? 'cloud' : 'bars'),
     // Archived data: zero responses is a fact, not a wait.
     awaiting: false,
+    // In the archive the chart IS the content — there is no instructor
+    // narrating it — so it carries its own text equivalent. On the
+    // projector this stays off: the room has a person reading it out.
+    srSummary: true,
+    // and the reasoning is part of the record, not just of the moment
+    explain: cfg.explain,
     revealCorrect: true,
     revealStyle: question?.type === 'quiz' ? 'correct' : 'best',
     showPercent: cfg.show_counts !== true,
@@ -2915,11 +3351,681 @@ export function archiveOpts(question) {
     anchors: cfg.anchors,
     showAnchors: true,
     showRationales: true,
+    // quadrant poles ride opts like the spectrum's, and for the same
+    // reason; the consensus archive opens straight on the verdict —
+    // after class, the sentences ARE the result
+    axes: question?.type === 'quadrant' ? {
+      xLeft: cfg.x_left, xRight: cfg.x_right,
+      yLow: cfg.y_low, yHigh: cfg.y_high,
+    } : undefined,
+    verdict: question?.type === 'consensus',
   };
+}
+
+// =====================================================================
+// Card sort — ambiguity as position
+//
+// Columns are the buckets; each card is a chip that sits where the room
+// filed it. A card everyone agrees on sits square under its column
+// header, saturated. A contested card slides toward its runner-up column
+// in proportion to the split — a 50/50 card sits exactly ON the fence,
+// which is the sentence the chart exists to say. On reveal (keyed sorts
+// only), misfiled cards travel home leaving a ghost at the crowd's
+// position: the room was here, the truth is there — the same grammar the
+// re-ask delta already taught this projector.
+// =====================================================================
+
+const BUCKET_ROW_H = 3.1; // em per card row
+
+export function renderBuckets(container, agg, opts = {}) {
+  const state = useChart(container, 'buckets');
+  const root = container;
+  const buckets = agg.buckets || [];
+  const cards = agg.cards || [];
+  const nB = Math.max(1, buckets.length);
+  const colW = 100 / nB;
+  const cx = (b) => (b + 0.5) * colW;
+  const colors = palette(root, nB, 'wheel');
+  const key = opts.revealCorrect && Array.isArray(agg.correct) ? agg.correct : null;
+  const awaiting = !opts.hidden && (agg.total || 0) === 0 && opts.awaiting !== false;
+  container.toggleAttribute('data-awaiting', awaiting);
+
+  if (!state.group) {
+    state.group = new SpringGroup(() => state.paint?.(), PRESETS.smooth);
+    const wrap = el('div', 'buckets-wrap');
+    const head = el('div', 'buckets-head');
+    const field = el('div', 'buckets-field');
+    wrap.append(head, field);
+    container.append(wrap);
+    Object.assign(state.meta, {
+      wrap, head, field, heads: [], rules: [], cardEls: [], data: [],
+      ghosts: [], revealed: false, verdictLanded: false,
+    });
+  }
+
+  // ---- column headers and the fences between them --------------------
+  while (state.meta.heads.length < buckets.length) {
+    const h = el('div', 'buckets-col-head');
+    state.meta.head.append(h);
+    state.meta.heads.push(h);
+  }
+  while (state.meta.heads.length > buckets.length) state.meta.heads.pop().remove();
+  buckets.forEach((b, i) => {
+    const h = state.meta.heads[i];
+    const text = b || `Bucket ${i + 1}`;
+    if (h.textContent !== text) h.textContent = text;
+    h.style.borderBottomColor = colors[i];
+  });
+
+  while (state.meta.rules.length < nB - 1) {
+    const rule = el('div', 'buckets-rule');
+    rule.style.left = `${(state.meta.rules.length + 1) * colW}%`;
+    state.meta.field.append(rule);
+    state.meta.rules.push(rule);
+  }
+  while (state.meta.rules.length > nB - 1) state.meta.rules.pop().remove();
+  state.meta.rules.forEach((rule, i) => { rule.style.left = `${(i + 1) * colW}%`; });
+
+  // ---- one chip per card, reused ------------------------------------
+  while (state.meta.cardEls.length < cards.length) {
+    const i = state.meta.cardEls.length;
+    const node = el('div', 'bcard');
+    const mark = el('span', 'bcard-mark', '✓');
+    const label = el('div', 'bcard-label');
+    const split = el('div', 'bcard-split');
+    node.append(mark, label, split);
+    node.style.top = `${i * BUCKET_ROW_H}em`;
+    state.meta.field.append(node);
+    state.meta.cardEls.push({ node, label, split, segs: [], mark });
+    state.group.set(`in:${i}`, 1, { from: 0 });
+  }
+  while (state.meta.cardEls.length > cards.length) {
+    state.meta.cardEls.pop().node.remove();
+  }
+  state.meta.field.style.height = `${cards.length * BUCKET_ROW_H}em`;
+
+  // ---- targets --------------------------------------------------------
+  state.meta.data = cards.map((d, i) => {
+    const c = state.meta.cardEls[i];
+    const text = d.label || `Card ${i + 1}`;
+    if (c.label.textContent !== text) { c.label.textContent = text; c.label.title = text; }
+
+    while (c.segs.length < nB) {
+      const seg = el('span', 'bcard-seg');
+      c.split.append(seg);
+      c.segs.push(seg);
+    }
+    while (c.segs.length > nB) c.segs.pop().remove();
+    c.segs.forEach((seg, b) => {
+      seg.style.background = colors[b];
+      state.group.set(`sp:${i}:${b}`, opts.hidden || !d.n ? 0 : d.counts[b] / d.n);
+    });
+
+    let hue = null;
+    let x = 50;
+    if (!opts.hidden && d.n && d.top != null) {
+      hue = colors[d.top];
+      x = cx(d.top);
+      // The lean: the runner-up column pulls the card off its plinth in
+      // proportion to the split, capped at the halfway line — a dead
+      // heat sits the card exactly on the fence, never past it.
+      if (d.runnerUp != null) x += (cx(d.runnerUp) - cx(d.top)) * 0.5 * d.lean;
+      if (state.meta.verdictLanded && key && key[i] != null) {
+        x = cx(key[i]);
+        hue = colors[key[i]];
+      }
+    }
+    state.group.set(`x:${i}`, x);
+    state.group.set(`con:${i}`, opts.hidden || !d.n ? 0 : d.consensus);
+    return { hue, n: d.n, top: d.top };
+  });
+
+  // ---- reveal: breath, then cards travel home ------------------------
+  const clearVerdict = () => {
+    state.meta.verdictLanded = false;
+    state.meta.ghosts.forEach((g) => g.remove());
+    state.meta.ghosts = [];
+    state.meta.cardEls.forEach((c) => c.node.classList.remove('is-right', 'is-moved'));
+  };
+
+  if (key && !state.meta.revealed) {
+    state.meta.revealed = true;
+    delay(0.45, () => {
+      if (container.__chart !== state || !state.meta.revealed) return;
+      state.meta.verdictLanded = true;
+      cards.forEach((d, i) => {
+        if (key[i] == null) return;
+        const c = state.meta.cardEls[i];
+        const wasRight = d && d.n > 0 && d.top === key[i];
+        c.node.classList.toggle('is-right', !!wasRight);
+        if (!wasRight && d && d.n > 0) {
+          c.node.classList.add('is-moved');
+          // the ghost stays where the room put it — the correction is
+          // the journey between the two
+          const ghost = el('div', 'bcard-ghost', d.label || `Card ${i + 1}`);
+          ghost.style.top = `${i * BUCKET_ROW_H}em`;
+          ghost.style.left = `${state.group.get(`x:${i}`, 50)}%`;
+          state.meta.field.append(ghost);
+          state.meta.ghosts.push(ghost);
+          state.group.set(`x:${i}`, cx(key[i]));
+        }
+      });
+    });
+  } else if (!key && state.meta.revealed) {
+    state.meta.revealed = false;
+    clearVerdict();
+  }
+
+  awaitNote(container, state, awaiting, 'Waiting for the first sort…');
+  state.group.prune(new Set(cards.flatMap((_, i) => [
+    `x:${i}`, `in:${i}`, `con:${i}`,
+    ...buckets.map((_, b) => `sp:${i}:${b}`),
+  ])));
+
+  function paint() {
+    const g = state.group;
+    const surface = token(root, '--surface', '#ffffff');
+    const edge = token(root, '--edge-strong', '#94a3b8');
+    state.meta.cardEls.forEach((c, i) => {
+      const d = state.meta.data[i];
+      if (!d) return;
+      const x = g.get(`x:${i}`, 50);
+      const enter = g.get(`in:${i}`, 1);
+      const con = Math.max(0, Math.min(1, g.get(`con:${i}`, 0)));
+      c.node.style.left = `${x.toFixed(3)}%`;
+      c.node.style.opacity = String(enter);
+      c.node.style.maxWidth = `${colW - 3}%`;
+      if (d.hue) {
+        // saturation is consensus: a card the room agrees on wears its
+        // column's colour with conviction; a contested one goes pale
+        c.node.style.borderColor = mixColor(edge, d.hue, 0.25 + 0.75 * con);
+        c.node.style.background = mixColor(surface, d.hue, 0.05 + 0.2 * con);
+      } else {
+        c.node.style.borderColor = edge;
+        c.node.style.background = surface;
+      }
+      c.segs.forEach((seg, b) => {
+        seg.style.width = `${(Math.max(0, g.get(`sp:${i}:${b}`, 0)) * 100).toFixed(2)}%`;
+      });
+    });
+  }
+
+  state.paint = paint;
+  state.group.kick();
+  paint();
+}
+
+// =====================================================================
+// Quadrant — the spectrum's doctrine, one dimension up
+//
+// Every placement is drawn; nothing is averaged. Each item's placements
+// render as a cloud of soft ink in the item's hue: consensus reads as a
+// tight blob, a split room as two lobes, confusion as a smear — the
+// SHAPE of the disagreement is the finding, and it is exactly the thing
+// a mean point cannot show. The item's label sits at the densest
+// placement (the mode), never at the centroid, because the centroid of
+// two camps is the empty middle nobody voted for.
+// =====================================================================
+
+let quadFilterSeq = 0;
+
+export function renderQuadrant(container, agg, opts = {}) {
+  const state = useChart(container, 'quadrant');
+  const root = container;
+  const items = agg.items || [];
+  const self = !!agg.self;
+  const colors = self
+    ? [token(root, '--accent', '#1d4ed8')]
+    : palette(root, Math.max(1, items.length), 'wheel');
+  const axes = opts.axes || {};
+  const awaiting = !opts.hidden && (agg.total || 0) === 0 && opts.awaiting !== false;
+  container.toggleAttribute('data-awaiting', awaiting);
+
+  if (!state.group) {
+    state.group = new SpringGroup(() => state.paint?.(), PRESETS.smooth);
+    const wrap = el('div', 'quad-wrap');
+    const stage = el('div', 'quad-stage');
+    const svgEl = svg('svg', {
+      viewBox: '0 0 100 100', preserveAspectRatio: 'none', role: 'img',
+    });
+    svgEl.classList.add('quad-svg');
+    const filterId = `quad-blur-${quadFilterSeq += 1}`;
+    const defs = svg('defs');
+    const filter = svg('filter', {
+      id: filterId, x: '-60%', y: '-60%', width: '220%', height: '220%',
+    });
+    filter.append(svg('feGaussianBlur', { stdDeviation: 2.4 }));
+    defs.append(filter);
+    svgEl.append(
+      defs,
+      svg('line', { x1: 0, y1: 50, x2: 100, y2: 50, class: 'quad-rule' }),
+      svg('line', { x1: 50, y1: 0, x2: 50, y2: 100, class: 'quad-rule' }),
+    );
+    stage.append(svgEl);
+    const poles = {
+      top: el('div', 'quad-pole is-top'),
+      bottom: el('div', 'quad-pole is-bottom'),
+      left: el('div', 'quad-pole is-left'),
+      right: el('div', 'quad-pole is-right'),
+    };
+    Object.values(poles).forEach((p) => stage.append(p));
+    const legend = el('div', 'quad-legend');
+    wrap.append(stage, legend);
+    container.append(wrap);
+    Object.assign(state.meta, {
+      stage, svgEl, filterId, legend, poles, series: [], focus: null,
+    });
+  }
+
+  const poleText = (node, text) => {
+    if (node.textContent !== text) node.textContent = text;
+  };
+  poleText(state.meta.poles.top, axes.yHigh || 'High');
+  poleText(state.meta.poles.bottom, axes.yLow || 'Low');
+  poleText(state.meta.poles.left, axes.xLeft || 'Left');
+  poleText(state.meta.poles.right, axes.xRight || 'Right');
+
+  const nSeries = Math.max(1, self ? 1 : items.length);
+
+  // ---- per-item structure: a blurred halo layer, a core layer, an
+  // anchor chip at the mode, and a legend button that isolates it ------
+  while (state.meta.series.length < nSeries) {
+    const i = state.meta.series.length;
+    const halos = svg('g', { filter: `url(#${state.meta.filterId})` });
+    const cores = svg('g');
+    state.meta.svgEl.append(halos, cores);
+    const anchor = el('span', 'quad-anchor');
+    state.meta.stage.append(anchor);
+    let legendBtn = null;
+    if (!self) {
+      legendBtn = el('button', 'quad-key');
+      legendBtn.type = 'button';
+      legendBtn.setAttribute('aria-pressed', 'false');
+      legendBtn.append(el('span', 'quad-key-swatch'), el('span', 'quad-key-label'),
+        el('span', 'quad-key-count'));
+      // tap to isolate one cloud — stepping through items one at a time
+      // is the discussion choreography this chart is built for
+      legendBtn.addEventListener('click', () => {
+        state.meta.focus = state.meta.focus === i ? null : i;
+        state.meta.series.forEach((s, k) => {
+          s.legendBtn?.classList.toggle('is-focus', state.meta.focus === k);
+          s.legendBtn?.setAttribute('aria-pressed', state.meta.focus === k ? 'true' : 'false');
+        });
+        state.paint?.();
+      });
+      state.meta.legend.append(legendBtn);
+    }
+    state.meta.series.push({ halos, cores, anchor, legendBtn, dots: new Map() });
+  }
+  while (state.meta.series.length > nSeries) {
+    const s = state.meta.series.pop();
+    s.halos.remove(); s.cores.remove(); s.anchor.remove(); s.legendBtn?.remove();
+  }
+  state.meta.legend.hidden = self;
+
+  // ---- dots, keyed so a re-ask migrates the same anonymous mark ------
+  (agg.items || []).forEach((item, i) => {
+    if (i >= nSeries) return;
+    const s = state.meta.series[i];
+    const hue = colors[i];
+    const beforeByKey = new Map(
+      ((opts.beforeItems || [])[i]?.points || []).map((p, k) => [p.pseudonym || `i:${k}`, p]));
+
+    if (s.legendBtn) {
+      const labelEl = s.legendBtn.querySelector('.quad-key-label');
+      const countEl = s.legendBtn.querySelector('.quad-key-count');
+      const text = item.label || `Item ${i + 1}`;
+      if (labelEl.textContent !== text) labelEl.textContent = text;
+      const cnt = opts.hidden ? '—' : String(item.points.length);
+      if (countEl.textContent !== cnt) countEl.textContent = cnt;
+      s.legendBtn.querySelector('.quad-key-swatch').style.background = hue;
+    }
+
+    const seen = new Set();
+    item.points.forEach((pt, k) => {
+      const dotKey = pt.pseudonym || `i:${k}`;
+      seen.add(dotKey);
+      let dot = s.dots.get(dotKey);
+      if (!dot) {
+        const halo = svg('circle', { r: 0, fill: hue, 'fill-opacity': 0.2 });
+        const core = svg('circle', { r: 0, fill: hue, 'fill-opacity': 0.9 });
+        s.halos.append(halo);
+        s.cores.append(core);
+        dot = { halo, core };
+        s.dots.set(dotKey, dot);
+        const from = beforeByKey.get(dotKey);
+        state.group.set(`x:${i}:${dotKey}`, from ? from.x : pt.x, { from: from ? from.x : pt.x });
+        state.group.set(`y:${i}:${dotKey}`, from ? from.y : pt.y, { from: from ? from.y : pt.y });
+        state.group.set(`s:${i}:${dotKey}`, 1, { from: 0, preset: 'bouncy' });
+        if (from) {
+          delay(0.5 + stagger(k, 0.02, 0.4), () => {
+            if (container.__chart !== state) return;
+            state.group.set(`x:${i}:${dotKey}`, pt.x);
+            state.group.set(`y:${i}:${dotKey}`, pt.y);
+          });
+        }
+      } else {
+        state.group.set(`x:${i}:${dotKey}`, pt.x);
+        state.group.set(`y:${i}:${dotKey}`, pt.y);
+      }
+      state.group.set(`s:${i}:${dotKey}`, opts.hidden ? 0 : 1);
+    });
+
+    s.dots.forEach((dot, dotKey) => {
+      if (seen.has(dotKey)) return;
+      state.group.set(`s:${i}:${dotKey}`, 0);
+      delay(0.4, () => {
+        const sp = state.group.springs.get(`s:${i}:${dotKey}`);
+        if (sp && sp.target > 0) return;
+        if (s.dots.get(dotKey) !== dot) return;
+        dot.halo.remove();
+        dot.core.remove();
+        s.dots.delete(dotKey);
+        state.group.forget(`x:${i}:${dotKey}`);
+        state.group.forget(`y:${i}:${dotKey}`);
+        state.group.forget(`s:${i}:${dotKey}`);
+      });
+    });
+
+    // the label rides the mode, never the mean
+    const a = item.anchor;
+    if (a && !opts.hidden) {
+      const hasA = state.group.springs?.has?.(`ax:${i}`);
+      state.group.set(`ax:${i}`, a.x, hasA ? undefined : { from: a.x });
+      state.group.set(`ay:${i}`, a.y, hasA ? undefined : { from: a.y });
+    }
+    s.anchor.textContent = self ? '' : (item.label || `Item ${i + 1}`);
+    s.anchor.style.borderColor = hue;
+    s.anchor.hidden = self || opts.hidden || !a || !item.points.length;
+  });
+
+  awaitNote(container, state, awaiting, 'Waiting for the first placement…');
+
+  function paint() {
+    const g = state.group;
+    state.meta.series.forEach((s, i) => {
+      const dimmed = state.meta.focus != null && state.meta.focus !== i;
+      s.halos.setAttribute('opacity', dimmed ? '0.06' : '1');
+      s.cores.setAttribute('opacity', dimmed ? '0.08' : '1');
+      s.anchor.style.opacity = dimmed ? '0' : '';
+      s.dots.forEach((dot, dotKey) => {
+        const x = g.get(`x:${i}:${dotKey}`, 50);
+        const y = 100 - g.get(`y:${i}:${dotKey}`, 50);
+        const sc = Math.max(0, g.get(`s:${i}:${dotKey}`, 1));
+        dot.halo.setAttribute('cx', x.toFixed(2));
+        dot.halo.setAttribute('cy', y.toFixed(2));
+        dot.halo.setAttribute('r', (5.2 * sc).toFixed(2));
+        dot.core.setAttribute('cx', x.toFixed(2));
+        dot.core.setAttribute('cy', y.toFixed(2));
+        dot.core.setAttribute('r', ((self ? 1.4 : 1.1) * sc).toFixed(2));
+      });
+      if (!s.anchor.hidden) {
+        s.anchor.style.left = `${g.get(`ax:${i}`, 50).toFixed(2)}%`;
+        s.anchor.style.top = `${(100 - g.get(`ay:${i}`, 50)).toFixed(2)}%`;
+      }
+    });
+  }
+
+  state.paint = paint;
+  state.group.kick();
+  paint();
+}
+
+// =====================================================================
+// Common ground — claims that migrate
+//
+// Each approved claim is a card on one axis: room disagrees ← → room
+// agrees. Position is the balance among those who took a side;
+// saturation is how much of the room has weighed in, so an unheard claim
+// sits pale at the centre and cannot masquerade as a genuinely contested
+// one. The verdict view turns the field into sentences — "the room
+// agrees:" over the claims that earned it — because the sentence is the
+// slide (the re-ask delta's pattern, borrowed on purpose).
+// =====================================================================
+
+const CLAIM_ROW_H = 2.8; // em
+
+export function renderConsensus(container, agg, opts = {}) {
+  const state = useChart(container, 'consensus');
+  const root = container;
+  const claims = agg.claims || [];
+  const awaiting = !opts.hidden && claims.length > 0
+    && (agg.total || 0) === 0 && opts.awaiting !== false;
+  container.toggleAttribute('data-awaiting', awaiting);
+
+  if (!state.group) {
+    state.group = new SpringGroup(() => state.paint?.(), PRESETS.smooth);
+    const wrap = el('div', 'consensus-wrap');
+    const ends = el('div', 'consensus-ends');
+    ends.append(
+      el('span', 'consensus-end', 'Room disagrees'),
+      el('span', 'consensus-end is-mid', 'contested'),
+      el('span', 'consensus-end', 'Room agrees'),
+    );
+    const field = el('div', 'consensus-field');
+    wrap.append(ends, field);
+    container.append(wrap);
+    Object.assign(state.meta, {
+      wrap, field, nodes: new Map(), rowOf: new Map(), verdict: null, verdictKey: '',
+    });
+  }
+
+  if (!claims.length) {
+    state.meta.wrap.hidden = true;
+    emptyCard(container, state, 'waiting', 'Waiting for the room’s first claim…');
+  } else {
+    state.meta.wrap.hidden = false;
+    clearEmptyCard(state);
+  }
+
+  // stable rows: a claim keeps its lane for the whole session, and a
+  // freshly approved one takes the next lane down
+  claims.forEach((c) => {
+    if (!state.meta.rowOf.has(c.key)) state.meta.rowOf.set(c.key, state.meta.rowOf.size);
+  });
+  state.meta.field.style.height = `${Math.max(1, state.meta.rowOf.size) * CLAIM_ROW_H}em`;
+
+  const seen = new Set();
+  claims.forEach((c) => {
+    seen.add(c.key);
+    let entry = state.meta.nodes.get(c.key);
+    if (!entry) {
+      const node = el('div', 'claim-node');
+      const text = el('span', 'claim-node-text', c.text);
+      const votes = el('span', 'claim-node-votes');
+      node.append(text, votes);
+      node.style.top = `${state.meta.rowOf.get(c.key) * CLAIM_ROW_H}em`;
+      state.meta.field.append(node);
+      entry = { node, text, votes };
+      state.meta.nodes.set(c.key, entry);
+      state.group.set(`x:${c.key}`, 50, { from: 50 });
+      state.group.set(`s:${c.key}`, 1, { from: 0, preset: 'bouncy' });
+      state.group.set(`h:${c.key}`, 0, { from: 0 });
+    }
+    if (entry.text.textContent !== c.text) {
+      entry.text.textContent = c.text;
+      entry.text.title = c.text;
+    }
+    state.group.set(`x:${c.key}`, opts.hidden ? 50 : 50 + c.balance * 42);
+    state.group.set(`h:${c.key}`,
+      opts.hidden ? 0 : (agg.total ? Math.min(1, c.votes / agg.total) : 0));
+    state.group.set(`s:${c.key}`, opts.hidden ? 0 : 1);
+    const vtxt = opts.hidden || !c.votes ? '' : NUM.format(c.votes);
+    if (entry.votes.textContent !== vtxt) entry.votes.textContent = vtxt;
+  });
+
+  state.meta.nodes.forEach((entry, ckey) => {
+    if (seen.has(ckey)) return;
+    state.group.set(`s:${ckey}`, 0);
+    delay(0.4, () => {
+      const sp = state.group.springs.get(`s:${ckey}`);
+      if (sp && sp.target > 0) return;
+      if (state.meta.nodes.get(ckey) !== entry) return;
+      entry.node.remove();
+      state.meta.nodes.delete(ckey);
+      state.group.forget(`x:${ckey}`);
+      state.group.forget(`s:${ckey}`);
+      state.group.forget(`h:${ckey}`);
+    });
+  });
+
+  // ---- the verdict: the field becomes sentences -----------------------
+  const wantVerdict = !!opts.verdict && !opts.hidden && (agg.total || 0) > 0;
+  if (wantVerdict) {
+    const minVotes = Math.max(2, Math.ceil((agg.total || 0) / 3));
+    const heard = claims.filter((c) => c.votes > 0);
+    const agreed = heard.filter((c) => c.votes >= minVotes && c.balance >= 0.6)
+      .sort((a, b) => b.balance - a.balance || b.votes - a.votes).slice(0, 3);
+    const split = heard.filter((c) => c.votes >= minVotes && Math.abs(c.balance) <= 0.3)
+      .sort((a, b) => b.votes - a.votes).slice(0, 2);
+    const vkey = [...agreed, ...split].map((c) => `${c.key}:${c.agree}:${c.disagree}`).join('|');
+    if (state.meta.verdictKey !== vkey) {
+      state.meta.verdictKey = vkey;
+      state.meta.verdict?.remove();
+      const v = el('div', 'consensus-verdict');
+      const section = (title, list, cls) => {
+        if (!list.length) return;
+        v.append(el('p', 'consensus-verdict-title', title));
+        list.forEach((c, i) => {
+          const card = el('blockquote', `consensus-quote ${cls}`.trim());
+          card.append(
+            el('span', 'consensus-quote-text', c.text),
+            el('span', 'consensus-quote-tally',
+              `${Math.round((c.agree / Math.max(1, c.votes)) * 100)}% agree · ${NUM.format(c.votes)} voted`),
+          );
+          card.style.setProperty('--q-i', String(i));
+          v.append(card);
+        });
+      };
+      section('The room agrees', agreed, 'is-agreed');
+      section('Still contested', split, 'is-split');
+      if (!v.childNodes.length) {
+        v.append(el('p', 'consensus-verdict-title', 'No claim has enough votes to call yet'));
+      }
+      state.meta.wrap.append(v);
+      state.meta.verdict = v;
+    }
+    state.meta.field.classList.add('is-backdrop');
+    state.meta.wrap.classList.add('is-verdict');
+  } else {
+    state.meta.verdict?.remove();
+    state.meta.verdict = null;
+    state.meta.verdictKey = '';
+    state.meta.field.classList.remove('is-backdrop');
+    state.meta.wrap.classList.remove('is-verdict');
+  }
+
+  awaitNote(container, state, awaiting, 'Waiting for the first vote…');
+  state.group.prune(new Set([...state.meta.nodes.keys()]
+    .flatMap((k) => [`x:${k}`, `s:${k}`, `h:${k}`])));
+
+  function paint() {
+    const g = state.group;
+    const accent = token(root, '--accent', '#1d4ed8');
+    const surface = token(root, '--surface', '#ffffff');
+    const edge = token(root, '--edge-strong', '#94a3b8');
+    state.meta.nodes.forEach((entry, ckey) => {
+      const x = g.get(`x:${ckey}`, 50);
+      const s = Math.max(0, g.get(`s:${ckey}`, 1));
+      const h = Math.max(0, Math.min(1, g.get(`h:${ckey}`, 0)));
+      entry.node.style.left = `${x.toFixed(3)}%`;
+      // The chip's own anchor slides with it: centred in the middle of
+      // the field, right-aligned at the agree pole, left-aligned at the
+      // disagree pole. A fixed -50% put half of every outlying chip
+      // outside the field — and the claims that travel furthest are
+      // exactly the ones the room most agreed or disagreed about, so
+      // clipping them would hide the finding.
+      entry.node.style.transform =
+        `translate(${(-x).toFixed(3)}%, 0) scale(${(0.6 + 0.4 * s).toFixed(3)})`;
+      entry.node.style.opacity = String(Math.min(1, s * 1.2));
+      // heard-ness is saturation: pale at the centre means "not enough
+      // votes yet", which must never look like "genuinely contested"
+      entry.node.style.borderColor = mixColor(edge, accent, 0.15 + 0.85 * h);
+      entry.node.style.background = mixColor(surface, accent, 0.04 + 0.14 * h);
+    });
+  }
+
+  state.paint = paint;
+  state.group.kick();
+  paint();
+}
+
+/**
+ * Types whose aggregate is a list of labelled magnitudes, and so has a
+ * table as its honest text equivalent. Everything else — a passage of
+ * heat, a field of dots, three columns of sentences — is either already
+ * text in the DOM or is not a table at all, and inventing one would say
+ * less than the marks do.
+ */
+const TABULAR_TYPES = new Set([
+  'multiple_choice', 'quiz', 'word_cloud', 'traffic', 'mood', 'budget',
+]);
+
+/** The rows of that table, per type. */
+function summaryRows(type, agg) {
+  const pct = (v) => (Number.isFinite(v) ? `${Math.round(v)}%` : '—');
+  switch (type) {
+    case 'multiple_choice':
+    case 'quiz':
+    case 'traffic':
+    case 'mood':
+      return (agg.options || []).map((o) => [
+        o.label || 'Unlabelled', NUM.format(o.count || 0), pct(o.pct)]);
+    case 'budget':
+      return (agg.options || []).map((o) => [
+        o.label || 'Unlabelled', NUM.format(Math.round(o.avg ?? 0)), pct(o.share)]);
+    case 'word_cloud':
+      return (agg.words || []).slice(0, 25).map((w) => [
+        w.word, NUM.format(w.count),
+        agg.total ? pct((w.count / agg.total) * 100) : '—']);
+    default:
+      return [];
+  }
 }
 
 export function renderAggregate(container, type, agg, opts = {}) {
   if (!agg) return undefined;
+
+  const out = renderAggregateInner(container, type, agg, opts);
+
+  // The text equivalent, for callers whose reader has nothing else: the
+  // student's phone and the results archive. Built AFTER the render, not
+  // before: useChart() empties the container whenever the chart kind
+  // changes, so a table prepended first is torn out on the very paint
+  // that was supposed to install it. renderWordList builds its own (it
+  // needs the totals from before the top-ten slice), so the cloud is
+  // skipped here when it is drawing as a list.
+  const wantsTable = opts.srSummary && TABULAR_TYPES.has(type)
+    && !(type === 'word_cloud' && opts.style === 'list');
+  if (wantsTable) {
+    const rows = summaryRows(type, agg);
+    if (rows.length) {
+      // Small multiples hand in their own caption: eight cells that all
+      // announce "Results, 24 responses" tell a reader which chart they
+      // are in exactly as well as no caption at all.
+      const stem = opts.srCaption ? `${opts.srCaption} — ` : '';
+      srSummary(container, rows, opts.hidden
+        ? `${stem}results hidden`
+        : `${stem}${NUM.format(agg.total || 0)} ${(agg.total || 0) === 1 ? 'response' : 'responses'}`);
+    } else {
+      clearSrSummary(container);
+    }
+  } else if (!opts.srSummary) {
+    clearSrSummary(container);
+  }
+
+  // The visual chart repeats every number the table just gave, so a
+  // reader that hears both hears the whole result twice. Applied after
+  // the render, because renderers append and rebuild their own children.
+  if (container.__srTable) {
+    for (const child of container.children) {
+      if (child !== container.__srTable) child.setAttribute('aria-hidden', 'true');
+    }
+  }
+  return out;
+}
+
+function renderAggregateInner(container, type, agg, opts = {}) {
   switch (type) {
     case 'multiple_choice':
     case 'quiz':
@@ -2958,6 +4064,12 @@ export function renderAggregate(container, type, agg, opts = {}) {
       return renderExitTicket(container, agg, opts);
     case 'qa':
       return renderQA(container, agg, opts);
+    case 'buckets':
+      return renderBuckets(container, agg, opts);
+    case 'quadrant':
+      return renderQuadrant(container, agg, opts);
+    case 'consensus':
+      return renderConsensus(container, agg, opts);
     default:
       container.textContent = '';
       return undefined;

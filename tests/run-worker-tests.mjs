@@ -916,6 +916,34 @@ describe('students still cannot reach anything', () => {
     ok(!JSON.stringify(seen).includes('correct'), 'no correctness marker may reach a phone');
   });
 
+  it('keeps the verdict explanation off the phone', async () => {
+    // The "why" line is prose about the answer, so it gives the key away
+    // in sentences after the deletions above took it away in numbers.
+    const env = freshEnv();
+    const token = await account(env, 'alice');
+    const deck = (await call(env, 'POST', '/api/decks', { token, body: { title: 'Quiz' } })).data;
+    const q = (await call(env, 'POST', `/api/decks/${deck.id}/questions`, {
+      token,
+      body: {
+        type: 'quiz',
+        prompt: 'Capital of France?',
+        config: {
+          options: ['Paris', 'Rome'],
+          correct: [0],
+          explain: 'Paris has been the seat of government since 987.',
+        },
+      },
+    })).data;
+    const session = (await call(env, 'POST', '/api/sessions',
+      { token, body: { deckId: deck.id } })).data;
+    await call(env, 'PATCH', `/api/sessions/${session.id}`,
+      { token, body: { state: 'live', current_question_id: q.id, accepting: true } });
+
+    const seen = (await call(env, 'GET', `/api/join/${session.join_code}/question`)).data;
+    eq(seen.config.explain, undefined);
+    ok(!JSON.stringify(seen).includes('987'), 'the explanation may not reach a phone');
+  });
+
   it('keeps projector-only styling out of the phone payload', async () => {
     // Not a security boundary — a transition name leaks nothing. It is
     // here because the participant payload is the one thing in this app
@@ -1533,6 +1561,102 @@ describe('backdrop storage quota', () => {
 
     eq((await call(env, 'POST', '/api/backgrounds',
       { token, body: { dataUri: imageOf(300_000) } })).status, 200);
+  });
+});
+
+describe('the "lost me" flare', () => {
+  const flare = (room, extra = {}) => call(room.env, 'POST', `/api/join/${room.code}/flare`, {
+    body: {
+      pseudonym: room.claim.pseudonym,
+      pseudonymToken: room.claim.token,
+      ...extra,
+    },
+  });
+
+  it('records one flare against the live slide', async () => {
+    const room = await liveRoom(['multiple_choice', 'word_cloud']);
+    eq((await flare(room)).status, 200);
+    const row = room.env.DB.db.prepare('select * from flares').get();
+    eq(row.session_id, room.session.id);
+    eq(row.question_id, room.questions[0].id);
+    eq(row.round, 1);
+  });
+
+  it('refuses a label this server never signed', async () => {
+    const room = await liveRoom();
+    const res = await call(room.env, 'POST', `/api/join/${room.code}/flare`, {
+      body: { pseudonym: 'Someone Else', pseudonymToken: 'forged' },
+    });
+    eq(res.status, 403);
+    eq(countOf(room, 'flares'), 0);
+  });
+
+  it('holds a second flare inside the cooldown, without erroring at the student', async () => {
+    const room = await liveRoom();
+    eq((await flare(room)).status, 200);
+    const second = await flare(room);
+    // 200 with held:true — their first tap WAS heard, and an error would
+    // say otherwise
+    eq(second.status, 200);
+    eq(second.data.held, true);
+    eq(countOf(room, 'flares'), 1);
+  });
+
+  it('takes nothing at all from a session that is not live', async () => {
+    const room = await liveRoom();
+    await patch(room, { state: 'ended' });
+    eq((await flare(room)).status, 409);
+    eq(countOf(room, 'flares'), 0);
+  });
+
+  it('reports counts per slide to the owner, and 404s for anyone else', async () => {
+    const room = await liveRoom(['multiple_choice', 'word_cloud']);
+    await flare(room);
+    await patch(room, { current_question_id: room.questions[1].id });
+    // a second device, so the cooldown does not swallow this one
+    const other = (await call(room.env, 'POST', `/api/join/${room.code}/pseudonym`)).data;
+    await call(room.env, 'POST', `/api/join/${room.code}/flare`, {
+      body: { pseudonym: other.pseudonym, pseudonymToken: other.token },
+    });
+
+    const mine = await call(room.env, 'GET', `/api/sessions/${room.session.id}/flares`,
+      { token: room.token });
+    eq(mine.status, 200);
+    eq(mine.data.length, 2);
+    eq(mine.data.reduce((s, r) => s + r.count, 0), 2);
+    // counts only — a pseudonym must never leave this route
+    ok(!JSON.stringify(mine.data).includes(other.pseudonym), 'a nickname leaked from /flares');
+
+    const bob = await account(room.env, 'bob');
+    eq((await call(room.env, 'GET', `/api/sessions/${room.session.id}/flares`,
+      { token: bob })).status, 404);
+  });
+
+  it('is invisible to a deck that did not ask for it', async () => {
+    const room = await liveRoom();
+    const view = (await call(room.env, 'GET', `/api/join/${room.code}`)).data;
+    eq(view.pace, false);
+    await call(room.env, 'PATCH', `/api/decks/${room.deck.id}`,
+      { token: room.token, body: { settings: { pace: true } } });
+    eq((await call(room.env, 'GET', `/api/join/${room.code}`)).data.pace, true);
+  });
+});
+
+describe('consensus moderation stays server-side', () => {
+  it('never sends the rejected-claims list to a phone', async () => {
+    const room = await liveRoom(['consensus']);
+    await call(room.env, 'PATCH', `/api/questions/${room.questions[0].id}`, {
+      token: room.token,
+      body: {
+        config: {
+          claims: [{ key: 'abc', text: 'A claim the room can see' }],
+          claim_hidden: ['deadbeef'],
+        },
+      },
+    });
+    const q = (await call(room.env, 'GET', `/api/join/${room.code}/question`)).data;
+    eq(q.config.claims.length, 1);
+    eq(q.config.claim_hidden, undefined);
   });
 });
 

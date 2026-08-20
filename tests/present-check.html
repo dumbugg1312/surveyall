@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Presenter check — SurveyAll</title>
+<link rel="stylesheet" href="../styles/fonts.css">
+<link rel="stylesheet" href="../styles/base.css">
+<link rel="stylesheet" href="../styles/app.css">
+<style>
+  body { margin: 0; padding: 1rem; }
+  .bar { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin-bottom: .8rem; }
+  .status { padding: .7rem 1rem; border-radius: 10px; font-weight: 600; font-size: .9rem; margin-bottom: .8rem; }
+  .status.ok { background: color-mix(in srgb, var(--good) 14%, transparent); color: var(--good); }
+  .status.bad { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
+  iframe { width: 1280px; height: 720px; border: 1px solid var(--edge); border-radius: 12px; background: #000; }
+  .wrap { width: 1280px; max-width: 100%; }
+</style>
+</head>
+<body>
+
+<!--
+  The projector, driven for real.
+
+  visual-check.html renders charts straight from charts.js, which proves
+  what a chart looks like but nothing about the presenter around it —
+  the click that points at a bar, the key that sorts it, the button that
+  disables itself while voting is open. All of that lives in
+  present-page.js, which self-boots and expects a signed-in user.
+
+  So this hosts the same rehearsal room the editor's preview panel does
+  (preview-room.js answers the API over postMessage, auth included) and
+  points a real present.html at it. Nothing here touches the database.
+-->
+
+<h1 class="h3">Presenter check</h1>
+<p class="muted">The real present.html, on a faked classroom. Drives the reading aids added in the visual-pedagogy pass.</p>
+
+<div id="status" class="status">Booting…</div>
+<div class="bar">
+  <button class="btn" id="runChecks" type="button">Run checks</button>
+  <span class="muted" id="detail" style="font-size:.82rem"></span>
+</div>
+
+<div class="wrap"><iframe id="proj" title="Projector"></iframe></div>
+
+<script type="module">
+import { createPreviewRoom } from '../app/preview-room.js';
+
+const deck = {
+  id: 'preview-deck',
+  title: 'Presenter check',
+  theme: 'lecture-hall',
+  settings: {},
+};
+
+const questions = [
+  {
+    id: 'q1',
+    deck_id: deck.id,
+    position: 0,
+    type: 'multiple_choice',
+    prompt: 'Which of these is the strongest thesis?',
+    config: {
+      options: ['🌱 It grows', '🔥 It burns', '💧 It cools', 'None of these'],
+      chart: 'bars',
+    },
+  },
+  {
+    id: 'q2',
+    deck_id: deck.id,
+    position: 1,
+    type: 'quiz',
+    prompt: 'Who tied the work ethic to capitalism?',
+    config: {
+      options: ['Durkheim', 'Weber', 'Marx', 'Simmel'],
+      correct: [1],
+      time: 20,
+      chart: 'bars',
+      explain: 'Weber. Durkheim was writing about solidarity, Marx about material conditions.',
+    },
+  },
+  {
+    id: 'q3',
+    deck_id: deck.id,
+    position: 2,
+    type: 'word_cloud',
+    prompt: 'One word for how the reading went',
+    config: { max_words: 1, max_length: 25 },
+  },
+];
+
+// currentUser() returns null without even asking the network when there
+// is no stored token, and present.html sends a signed-out visitor to the
+// sign-in page — so the iframe would never reach the rehearsal room. In
+// the editor an instructor is already signed in; here we stand in for
+// that. The value is never checked: preview-net.js intercepts every
+// /api/ call and the room answers auth/check itself.
+const TOKEN_KEY = 'surveyall:token';
+const hadToken = window.localStorage.getItem(TOKEN_KEY);
+if (!hadToken) window.localStorage.setItem(TOKEN_KEY, 'preview-harness');
+window.addEventListener('beforeunload', () => {
+  if (!hadToken) window.localStorage.removeItem(TOKEN_KEY);
+});
+
+const room = createPreviewRoom(deck, questions);
+const frame = document.getElementById('proj');
+frame.src = `../present.html?preview=1&session=${encodeURIComponent(room.sessionId)}`;
+
+const status = document.getElementById('status');
+const detail = document.getElementById('detail');
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const doc = () => frame.contentDocument;
+const win = () => frame.contentWindow;
+const $ = (id) => doc().getElementById(id);
+const chart = () => $('chart');
+
+function key(k) {
+  const K = win().KeyboardEvent;
+  win().dispatchEvent(new K('keydown', { key: k, bubbles: true }));
+}
+
+function click(node) {
+  const M = win().MouseEvent;
+  node.dispatchEvent(new M('click', { bubbles: true }));
+}
+
+const results = [];
+function check(name, pass, note = '') {
+  results.push({ name, pass, note });
+}
+
+/**
+ * Keep the projector animating even when nobody is looking at it.
+ *
+ * A browser pauses requestAnimationFrame outright while a tab or pane is
+ * hidden, and this file runs in whatever pane the harness happens to be
+ * in — so unpumped, every assertion below reads a projector frozen at
+ * frame zero: entrance springs at 0, therefore bars 0% wide, and — worse,
+ * because it is silent — every beat scheduled through delay() never
+ * arrives, so no quiz verdict, no ✓, no explanation. The failures that
+ * produces say nothing about the code.
+ *
+ * motion.js resolves `requestAnimationFrame` as a global at call time, so
+ * swapping it for a timer-backed one is enough. setTimeout is not
+ * throttled to a stop the way rAF is, so the real spring loop and the
+ * real delay() queue both run — this pumps the clock, it does not skip
+ * the animation.
+ */
+function pumpFrames() {
+  const w = win();
+  if (w.__pumped) return;
+  w.__pumped = true;
+  w.requestAnimationFrame = (cb) => w.setTimeout(() => cb(w.performance.now()), 16);
+}
+
+/** Belt and braces: drive any spring group that is already at rest. */
+function settleSprings() {
+  doc().querySelectorAll('[data-chart]').forEach((c) => {
+    const g = c.__chart?.group;
+    if (g) for (let i = 0; i < 600 && g.stepAll(1 / 60); i += 1);
+  });
+}
+
+async function settle(ms = 420) { await sleep(ms); settleSprings(); }
+
+/**
+ * Wait for a condition rather than guessing how long the room takes.
+ *
+ * Generous, because a hidden tab does not only pause rAF — it also
+ * throttles setTimeout to roughly once a second, and the invented class
+ * answers on a timer. A dozen responses can take a dozen seconds here
+ * and under two in front of a person.
+ */
+async function until(fn, ms = 20000) {
+  const stop = Date.now() + ms;
+  while (Date.now() < stop) {
+    settleSprings();
+    if (fn()) return true;
+    await sleep(120);
+  }
+  return false;
+}
+
+async function run() {
+  results.length = 0;
+  try {
+    // ---- walk into the deck ------------------------------------------
+    // A session opens in the lobby with the join code up, exactly as it
+    // does in a classroom; Next is what starts it.
+    if (!chart() || !chart().children.length) {
+      $('btnNext').click();
+      await settle(1200);
+    }
+    check('the deck starts on question one',
+      $('prompt')?.textContent.startsWith('Which of these'), $('prompt')?.textContent);
+
+    // ---- the room answers, so there is something to point at ----------
+    // Waited for rather than slept through: the invented class answers on
+    // its own staggered timer, so a fixed sleep is a race.
+    room.setTestResponses(true);
+    const answered = await until(() => {
+      const n = parseInt($('countText').textContent, 10);
+      return n >= 6;
+    });
+    await settle(400);
+    check('answers arrive', answered, $('countText').textContent);
+
+    // ---- 1. option icons reach the projector -------------------------
+    const icon = chart().querySelector('.chart-icon');
+    check('option icon renders on the bar', icon && icon.textContent === '🌱',
+      icon ? JSON.stringify(icon.textContent) : 'no .chart-icon');
+    const text = chart().querySelector('.chart-text');
+    check('the label keeps its words', text && text.textContent === 'It grows',
+      text ? text.textContent : 'no .chart-text');
+    const bare = [...chart().querySelectorAll('.chart-row')][3];
+    check('an option with no icon collapses it',
+      bare && win().getComputedStyle(bare.querySelector('.chart-icon')).display === 'none');
+
+    // ---- 2. pointing at a bar ----------------------------------------
+    const rows = [...chart().querySelectorAll('.chart-row')];
+    click(rows[1]);
+    await settle(120);
+    check('a tapped bar lights and the rest step back',
+      chart().hasAttribute('data-spotting')
+      && rows[1].classList.contains('is-spotlit')
+      && win().getComputedStyle(rows[0]).filter.includes('opacity'),
+      win().getComputedStyle(rows[0]).filter);
+
+    click(rows[2]);
+    await settle(120);
+    check('a second tap points at two at once',
+      rows[1].classList.contains('is-spotlit') && rows[2].classList.contains('is-spotlit'));
+
+    // the encoded length must be untouched by any of it
+    const litWidth = rows[1].querySelector('.chart-fill').style.getPropertyValue('--bar-size');
+    click(rows[1]);
+    await settle(120);
+    check('pointing never changes a bar’s length',
+      rows[1].querySelector('.chart-fill').style.getPropertyValue('--bar-size') === litWidth);
+
+    key('Escape');
+    await settle(120);
+    check('Escape drops the spotlight', !chart().hasAttribute('data-spotting'));
+
+    // ---- 3. sort is refused while the room is answering --------------
+    check('sort is offered on a poll', !$('btnSort').hidden);
+    check('sort is disabled while voting is open', $('btnSort').disabled);
+    key('s');
+    await settle(200);
+    // Every row carries an explicit flex order at all times — that is how
+    // sorting moves them — so "unsorted" means the order is the order the
+    // options were written in, not the absence of the property.
+    check('pressing S mid-vote does not reorder',
+      [...chart().querySelectorAll('.chart-row')]
+        .every((r, i) => Number(r.style.order) === i),
+      [...chart().querySelectorAll('.chart-row')].map((r) => r.style.order).join(','));
+
+    // ---- 4. close the vote: scale switch + sort ----------------------
+    const before = [...chart().querySelectorAll('.chart-fill')]
+      .map((f) => f.style.getPropertyValue('--bar-size'));
+    $('btnClose').click();
+    await settle(900);
+    const after = [...chart().querySelectorAll('.chart-fill')]
+      .map((f) => f.style.getPropertyValue('--bar-size'));
+    const leader = Math.max(...before.map(parseFloat));
+    const closedMax = Math.max(...after.map(parseFloat));
+    check('a full track means share-of-the-leader while voting',
+      Math.abs(leader - 100) < 0.5, `leader was ${leader}%`);
+    check('closing the vote relaxes the bars to share-of-the-room',
+      closedMax < 99, `biggest bar is now ${closedMax.toFixed(1)}%`);
+
+    check('sort is available once voting is closed', !$('btnSort').disabled);
+    key('s');
+    await settle(700);
+    const order = [...chart().querySelectorAll('.chart-row')]
+      .map((r) => [Number(r.style.order), parseFloat(r.querySelector('.chart-fill').style.getPropertyValue('--bar-size'))])
+      .sort((a, b) => a[0] - b[0])
+      .map((p) => p[1]);
+    const descending = order.every((v, i) => i === 0 || order[i - 1] >= v - 0.01);
+    check('sorting puts the biggest bar first', descending, order.map((v) => v.toFixed(0)).join(' > '));
+
+    // ---- 5. the because, on the quiz --------------------------------
+    key('ArrowRight');
+    await until(() => $('prompt')?.textContent.startsWith('Who tied'));
+    await until(() => parseInt($('countText').textContent, 10) >= 4);
+    check('the reasoning is withheld while the answer is',
+      !chart().querySelector('.chart-explain'));
+    $('btnClose').click();          // close voting → the verdict
+    // The verdict is a three-beat sequence: breath, verdict at 450ms,
+    // confetti at 700. Waited for, not slept through.
+    const landed = await until(() =>
+      chart().querySelector('.chart-explain.is-in')
+      && chart().querySelector('.chart-row.is-correct'));
+    const why = chart().querySelector('.chart-explain');
+    check('the reasoning lands with the verdict',
+      landed && why.textContent.startsWith('Weber.'),
+      why ? why.textContent.slice(0, 40) : 'no .chart-explain');
+    check('the correct row is still marked',
+      !!chart().querySelector('.chart-row.is-correct'));
+    check('the answer is named by more than colour',
+      win().getComputedStyle(chart().querySelector('.chart-row.is-correct .chart-label'), '::after')
+        .content.includes('✓'));
+
+    // ---- 6. the cloud, ranked ---------------------------------------
+    key('ArrowRight');
+    await until(() => $('prompt')?.textContent.startsWith('One word'));
+    await until(() => chart().querySelectorAll('.cloud-word').length >= 4);
+    check('the cloud toggle appears on a cloud slide', !$('btnCloudList').hidden);
+    check('it draws as a cloud first', chart().dataset.chart === 'cloud');
+    key('w');
+    await settle(700);
+    check('W ranks the same words as bars', chart().dataset.chart === 'wordlist',
+      chart().dataset.chart);
+    const listRows = chart().querySelectorAll('.chart-row').length;
+    check('the list has rows', listRows > 0, `${listRows} rows`);
+    key('w');
+    await settle(700);
+    check('W puts the cloud back', chart().dataset.chart === 'cloud');
+
+    // ---- 7. per-slide state does not leak across slides -------------
+    rows.length = 0;
+    const anyMark = chart().querySelector('[data-spot]');
+    if (anyMark) click(anyMark);
+    key('ArrowLeft');
+    await settle(1000);
+    check('the spotlight does not follow you to the next slide',
+      !chart().hasAttribute('data-spotting'));
+  } catch (err) {
+    check(`threw: ${err.message}`, false, err.stack?.split('\n')[1] || '');
+  }
+
+  const failed = results.filter((r) => !r.pass);
+  status.className = `status ${failed.length ? 'bad' : 'ok'}`;
+  status.textContent = failed.length
+    ? `${failed.length} of ${results.length} checks failed`
+    : `All ${results.length} presenter checks passed`;
+  detail.textContent = results
+    .map((r) => `${r.pass ? '✓' : '✗'} ${r.name}${r.note ? ` (${r.note})` : ''}`)
+    .join('  ·  ');
+  window.__report = results;
+  return results;
+}
+
+// A run walks the deck, closes voting and reveals answers, and the room
+// keeps all of it — so a second run would start on slide three with the
+// vote already closed and fail on the state the first run left behind.
+// Reloading is the honest reset: one page load, one classroom.
+window.__run = run;
+document.getElementById('runChecks').addEventListener('click', () => window.location.reload());
+
+frame.addEventListener('load', async () => {
+  // Before anything renders: the projector has to keep animating even
+  // though this pane may be hidden (see pumpFrames).
+  pumpFrames();
+  await sleep(1200);
+  status.textContent = 'Ready. Running…';
+  run();
+});
+</script>
+</body>
+</html>

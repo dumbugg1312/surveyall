@@ -63,6 +63,25 @@ export const CHART_ICONS = {
     + '<circle cx="8" cy="16" r="2.7"/><circle cx="16" cy="16" r="2.7"/>',
 };
 
+/**
+ * The word cloud's two shapes. Same promise as CHART_ICONS: the picture
+ * is of the chart it selects, and keyed to CLOUD_STYLES in themes.js.
+ */
+export const CLOUD_ICONS = {
+  // words at three sizes, settled — this is also the type's own icon,
+  // and TYPE_ICONS.word_cloud below is this same string
+  cloud: '<rect x="2.5" y="4" width="11" height="4.2" rx="2.1"/>'
+    + '<rect x="15" y="4.6" width="6.5" height="3" rx="1.5" opacity=".55"/>'
+    + '<rect x="4.5" y="10.2" width="15" height="3.6" rx="1.8"/>'
+    + '<rect x="2.5" y="15.8" width="7.5" height="3" rx="1.5" opacity=".55"/>'
+    + '<rect x="11.5" y="15.4" width="10" height="3.8" rx="1.9"/>',
+
+  // the same words ranked: descending bars on a common baseline
+  list: '<rect x="3" y="4.4" width="18" height="3.4" rx="1.7"/>'
+    + '<rect x="3" y="10.3" width="12.5" height="3.4" rx="1.7"/>'
+    + '<rect x="3" y="16.2" width="7" height="3.4" rx="1.7"/>',
+};
+
 // =====================================================================
 // Question types
 // =====================================================================
@@ -77,11 +96,7 @@ export const TYPE_ICONS = {
   multiple_choice: CHART_ICONS.columns,
 
   // words at three sizes, stacked the way a cloud settles
-  word_cloud: '<rect x="2.5" y="4" width="11" height="4.2" rx="2.1"/>'
-    + '<rect x="15" y="4.6" width="6.5" height="3" rx="1.5" opacity=".55"/>'
-    + '<rect x="4.5" y="10.2" width="15" height="3.6" rx="1.8"/>'
-    + '<rect x="2.5" y="15.8" width="7.5" height="3" rx="1.5" opacity=".55"/>'
-    + '<rect x="11.5" y="15.4" width="10" height="3.8" rx="1.9"/>',
+  word_cloud: CLOUD_ICONS.cloud,
 
   // a speech bubble — someone writing back
   open_ended: '<path d="M4 3.5h16a2.5 2.5 0 0 1 2.5 2.5v9a2.5 2.5 0 0 1-2.5 2.5h-8.2L6.5 21.5V17.5H4A2.5 2.5 0 0 1 1.5 15V6A2.5 2.5 0 0 1 4 3.5z"/>',
@@ -172,6 +187,24 @@ export const TYPE_ICONS = {
   qa: '<path d="M4 3.5h16a2.5 2.5 0 0 1 2.5 2.5v9a2.5 2.5 0 0 1-2.5 2.5h-8.2L6.5 21.5V17.5H4A2.5 2.5 0 0 1 1.5 15V6A2.5 2.5 0 0 1 4 3.5z" opacity=".45"/>'
     + '<path d="M12 6.2c-2 0-3.4 1.1-3.7 2.9h2.2c.2-.7.7-1.1 1.5-1.1.8 0 1.3.4 1.3 1.1 0 .6-.3.9-1.1 1.4-.9.6-1.3 1.2-1.3 2.2v.4h2.2v-.3c0-.6.2-.9 1-1.4 1-.6 1.5-1.3 1.5-2.4 0-1.7-1.4-2.8-3.6-2.8z"/>'
     + '<circle cx="12" cy="15.6" r="1.3"/>',
+
+  // two columns and one card caught on the fence between them
+  buckets: '<rect x="2" y="3" width="9" height="3" rx="1.5"/>'
+    + '<rect x="13" y="3" width="9" height="3" rx="1.5" opacity=".5"/>'
+    + '<rect x="3" y="8.5" width="7" height="4" rx="1.5"/>'
+    + '<rect x="14" y="14.5" width="7" height="4" rx="1.5" opacity=".5"/>'
+    + '<rect x="8.5" y="17" width="7" height="4" rx="1.5" opacity=".75"/>',
+
+  // two axes; a tight cloud in one quarter, a stray in another
+  quadrant: '<rect x="11" y="2" width="2" height="20" rx="1" opacity=".4"/>'
+    + '<rect x="2" y="11" width="20" height="2" rx="1" opacity=".4"/>'
+    + '<circle cx="17" cy="6.4" r="2.2"/><circle cx="19.4" cy="9" r="1.8" opacity=".7"/>'
+    + '<circle cx="15.4" cy="8.8" r="1.6" opacity=".7"/><circle cx="6" cy="17.5" r="2.4" opacity=".5"/>',
+
+  // claims meeting in the middle
+  consensus: '<path d="M3 5h8v5.5H7.5L5 13v-2.5H3z"/>'
+    + '<path d="M21 8.5h-8V14h3.5l2.5 2.5V14h2z" opacity=".5"/>'
+    + '<path d="m10.3 20.6-2.6-2.6 1.4-1.4 1.2 1.2 3-3 1.4 1.4-3.4 3.4z"/>',
 };
 
 /** The glyph for a type, with a safe fallback for anything unmapped. */
@@ -181,4 +214,8 @@ export function typeIcon(type, cls) {
 
 export function chartIcon(style, cls) {
   return icon(CHART_ICONS[style] || CHART_ICONS.bars, cls);
+}
+
+export function cloudIcon(style, cls) {
+  return icon(CLOUD_ICONS[style] || CLOUD_ICONS.cloud, cls);
 }

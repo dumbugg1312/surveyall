@@ -81,6 +81,7 @@
 import {
   QUESTION_TYPES, splitPassage, DEFAULT_JOIN_STEPS,
   DEFAULT_TRAFFIC, DEFAULT_EXIT_PROMPTS, PROMPT_ALIGNS, DEFAULT_PROMPT_ALIGN,
+  claimKey,
 } from './logic.js';
 import {
   hasElement, readPos, posName, anchorPos, sizeId, colorId, weightValue,
@@ -112,6 +113,9 @@ const TYPE_ALIASES = {
   matching: 'matching', match: 'matching', pairs: 'matching',
   timeline: 'timeline', order: 'timeline', chronology: 'timeline',
   exit_ticket: 'exit_ticket', exit: 'exit_ticket', ticket: 'exit_ticket',
+  buckets: 'buckets', bucket: 'buckets', sort: 'buckets', card_sort: 'buckets',
+  quadrant: 'quadrant', axes: 'quadrant', '2x2': 'quadrant',
+  consensus: 'consensus', common_ground: 'consensus', claims: 'consensus',
 };
 
 /**
@@ -429,11 +433,20 @@ const KNOWN_SETTINGS = new Set([
   'rationale', 'corners', 'anchors',
   'join', 'show_join', 'note',
   'total', 'truth', 'case_sensitive',
+  // the visual-pedagogy wave: card-sort columns, quadrant poles, consensus
+  // knobs, and the deck-level "lost me" button
+  'buckets', 'top', 'bottom', 'submissions', 'max_claims', 'pace',
   // how this slide arrives on the projector; also legal in the header,
   // where it sets the default for the whole deck
   'transition',
   // where the heading sits — likewise legal in both places
   'align',
+  // the visual-pedagogy pass: the sentence that lands with the verdict,
+  // and whether a bar's headline is the count or the percentage
+  'explain', 'show_counts',
+  // deck-level: who is in the room, which moves the defaults for the two
+  // settings above
+  'audience',
 ]);
 
 function isKnownSetting(key) { return KNOWN_SETTINGS.has(key); }
@@ -524,6 +537,19 @@ function applyDeckSetting(deck, key, value) {
     deck.background = { ...(deck.background || { kind: 'theme' }) };
     if (v === 'off' || v === 'none' || v === 'false') delete deck.background.motion;
     else if (v === 'subtle' || v === 'lively') deck.background.motion = v;
+  } else if (key === 'audience') {
+    // Merged like the rest, and only a name this build knows: an
+    // unrecognised audience is dropped rather than guessed at, the same
+    // way an unrecognised transition is.
+    const id = String(value).trim().toLowerCase();
+    if (id === 'younger' || id === 'standard') {
+      deck.settings = { ...(deck.settings || {}), audience: id };
+    }
+  } else if (key === 'pace') {
+    // The deck-wide "lost me" button. Merged like transition, and only
+    // ever written when on: absence is off.
+    if (coerce(value) === true) deck.settings = { ...(deck.settings || {}), pace: true };
+    else if (deck.settings) delete deck.settings.pace;
   } else if (key === 'title') deck.title = String(value);
 }
 
@@ -548,8 +574,14 @@ function parseBackground(value) {
 function applyQuestionSetting(q, key, value) {
   if (key === 'join' || key === 'show_join') { q.config.show_join = coerce(value) !== false; return; }
   if (key === 'note') { q.config.note = String(value); return; }
-  if (key === 'left') { q.config.left_label = String(value); return; }
-  if (key === 'right') { q.config.right_label = String(value); return; }
+  // "left:" and "right:" are the same words on a spectrum and a quadrant;
+  // they just land on that type's own key.
+  if (key === 'left') { q.config[q.type === 'quadrant' ? 'x_left' : 'left_label'] = String(value); return; }
+  if (key === 'right') { q.config[q.type === 'quadrant' ? 'x_right' : 'right_label'] = String(value); return; }
+  if (key === 'top') { q.config.y_high = String(value); return; }
+  if (key === 'bottom') { q.config.y_low = String(value); return; }
+  if (key === 'buckets') { q.config.buckets = splitList(value).filter(Boolean); return; }
+  if (key === 'submissions') { q.config.allow_submissions = coerce(value) !== false; return; }
   if (key === 'rationale') { q.config.allow_rationale = coerce(value) !== false; return; }
   if (key === 'transition') {
     // Never through coerce(). "transition: off" would come back as the
@@ -745,6 +777,62 @@ function finaliseQuestion(q, errors, number) {
       if (config.max_picks == null) config.max_picks = 1;
       break;
     }
+    case 'buckets': {
+      // "buckets: Acid, Base" names the columns; each "- Vinegar | Acid"
+      // is a card, with the part after the "|" its true column (optional
+      // — leave it off and the sort is an opinion, not a check).
+      const names = (Array.isArray(config.buckets) ? config.buckets : [])
+        .map((s) => String(s).trim()).filter(Boolean).slice(0, 4);
+      const cards = [];
+      const correct = [];
+      q.options.forEach((o) => {
+        const at = o.label.indexOf('|');
+        const card = (at >= 0 ? o.label.slice(0, at) : o.label).trim();
+        const home = at >= 0 ? o.label.slice(at + 1).trim() : '';
+        cards.push(card);
+        const bi = home
+          ? names.findIndex((n) => n.toLowerCase() === home.toLowerCase()) : -1;
+        if (home && bi < 0) {
+          errors.push(`Question ${number}: "${home}" is not one of this sort's buckets.`);
+        }
+        correct.push(bi >= 0 ? bi : null);
+      });
+      if (names.length < 2) {
+        errors.push(`Question ${number}: needs a "buckets:" line naming at least two columns.`);
+      }
+      if (!cards.length) {
+        errors.push(`Question ${number}: needs at least one card (a line starting with "-").`);
+      }
+      config.buckets = names.length ? names : ['', ''];
+      config.cards = cards.length ? cards : ['', ''];
+      if (correct.some((v) => v != null)) config.correct = correct;
+      else delete config.correct;
+      break;
+    }
+    case 'quadrant': {
+      if (!config.x_left) config.x_left = 'Disagree';
+      if (!config.x_right) config.x_right = 'Agree';
+      if (!config.y_low) config.y_low = 'Matters less';
+      if (!config.y_high) config.y_high = 'Matters a lot';
+      // no items = "place yourself"; that is a real slide, not an error
+      config.items = q.options.map((o) => o.label);
+      if (config.items.length > 6) {
+        errors.push(`Question ${number}: six items is the most a quadrant stays readable with; the rest were dropped.`);
+        config.items = config.items.slice(0, 6);
+      }
+      break;
+    }
+    case 'consensus': {
+      // "-" lines are seed claims; an empty list is normal — the room
+      // writes them during class and approval folds them in here.
+      config.claims = q.options
+        .map((o) => o.label.trim())
+        .filter(Boolean)
+        .map((text) => ({ key: claimKey(text), text }));
+      if (config.allow_submissions == null) config.allow_submissions = true;
+      if (config.max_claims == null) config.max_claims = 12;
+      break;
+    }
     default:
       break;
   }
@@ -791,6 +879,11 @@ export function serialiseDeck(deck, questions) {
   // Left is the absence of the setting, the way 'none' is for transition.
   const deckAlign = normalizeAlign(deck.settings?.promptAlign);
   if (deckAlign && deckAlign !== DEFAULT_PROMPT_ALIGN) out.push(`align: ${deckAlign}`);
+  // Off is the absence of the setting, so only "on" is ever written.
+  if (deck.settings?.pace === true) out.push('pace: on');
+  // Standard is the absence of the setting, the way 'none' is for
+  // transition — a deck that never chose an audience stays a line shorter.
+  if (deck.settings?.audience === 'younger') out.push('audience: younger');
   out.push('');
 
   for (const q of questions || []) {
@@ -836,6 +929,33 @@ export function serialiseDeck(deck, questions) {
     if (q.type === 'heatmap' && (cfg.segments || cfg.passage)) {
       out.push(`> ${Array.isArray(cfg.segments) && cfg.segments.length
         ? cfg.segments.join(' | ') : cfg.passage}`);
+    }
+    if (q.type === 'buckets') {
+      const names = (Array.isArray(cfg.buckets) ? cfg.buckets : [])
+        .map((b) => String(typeof b === 'string' ? b : b?.label ?? '').trim());
+      if (names.some(Boolean)) out.push(`buckets: ${joinList(names)}`);
+      const key = Array.isArray(cfg.correct) ? cfg.correct : [];
+      (Array.isArray(cfg.cards) ? cfg.cards : []).forEach((c, i) => {
+        const label = typeof c === 'string' ? c : String(c?.label ?? '');
+        const home = key[i] != null && names[key[i]] ? names[key[i]] : '';
+        out.push(home ? bullet(`${label} | ${home}`) : bullet(label));
+      });
+    }
+    if (q.type === 'quadrant') {
+      // Only the poles that differ from the defaults — a deck that never
+      // touched them stays four lines shorter.
+      if (cfg.x_left && cfg.x_left !== 'Disagree') out.push(`left: ${cfg.x_left}`);
+      if (cfg.x_right && cfg.x_right !== 'Agree') out.push(`right: ${cfg.x_right}`);
+      if (cfg.y_high && cfg.y_high !== 'Matters a lot') out.push(`top: ${cfg.y_high}`);
+      if (cfg.y_low && cfg.y_low !== 'Matters less') out.push(`bottom: ${cfg.y_low}`);
+    }
+    if (q.type === 'consensus') {
+      (Array.isArray(cfg.claims) ? cfg.claims : []).forEach((c) => {
+        const text = typeof c === 'string' ? c : c?.text;
+        if (text) out.push(bullet(text));
+      });
+      if (cfg.allow_submissions === false) out.push('submissions: false');
+      if (cfg.max_claims != null && cfg.max_claims !== 12) out.push(`max_claims: ${cfg.max_claims}`);
     }
 
     if (cfg.left_label) out.push(`left: ${cfg.left_label}`);
@@ -887,6 +1007,15 @@ export function serialiseDeck(deck, questions) {
         out.push(`${key}: ${cfg[key]}`);
       }
     }
+    // Both meaningful in either state, and both meaningful as an absence:
+    // `show_counts: false` is how one slide opts out of a deck reading in
+    // counts, so unlike the list above, `false` has to be written.
+    if (cfg.show_counts != null) out.push(`show_counts: ${cfg.show_counts}`);
+    // Written last, and on one line: the parser stops a value at the end
+    // of the line, so a multi-line "why" would come back with its tail
+    // appended to the prompt. Newlines become spaces rather than silently
+    // losing the sentences after the first.
+    if (cfg.explain) out.push(`explain: ${String(cfg.explain).replace(/\s*\n\s*/g, ' ').trim()}`);
     out.push('');
   }
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';

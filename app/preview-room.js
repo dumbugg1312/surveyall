@@ -27,6 +27,7 @@ import {
   isContentSlide, sortedQuestions, optionLabels, correctIndices, splitPassage,
   trafficLabels, moodIcons, pairList, budgetTotal, clozeBlanks,
   exitPrompts, timelineItems, MULTI_SUBMIT_TYPES,
+  bucketLabels, bucketCards, quadrantItems, consensusClaims,
 } from './logic.js';
 
 const CHANNEL = 'surveyall-preview';
@@ -274,6 +275,7 @@ export function createPreviewRoom(deck, questions) {
       config.text = String(config.text || '').replace(/\[[^\]]*\]/g, '[]');
     }
     if (q.type === 'probability') delete config.truth;
+    if (q.type === 'consensus') delete config.claim_hidden;
 
     return { id: q.id, type: q.type, prompt: q.prompt, position: q.position, config };
   }
@@ -599,6 +601,57 @@ export function createPreviewRoom(deck, questions) {
         };
       }
 
+      case 'buckets': {
+        const nB = bucketLabels(cfg).length;
+        const cards = bucketCards(cfg);
+        if (nB < 2 || !cards.length) return null;
+        // each card has a deterministic "home" most of the rehearsal room
+        // agrees on, so the preview shows both settled cards and a fence
+        // sitter rather than uniform noise
+        return {
+          places: cards.map((_, i) => {
+            const home = (i * 7 + 1) % nB;
+            return rng() < 0.72 ? home : Math.floor(rng() * nB);
+          }),
+        };
+      }
+
+      case 'quadrant': {
+        const n = Math.max(1, quadrantItems(cfg).length);
+        const clampPct = (v) => Math.min(100, Math.max(0, Math.round(v)));
+        return {
+          spots: Array.from({ length: n }, (_, i) => {
+            // item one splits into two camps — the shape this chart
+            // exists to show — and the rest gather in their own corners
+            const camp = i === 0
+              ? (rng() < 0.5 ? [26, 30] : [74, 72])
+              : [30 + ((i * 23) % 45), 68 - ((i * 17) % 40)];
+            return [
+              clampPct(camp[0] + (rng() - 0.5) * 22),
+              clampPct(camp[1] + (rng() - 0.5) * 22),
+            ];
+          }),
+        };
+      }
+
+      case 'consensus': {
+        const claims = consensusClaims(cfg);
+        const votes = {};
+        claims.forEach((c, i) => {
+          if (rng() < 0.88) {
+            const r = rng();
+            // odd claims trend agreed, even ones contested — so the field
+            // shows both a card that migrated and one stuck on the fence
+            const agreeP = i % 2 ? 0.8 : 0.48;
+            votes[c.key] = r < agreeP ? 1 : r < 0.92 ? -1 : 0;
+          }
+        });
+        const out = { votes };
+        if (rng() < 0.2) out.claims = [pick(rng, SENTENCES)];
+        if (!Object.keys(votes).length && !out.claims) return null;
+        return out;
+      }
+
       default:
         return null;
     }
@@ -758,6 +811,19 @@ export function createPreviewRoom(deck, questions) {
         ));
       }
 
+      // The pace channel. The rehearsal keeps no flare table — the ember
+      // is driven by the broadcast, and a preview has no history to have
+      // a history of — but the route has to exist or a rehearsing phone
+      // reports a failure the real room would never show.
+      if (tail === 'flare' && method === 'POST') {
+        if (session.state !== 'live') return nope('This session is not live.', 409);
+        broadcast('flare', {
+          question_id: session.current_question_id,
+          round: session.current_round,
+        }, 'presenter');
+        return ok({ ok: true });
+      }
+
       if (tail === 'results' && method === 'GET') {
         if (session.state !== 'live') return ok(null);
         if (!session.reveal || !session.show_on_devices) return ok(null);
@@ -866,6 +932,10 @@ export function createPreviewRoom(deck, questions) {
         return ok([...audience]
           .sort((a, b) => b.upvotes - a.upvotes || a.created_at - b.created_at));
       }
+
+      // no flare history in a rehearsal — the ember lights from the
+      // broadcast alone, which is exactly what the presenter is here to see
+      if (seg[2] === 'flares' && method === 'GET') return ok([]);
 
       if (!seg[2] && method === 'GET') return ok({ ...session });
 

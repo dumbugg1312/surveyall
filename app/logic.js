@@ -26,6 +26,8 @@ export const QUESTION_TYPES = [
   'cloze', 'matching', 'timeline',
   // The closer.
   'exit_ticket',
+  // The visual-pedagogy wave: charts whose shape is the lesson.
+  'buckets', 'quadrant', 'consensus',
 ];
 
 /** Types where one device may submit many rows (each gets its own slot). */
@@ -65,6 +67,9 @@ export const TYPE_LABELS = {
   matching: 'Matching pairs',
   timeline: 'Timeline order',
   exit_ticket: 'Exit ticket',
+  buckets: 'Card sort',
+  quadrant: 'Quadrant',
+  consensus: 'Common ground',
 };
 
 /**
@@ -93,6 +98,9 @@ export const TYPE_BLURBS = {
   matching: 'Match each one to its partner.',
   timeline: 'Put them in the order they actually happened.',
   exit_ticket: 'Learned it, still wondering, muddiest point.',
+  buckets: 'Sort cards into columns. Disagreement sits on the fence.',
+  quadrant: 'Two axes, one placement. A split room shows as two clouds.',
+  consensus: 'They write the claims, everyone votes. Common ground surfaces.',
 };
 
 /** The config a brand-new slide of each type starts life with. */
@@ -116,6 +124,16 @@ export function defaultConfig(type) {
     case 'matching': return { pairs: [{ left: '', right: '' }, { left: '', right: '' }] };
     case 'timeline': return { items: ['', ''] };
     case 'exit_ticket': return { prompts: [...DEFAULT_EXIT_PROMPTS], max_length: 200 };
+    case 'buckets': return { buckets: ['', ''], cards: ['', ''] };
+    // Opinion × importance is the default pair of axes because it is the
+    // deliberation classic: the room learns which disagreements are worth
+    // having. Any two poles work — effort/payoff, victim/complicit.
+    case 'quadrant': return {
+      x_left: 'Disagree', x_right: 'Agree',
+      y_low: 'Matters less', y_high: 'Matters a lot',
+      items: [],
+    };
+    case 'consensus': return { claims: [], allow_submissions: true, max_claims: 12 };
     default: return {};
   }
 }
@@ -165,6 +183,8 @@ const LIST_FIELD = {
   budget: 'options',
   timeline: 'items',
   exit_ticket: 'prompts',
+  buckets: 'cards',
+  quadrant: 'items',
 };
 
 /** What each type keeps besides its list, for carrying across a retype. */
@@ -189,6 +209,9 @@ const CARRIES = {
   matching: ['pairs', 'allow_partial'],
   timeline: ['allow_partial'],
   exit_ticket: ['max_length'],
+  buckets: ['buckets', 'correct'],
+  quadrant: ['x_left', 'x_right', 'y_low', 'y_high'],
+  consensus: ['claims', 'claim_hidden', 'allow_submissions', 'max_claims'],
 };
 
 /** Human name for what a type's list holds, for the "this will be lost" line. */
@@ -208,6 +231,9 @@ const LIST_NOUN = {
   matching: 'the pairs',
   mood: 'the icons',
   cloze: 'the sentence',
+  buckets: 'the cards',
+  quadrant: 'the things to place',
+  consensus: 'the claims',
 };
 
 /**
@@ -451,6 +477,46 @@ export function optionLabels(config) {
   return opts.map(optionLabel);
 }
 
+/**
+ * Split a leading emoji off an option label.
+ *
+ * Dual coding: a picture beside the word is encoded twice and recalled
+ * better than either alone, and in a projected chart it is what lets a
+ * student find their own option again without reading four labels. The
+ * research is equally clear about the failure mode, so the icon here is
+ * always an ADDITION to the label and never a replacement for it.
+ *
+ * Stored as part of the label text — "🌱 Photosynthesis" — rather than as
+ * a parallel `icons` array, because every surface in this app already
+ * carries labels: the plain-text deck format round-trips it with no new
+ * key, the CSV and PPTX exports keep it, retyping a poll into a ranking
+ * brings the icons along, and an instructor sets one by typing an emoji
+ * where they were already typing. A parallel array would have to be
+ * threaded through all of that and would fall out of sync on the first
+ * reorder.
+ *
+ * Only a LEADING pictograph followed by whitespace counts. "🌱" alone is
+ * left as the label, because an option whose entire content is an emoji
+ * has no text to be the label — splitting it would leave a nameless bar.
+ */
+// A flag is a PAIR of regional indicators, which are not Extended_
+// Pictographic and so need their own branch — "🇺🇸 United States" is
+// exactly the kind of option a geography poll is made of.
+const ICON_LEAD = new RegExp(
+  '^('
+  + '[\\u{1F1E6}-\\u{1F1FF}]{2}'
+  + '|\\p{Extended_Pictographic}(?:\\uFE0F|\\u200D\\p{Extended_Pictographic}|[\\u{1F3FB}-\\u{1F3FF}])*'
+  + ')\\s+(\\S.*)$',
+  'u',
+);
+
+export function splitIcon(label) {
+  const s = String(label ?? '');
+  const m = s.match(ICON_LEAD);
+  if (!m) return { icon: '', text: s };
+  return { icon: m[1], text: m[2].trim() };
+}
+
 // =====================================================================
 // Shapes the newer types are built on
 //
@@ -504,6 +570,114 @@ export function timelineItems(config) {
 export function budgetTotal(config) {
   const n = Number(config?.total);
   return Number.isFinite(n) && n >= 1 ? Math.round(n) : 100;
+}
+
+/** Card sort: the columns. Capped at four — five columns on a projector
+ * are five unreadable slivers, and a fifth pile is a taxonomy lecture. */
+export function bucketLabels(config) {
+  const raw = Array.isArray(config?.buckets) ? config.buckets : [];
+  return raw.slice(0, 4).map((b) => String(optionLabel(b)));
+}
+
+export function bucketCards(config) {
+  const raw = Array.isArray(config?.cards) ? config.cards : [];
+  return raw.slice(0, 10).map((c) => String(optionLabel(c)));
+}
+
+/**
+ * Card sort's optional key: for each card, the index of its true column,
+ * or null where the instructor left a card unkeyed. Returns null outright
+ * when no card is keyed — that is the opinion sort, and it must render
+ * with no notion of right and wrong anywhere.
+ */
+export function bucketKey(config) {
+  const buckets = bucketLabels(config);
+  const cards = bucketCards(config);
+  const raw = Array.isArray(config?.correct) ? config.correct : [];
+  const key = cards.map((_, i) => {
+    const v = raw[i];
+    return Number.isInteger(v) && v >= 0 && v < buckets.length ? v : null;
+  });
+  return key.some((v) => v != null) ? key : null;
+}
+
+/** Quadrant items to place. An empty list means "place yourself". */
+export function quadrantItems(config) {
+  const raw = Array.isArray(config?.items) ? config.items : [];
+  return raw.slice(0, 6).map((it) => String(optionLabel(it)));
+}
+
+export function quadrantAxes(config) {
+  const cfg = config || {};
+  const read = (v, dflt) => String(v ?? '').trim() || dflt;
+  return {
+    xLeft: read(cfg.x_left, 'Disagree'),
+    xRight: read(cfg.x_right, 'Agree'),
+    yLow: read(cfg.y_low, 'Matters less'),
+    yHigh: read(cfg.y_high, 'Matters a lot'),
+  };
+}
+
+/**
+ * Where a quadrant item's label belongs: the densest placement, never the
+ * mean. A mean sits in the empty middle of a split room and names a
+ * position nobody holds; the mode sits on the thickest part of the ink.
+ * O(n²) neighbour count — n is a classroom, not a dataset.
+ */
+export function densestPoint(points, radius = 14) {
+  const pts = (points || []).filter(
+    (p) => Number.isFinite(p?.x) && Number.isFinite(p?.y));
+  if (!pts.length) return null;
+  const r2 = radius * radius;
+  let best = pts[0];
+  let bestN = -1;
+  for (const p of pts) {
+    let n = 0;
+    for (const q of pts) {
+      const dx = p.x - q.x;
+      const dy = p.y - q.y;
+      if (dx * dx + dy * dy <= r2) n += 1;
+    }
+    if (n > bestN) { best = p; bestN = n; }
+  }
+  return { x: best.x, y: best.y };
+}
+
+/**
+ * A claim's identity is its normalised text, hashed. Two students who
+ * type the same sentence produce one claim with two backers — dedup as a
+ * property of the key, not a moderation chore. FNV-1a, same choice the
+ * word cloud made for colour identity.
+ */
+export function claimKey(text) {
+  const norm = normaliseWord(text);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < norm.length; i += 1) {
+    h ^= norm.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+
+/** The approved claims the room is voting on: [{key, text}]. */
+export function consensusClaims(config) {
+  const raw = Array.isArray(config?.claims) ? config.claims : [];
+  const out = [];
+  const seen = new Set();
+  for (const c of raw) {
+    const text = cleanText(typeof c === 'string' ? c : c?.text, 140);
+    if (!text) continue;
+    const key = (typeof c === 'object' && c?.key) ? String(c.key) : claimKey(text);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ key, text });
+  }
+  return out.slice(0, consensusMaxClaims(config));
+}
+
+export function consensusMaxClaims(config) {
+  const n = Number(config?.max_claims);
+  return Number.isFinite(n) ? Math.min(20, Math.max(2, Math.round(n))) : 12;
 }
 
 /**
@@ -838,6 +1012,77 @@ export function validateResponse(type, config, raw) {
       return { ok: true, payload: withRiders({ answers }, raw) };
     }
 
+    case 'buckets': {
+      const cards = bucketCards(cfg);
+      const buckets = bucketLabels(cfg);
+      if (!cards.length || buckets.length < 2) {
+        return { ok: false, error: 'This question has no cards yet.' };
+      }
+      const given = Array.isArray(raw?.places) ? raw.places : [];
+      const places = cards.map((_, i) => {
+        const v = given[i];
+        return Number.isInteger(v) && v >= 0 && v < buckets.length ? v : null;
+      });
+      const placed = places.filter((p) => p != null).length;
+      if (!placed) return { ok: false, error: 'Sort a card first.' };
+      if (placed < cards.length) return { ok: false, error: 'Sort every card.' };
+      return { ok: true, payload: withRiders({ places }, raw) };
+    }
+
+    case 'quadrant': {
+      const items = quadrantItems(cfg);
+      const need = Math.max(1, items.length);
+      const given = Array.isArray(raw?.spots) ? raw.spots : [];
+      const spots = [];
+      for (let i = 0; i < need; i += 1) {
+        const s = given[i];
+        const x = Number(s?.[0]);
+        const y = Number(s?.[1]);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          return {
+            ok: false,
+            error: items.length ? 'Place every item first.' : 'Place your mark first.',
+          };
+        }
+        spots.push([
+          Math.min(100, Math.max(0, Math.round(x))),
+          Math.min(100, Math.max(0, Math.round(y))),
+        ]);
+      }
+      return { ok: true, payload: withRiders({ spots }, raw) };
+    }
+
+    case 'consensus': {
+      const known = new Set(consensusClaims(cfg).map((c) => c.key));
+      const rawVotes = raw?.votes && typeof raw.votes === 'object' ? raw.votes : {};
+      const votes = {};
+      for (const [k, v] of Object.entries(rawVotes)) {
+        if (known.has(k) && (v === -1 || v === 0 || v === 1)) votes[k] = v;
+      }
+      const claims = [];
+      if (cfg.allow_submissions !== false) {
+        const seen = new Set();
+        for (const c of Array.isArray(raw?.claims) ? raw.claims : []) {
+          const text = cleanText(c, 140);
+          if (!text) continue;
+          const key = claimKey(text);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          claims.push(text);
+          if (claims.length >= 2) break; // two claims per voice is plenty
+        }
+      }
+      if (!Object.keys(votes).length && !claims.length) {
+        return {
+          ok: false,
+          error: known.size ? 'Vote on a claim first.' : 'Write a claim first.',
+        };
+      }
+      const payload = { votes };
+      if (claims.length) payload.claims = claims;
+      return { ok: true, payload: withRiders(payload, raw) };
+    }
+
     case 'qa':
       return { ok: false, error: 'Q&A is submitted separately.' };
 
@@ -868,14 +1113,27 @@ export function aggregate(type, config, rows) {
     case 'quiz': {
       const labels = optionLabels(cfg);
       const counts = new Array(labels.length).fill(0);
+      // Per-option conviction (the confidence rider, drawn into the bar
+      // itself): for each option, how many of its votes were guessing /
+      // fairly sure / certain. A tall bar of guesses and a tall bar of
+      // conviction are different classroom situations, and the split is
+      // what says which — a mean confidence would average them into the
+      // same bar.
+      const conviction = labels.map(() => [0, 0, 0]);
+      let anyConf = false;
       let total = 0;
       for (const p of payloads) {
         const picks = type === 'quiz'
           ? (Number.isInteger(p.choice) ? [p.choice] : [])
           : (Array.isArray(p.choices) ? p.choices : []);
+        const conf = (p.conf === 1 || p.conf === 2 || p.conf === 3) ? p.conf : null;
         let counted = false;
         for (const i of picks) {
-          if (i >= 0 && i < counts.length) { counts[i] += 1; counted = true; }
+          if (i >= 0 && i < counts.length) {
+            counts[i] += 1;
+            counted = true;
+            if (conf) { conviction[i][conf - 1] += 1; anyConf = true; }
+          }
         }
         if (counted) total += 1;
       }
@@ -883,6 +1141,7 @@ export function aggregate(type, config, rows) {
         label,
         count: counts[i],
         pct: total ? (counts[i] / total) * 100 : 0,
+        ...(anyConf ? { conf: conviction[i] } : {}),
       }));
       const out = { type, total, options };
       if (type === 'quiz' || cfg.mode === 'best') out.correct = correctIndices(cfg);
@@ -1332,6 +1591,145 @@ export function aggregate(type, config, rows) {
       return { type, total, columns };
     }
 
+    case 'buckets': {
+      const buckets = bucketLabels(cfg);
+      const cards = bucketCards(cfg);
+      const counts = cards.map(() => new Array(buckets.length).fill(0));
+      let total = 0;
+      for (const p of payloads) {
+        const places = Array.isArray(p.places) ? p.places : [];
+        let any = false;
+        places.forEach((b, i) => {
+          if (Number.isInteger(b) && b >= 0 && b < buckets.length && counts[i]) {
+            counts[i][b] += 1;
+            any = true;
+          }
+        });
+        if (any) total += 1;
+      }
+      const key = bucketKey(cfg);
+      const cardsOut = cards.map((label, i) => {
+        const row = counts[i];
+        const n = row.reduce((s, v) => s + v, 0);
+        let top = 0;
+        for (let b = 1; b < row.length; b += 1) if (row[b] > row[top]) top = b;
+        let runnerUp = null;
+        for (let b = 0; b < row.length; b += 1) {
+          if (b !== top && row[b] > 0
+              && (runnerUp == null || row[b] > row[runnerUp])) runnerUp = b;
+        }
+        // lean: how hard the runner-up column pulls on this card.
+        // 0 = the room filed it unanimously; 1 = a dead heat, and the
+        // chart sits the card exactly on the fence between the two.
+        const lean = n && runnerUp != null && row[top]
+          ? Math.min(1, row[runnerUp] / row[top]) : 0;
+        return {
+          label,
+          counts: row,
+          n,
+          top: n ? top : null,
+          runnerUp,
+          lean,
+          consensus: n ? row[top] / n : 0,
+        };
+      });
+      const out = { type, total, buckets, cards: cardsOut };
+      if (key) out.correct = key;
+      return out;
+    }
+
+    case 'quadrant': {
+      // Same doctrine as the spectrum, one dimension up: placements as
+      // individuals, never a mean — a centroid names a position nobody
+      // holds. Pseudonyms ride along (never displayed) so a dot can
+      // migrate on a re-ask; `anchor` is the densest placement, where the
+      // item's label belongs.
+      const labels = quadrantItems(cfg);
+      const n = Math.max(1, labels.length);
+      const series = Array.from({ length: n }, () => []);
+      let total = 0;
+      for (const r of rows || []) {
+        const p = r && r.payload ? r.payload : r;
+        const spots = Array.isArray(p?.spots) ? p.spots : [];
+        let any = false;
+        for (let i = 0; i < n; i += 1) {
+          const x = Number(spots[i]?.[0]);
+          const y = Number(spots[i]?.[1]);
+          if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+          series[i].push({
+            x: Math.min(100, Math.max(0, x)),
+            y: Math.min(100, Math.max(0, y)),
+            pseudonym: r?.pseudonym || null,
+          });
+          any = true;
+        }
+        if (any) total += 1;
+      }
+      return {
+        type,
+        total,
+        self: labels.length === 0,
+        items: series.map((points, i) => ({
+          label: labels[i] || '',
+          points,
+          anchor: densestPoint(points),
+        })),
+      };
+    }
+
+    case 'consensus': {
+      const claims = consensusClaims(cfg);
+      const hidden = new Set(
+        (Array.isArray(cfg.claim_hidden) ? cfg.claim_hidden : []).map(String));
+      const tally = new Map(
+        claims.map((c) => [c.key, { agree: 0, disagree: 0, pass: 0 }]));
+      const pending = new Map();
+      let total = 0;
+      for (const p of payloads) {
+        const votes = p.votes && typeof p.votes === 'object' ? p.votes : {};
+        let any = false;
+        for (const [k, v] of Object.entries(votes)) {
+          const t = tally.get(k);
+          if (!t) continue;
+          if (v === 1) t.agree += 1;
+          else if (v === -1) t.disagree += 1;
+          else if (v === 0) t.pass += 1;
+          else continue;
+          any = true;
+        }
+        if (any) total += 1;
+        // Claims waiting on the instructor. Not votes — a claim nobody
+        // has approved yet must never appear on the projector, but the
+        // presenter needs to see it to approve it.
+        for (const text of Array.isArray(p.claims) ? p.claims : []) {
+          const clean = cleanText(text, 140);
+          if (!clean) continue;
+          const key = claimKey(clean);
+          if (tally.has(key) || hidden.has(key)) continue;
+          const cur = pending.get(key);
+          if (cur) cur.count += 1;
+          else pending.set(key, { key, text: clean, count: 1 });
+        }
+      }
+      return {
+        type,
+        total,
+        claims: claims.map((c) => {
+          const t = tally.get(c.key);
+          const votes = t.agree + t.disagree;
+          return {
+            ...c,
+            ...t,
+            votes,
+            // balance: -1 room rejects … +1 room holds. Passes count as
+            // "heard but not positioned" — they thicken nothing.
+            balance: votes ? (t.agree - t.disagree) / votes : 0,
+          };
+        }),
+        pending: [...pending.values()],
+      };
+    }
+
     default:
       return { type, total: 0 };
   }
@@ -1592,6 +1990,43 @@ export function payloadToText(type, config, payload) {
         .map((text, i) => (text ? `${prompts[i] || `#${i + 1}`}: ${text}` : null))
         .filter(Boolean).join(' | ');
     }
+    case 'buckets': {
+      const cards = bucketCards(cfg);
+      const buckets = bucketLabels(cfg);
+      const key = bucketKey(cfg);
+      return (payload.places || [])
+        .map((b, i) => {
+          if (b == null || !cards[i]) return null;
+          const mark = key && key[i] != null ? (key[i] === b ? ' ✓' : ' ✗') : '';
+          return `${cards[i]} → ${buckets[b] ?? `#${b}`}${mark}`;
+        })
+        .filter(Boolean).join(' | ');
+    }
+    case 'quadrant': {
+      const items = quadrantItems(cfg);
+      return (payload.spots || [])
+        .map((s, i) => {
+          if (!Array.isArray(s)) return null;
+          const at = `(${s[0]}, ${s[1]})`;
+          return items.length ? `${items[i] || `#${i + 1}`} ${at}` : at;
+        })
+        .filter(Boolean).join(' | ');
+    }
+    case 'consensus': {
+      const claims = consensusClaims(cfg);
+      const index = new Map(claims.map((c, i) => [c.key, i]));
+      const votes = Object.entries(payload.votes || {})
+        .map(([k, v]) => {
+          const i = index.get(k);
+          if (i == null) return null;
+          return { i, word: v === 1 ? 'agree' : v === -1 ? 'disagree' : 'pass' };
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.i - b.i)
+        .map(({ i, word }) => `${i + 1}. ${word}`);
+      const proposed = (payload.claims || []).map((t) => `proposed: ${t}`);
+      return [...votes, ...proposed].join(' | ');
+    }
     default:
       return JSON.stringify(payload);
   }
@@ -1648,6 +2083,20 @@ export function answerCorrectness(type, config, payload) {
       const order = Array.isArray(payload.order) ? payload.order : [];
       if (!order.length) return '';
       return part(order.filter((itemIndex, place) => itemIndex === place).length, items.length);
+    }
+    case 'buckets': {
+      const key = bucketKey(cfg);
+      if (!key) return ''; // an opinion sort has no right answer
+      const places = Array.isArray(payload.places) ? payload.places : [];
+      if (!places.some((p) => p != null)) return '';
+      let keyed = 0;
+      let right = 0;
+      key.forEach((k, i) => {
+        if (k == null) return;
+        keyed += 1;
+        if (places[i] === k) right += 1;
+      });
+      return part(right, keyed);
     }
     default:
       return '';

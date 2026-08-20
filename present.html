@@ -94,6 +94,9 @@
     </span>
     <!-- volunteer pool: how many would say more aloud — a count, never names -->
     <span class="count-pill hands-pill" id="handsPill" hidden>🖐 <span id="handsText">0</span></span>
+    <!-- pace channel: "lost me" flares from the last two minutes — a count,
+         never names. It cools on its own; a spike that ended is over. -->
+    <span class="count-pill pace-pill" id="pacePill" hidden>⚑ <span id="paceText">0</span></span>
     <span class="muted" id="stateNote"></span>
     <span class="spacer"></span>
     <div class="progress-dots" id="dots"></div>
@@ -164,6 +167,17 @@
         <span class="ctrl-label">Re-ask</span><kbd>R</kbd></button>
       <button class="ctrl" id="btnDelta" type="button" title="Compare rounds">
         <span class="ctrl-label">Compare</span><kbd>D</kbd></button>
+      <!-- Reading aids. Both are about the moment AFTER the vote, when the
+           chart stops being a scoreboard and becomes the thing the room
+           argues about: sort so the ranking is a shape rather than a
+           calculation, list so the cloud's areas become comparable
+           lengths. Tapping a bar to point at it needs no button. -->
+      <button class="ctrl" id="btnSort" type="button"
+              title="Sort the bars by size (once voting is closed)">
+        <span class="ctrl-label">Sort</span><kbd>S</kbd></button>
+      <button class="ctrl" id="btnCloudList" type="button" hidden
+              title="Show the word cloud as a ranked list">
+        <span class="ctrl-label">Ranked list</span><kbd>W</kbd></button>
       <button class="ctrl" id="btnBoard" type="button" title="Leaderboard">
         <span class="ctrl-label">Leaderboard</span><kbd>L</kbd></button>
       <span class="ctrl-sep"></span>

@@ -315,6 +315,19 @@ export async function submitResponse({
   });
 }
 
+/**
+ * One "lost me" flare (pace channel). Signed like an answer — the
+ * pseudonym is the server's cooldown key — but carrying nothing else.
+ */
+export async function sendFlare({ sessionId, pseudonym, pseudonymToken }) {
+  const code = codeFor(sessionId);
+  if (!code) throw new Error('Not joined to a session.');
+  return api(`/api/join/${code}/flare`, {
+    method: 'POST',
+    body: { pseudonym, pseudonymToken },
+  });
+}
+
 /** Aggregates for the student's own phone — null unless the presenter pushed them. */
 export async function fetchSharedResults(sessionId, questionId, round) {
   const code = codeFor(sessionId);
@@ -353,6 +366,11 @@ export async function maxRound(sessionId, questionId) {
     `/api/sessions/${sessionId}/maxround?question=${encodeURIComponent(questionId)}`,
     { auth: true });
   return res?.round ?? 1;
+}
+
+/** Flare counts per slide — numbers only, nothing per person. */
+export function fetchFlares(sessionId) {
+  return api(`/api/sessions/${sessionId}/flares`, { auth: true });
 }
 
 // =====================================================================
@@ -594,6 +612,24 @@ export function subscribeToResponses(sessionId, onInsert) {
 export function subscribeToAudienceQuestions(sessionId, onChange) {
   return subscribe(sessionId, (event) => {
     if (event === 'qa') onChange();
+  });
+}
+
+/**
+ * The live question itself changed under the room — a consensus claim was
+ * approved, a typo fixed mid-class. Subscribers refetch; the event
+ * carries no payload because the sanitised truth comes from the endpoint.
+ */
+export function subscribeToQuestion(sessionId, onChange) {
+  return subscribe(sessionId, (event) => {
+    if (event === 'question') onChange();
+  });
+}
+
+/** "Lost me" flares as they land. Presenter only. */
+export function subscribeToFlares(sessionId, onFlare) {
+  return subscribe(sessionId, (event, data) => {
+    if (event === 'flare') onFlare(data);
   });
 }
 

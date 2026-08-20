@@ -675,6 +675,25 @@
 
 .hands-pill { background: var(--accent-soft); }
 
+/* the pace ember: warm while flares are fresh, gone when they cool */
+.pace-pill {
+  background: color-mix(in srgb, var(--warn, #b45309) 14%, var(--surface));
+  border-color: color-mix(in srgb, var(--warn, #b45309) 40%, var(--edge));
+}
+
+/* a pending consensus claim: the text, then its two fates */
+.claim-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: .35em;
+  padding: .2em .3em .2em .7em;
+  border: 1px dashed var(--edge-strong);
+  border-radius: 999px;
+  background: var(--surface);
+}
+.claim-pending-text { font-weight: 600; }
+.claim-reject { color: var(--ink-soft); }
+
 /* ------------------------------------------------- hold + curation */
 
 .hold-strip {

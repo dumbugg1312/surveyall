@@ -289,8 +289,13 @@ function runGrid(q, cols) {
 
     renderAggregate(chart, q.type, c.agg, {
       awaiting: false,          // archived data: zero is a fact, not a wait
-      style: c.config?.chart || 'bars',
+      style: c.config?.chart || (q.type === 'word_cloud' ? 'cloud' : 'bars'),
       revealCorrect: true,      // the session is over; every key is safe
+      // Small multiples with no narrator: each cell states its own
+      // numbers, and the caption names the run so eight tables in a row
+      // are eight different tables.
+      srSummary: true,
+      srCaption: runLabel(c.session),
     });
   });
   return grid;

@@ -353,6 +353,143 @@ stuck mid-send on an answer the server had already accepted.
 - **`docs/accessibility.md` should gain a 2.3.1 line** now that the flash
   is gone and there is something to record.
 
+## 10. The visual-pedagogy pass — reading, not just watching
+
+A research pass over the learning-science literature (Mayer's multimedia
+principles, Cleveland & McGill's ranking of visual encodings, the
+signalling meta-analyses, the clicker/Peer-Instruction work, AVIXA's
+display-legibility standard) measured against every chart this app draws.
+Most of what came back was that the foundations are already right —
+direct labels and no legends, the teacher-paced reveal, round one hidden
+before the revote, motion only on data changes, green as the only colour
+that means anything. What follows is what was missing.
+
+**One honest note first, because it shapes everything below.** This is
+not a "visual learners" feature. The meshing hypothesis — teach to a
+student's preferred modality and they learn more — has no evidential
+support (Pashler et al. 2008, and the crossover studies since). What
+*does* replicate is that a well-designed graphic is read faster and more
+accurately by **everyone**, and that the design that helps most depends
+on prior knowledge and age, not on a learner type. So nothing here is
+switched on per student; the one audience setting moves defaults for a
+whole deck, and every part of it is overridable per slide.
+
+**The room can be pointed at.** Signalling is the best-evidenced lever in
+the whole literature — three meta-analyses, g ≈ 0.38–0.50, strongest for
+the students with the least prior knowledge — and this projector had
+exactly one signal: "this one is correct", which is unavailable on every
+opinion question and premature on every question still being discussed.
+Now the presenter taps a mark and it keeps its colour while the rest step
+back. Renderers tag their marks with `data-spot` (`spot()` in charts.js);
+present-page owns the set and one CSS block does every chart at once.
+
+Two things about it are load-bearing. It is carried on `filter`, not
+`opacity`, because `paint()` writes an inline `opacity` on nearly every
+row in this file and an inline style beats a stylesheet — written the
+obvious way, the rule was silently dead on exactly the charts it was for.
+And the ring is an `outline`, not a `box-shadow`, because the
+high-contrast theme draws its empty tracks with an inset box-shadow and
+this selector is the more specific of the two: pointing at a bar in the
+theme built for the hardest-to-read rooms was taking the outline off it.
+Neither bug was visible in the default theme.
+
+**A full track now means two different things, on purpose.** While votes
+are landing a bar is a share of the *leader*: maximum resolution, every
+arrival visible, nobody drawing conclusions yet. The moment voting closes
+it becomes a share of the *room*, on the springs already there, so the
+bars visibly relax. The reason is that share-of-leader draws a 20/19/18
+split as three nearly-full bars — a landslide in the picture and a
+divided room in the numbers — and students read the picture (Shah &
+Hoeffner: they do not compute from the labels). Off for multi-select,
+where a count can exceed the respondent total and share-of-leader is the
+only honest full track.
+
+**Sorting, but only after the vote.** Sorted bars make "which won" a
+shape instead of an arithmetic problem. Refused while the room is
+answering — students are tracking their own option, and rows that swap
+underneath them mid-vote is the transient-information effect wearing a
+helpful face — and refused on a keyed question, where A/B/C is
+load-bearing. Rows keep their identity; only the flex `order` changes,
+FLIPped with `offsetTop` for the reason the editor rail uses it.
+
+**The reasoning arrives with the verdict.** Discussion plus the
+instructor's explanation beats either alone (Smith et al. 2011), and
+temporal contiguity says the words and the graphic have to land together
+rather than a slide apart — so `explain` is one optional field per
+question and it enters on the same 450ms beat as the ✓. It is the answer
+key in sentences, so `sanitiseQuestion()` deletes it: the worker suite
+now asserts that too.
+
+**Icons are part of the label.** Dual coding and the picture-superiority
+effect, and on a projector the practical win is that a student can find
+their own option again without reading four labels. Stored as an emoji at
+the front of the label text — `🌱 Photosynthesis` — rather than a
+parallel array, so the plain-text deck format, the CSV, the PPTX export
+and a retype from poll to ranking all carry it with no new key and
+nothing to fall out of sync on a reorder. `splitIcon()` in logic.js is
+the single decider, so the phone and the wall can never disagree; an
+option that is *only* an emoji keeps it as its label, because splitting
+that one leaves a nameless bar.
+
+**The cloud got a second shape.** Area is near the bottom of Cleveland &
+McGill's accuracy ranking and length on a common baseline is at the top,
+so the same answers now draw either way and the instructor picks by the
+question being asked: the cloud for "what did the room say", the ranked
+list for "did it really say that one twice as often". Words keep their
+hashed hue across the toggle, so it reads as the same data in a different
+shape rather than a new chart.
+
+**Smaller things.** The donut writes each percentage on its own slice
+(spatial contiguity is the largest effect in Mayer's series; a legend is
+a lookup) and skips it under 9% of the ring, where the band is thinner
+than the digits are tall; the editor warns past five options that a donut
+has stopped being a part-of-whole picture. The classify heatmap prints
+the winning label's first three letters beside the count, because the
+colour was a legend lookup and the `title` that carried it is unreachable
+on a projector with no pointer. `show_counts` — which existed and was
+reachable only by hand-editing the deck text — is now a control, and a
+deck-level **audience** setting moves its default along with the choice
+chart (counts and one-dot-per-person for a younger room, where
+proportional reasoning is still forming and "18 of us" is a fact where
+"42%" is a conversion). And a floor went under the smallest type on the
+wall: AVIXA DISCAS puts the farthest viewer at 6× image height for
+reading a chart, which works out to ~2.8% of image height at ISO
+9241-303's comfortable 16 arc-minutes — the tier below was landing near
+1.8%, which is the threshold for *detecting* a character rather than
+reading one.
+
+**Verification.** `tests/present-check.html` is new and is the more
+useful of the two harnesses: it hosts the same rehearsal room the
+editor's preview panel does and points a **real present.html** at it, so
+the click that points at a bar, the key that sorts it and the button that
+disables itself while voting is open are all exercised through the actual
+presenter rather than through a copy of its logic. 26 checks, including
+that pointing never changes an encoded length and that the ✓ survives.
+
+One thing it needs, and the reason it is worth reading before writing
+another one: it replaces the iframe's `requestAnimationFrame` with a
+timer-backed shim. A browser pauses rAF outright while a tab or pane is
+hidden, and unpumped the whole harness reads a projector frozen at frame
+zero — every entrance spring at 0, therefore every bar 0% wide, and,
+silently, every beat scheduled through `delay()` never arriving, so no
+verdict, no ✓, no explanation. The failures that produces look like
+product bugs and are not. (Hidden tabs also throttle `setTimeout` to
+about once a second, which is why the waits are generous and why every
+one of them waits on a condition rather than on a duration.)
+
+`visual-check.html` got the same treatment and one more fix, because it
+had been reporting a **false green**. Its audit ran at module-eval time,
+when the word cloud had released two or three of its sixteen words —
+"placed with no overlaps" about a cloud that had not been placed. It now
+pumps frames when hidden, redraws every panel once the grid has settled
+(a panel is built and drawn in the same breath, so the cloud packs for a
+box that is not the one it ends up in), and re-audits after that. The
+status line prints the word count it audited, so a green tick can be
+seen to have had something to check. Neither problem reached the
+product: the projector repaints on every vote, and results.html renders
+into a container that is fully laid out first — verified both ways
+before concluding it was the harness's own shape at fault.
+
 ## Infrastructure
 
 `qrcode-generator` is vendored (`app/vendor/`, MIT) instead of imported from
@@ -376,6 +513,25 @@ high at a glance. Charts reuse DOM between renders.
 any student identity. `prefersReducedMotion()` is respected by every new
 animation (and the emulated-reduce pass verifies: no sweeps, no dots, no
 confetti, instant reveal, snapped springs).
+
+Added by the visual-pedagogy pass:
+
+- **Pointing never touches an encoded quantity.** The spotlight moves
+  opacity and saturation and nothing else; `present-check.html` asserts a
+  spotlit bar's `--bar-size` is unchanged. Anything that reads as a
+  magnitude — length, height, scale, area — stays owned by the springs.
+- **It rides `filter`, not `opacity`.** `paint()` writes an inline
+  `opacity` on nearly every row here, and inline beats stylesheet. Any
+  future row-level state written in CSS has the same trap waiting.
+- **Sorting and pointing are per-slide, and `resetChart()` clears both.**
+  A sort order carried into a fresh vote reorders options while the room
+  is still choosing between them.
+- **The bar scale switches only when the vote closes.** Share of the
+  leader while answering, share of the room once closed — and never
+  share-of-room on multi-select, where counts can exceed the total.
+- **The "why" is an answer key.** Anything added that explains, hints at
+  or justifies a correct answer belongs in `sanitiseQuestion()`'s
+  deletions, next to `explain`.
 
 Added by the transitions pass, and equally load-bearing:
 

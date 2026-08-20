@@ -334,12 +334,34 @@ sweep — the tell is that only transitioned properties look stuck.
 
 ## Still open — needs a live screen reader, not static analysis
 
-1. **SVG chart alternatives (1.1.1).** `charts.js` is ~2,700 lines and
-   carries three `aria-label`s. The projector charts are arguably
-   decorative while the presenter narrates them, but the **student phone**
-   and the **results archive** render the same charts as primary content
-   with no text equivalent. A `<table class="sr-only">` of the same
-   aggregate would settle it. *This is the largest remaining gap.*
+1. ~~**SVG chart alternatives (1.1.1).**~~ **Closed** by the
+   visual-pedagogy pass. `srSummary()` in `charts.js` builds a
+   `<table class="sr-only">` of the same aggregate — label, count, share,
+   with a caption naming the response total — and marks every other child
+   of the container `aria-hidden`, so a reader hears the result once, as
+   a table, instead of twice as a rack of divs.
+
+   It is **opt-in per caller**, and the split is deliberate: the
+   **student phone** (`join-page.js`) and the **results archive**
+   (`results-page.js` via `archiveOpts`, `compare-page.js` with a
+   per-run caption) pass `srSummary: true` because there the chart *is*
+   the content; the **projector** does not, because there a person is
+   reading it out and the room is not using a screen reader on the wall.
+
+   Covers the tabular types — choice, quiz, word cloud, traffic, mood,
+   budget (`TABULAR_TYPES`). Still open for the shape-shaped ones: the
+   passage heatmap, spectrum, quadrant and card sort say something a
+   three-column table does not, and a bad table is worse than the
+   `aria-label` they carry now.
+
+   Two implementation notes worth keeping. The table is built **after**
+   the render, not before: `useChart()` empties the container whenever
+   the chart kind changes, so a table installed first is torn out by the
+   very paint meant to install it. And it is given `table-layout: fixed`
+   and `pointer-events: none`, because `.sr-only`'s `width: 1px` is
+   quietly ignored by an auto-layout table — it sat there 250px wide and
+   clipped, which was invisible but, now that charts are click targets,
+   would have been a hit-testing surface over the projector.
 2. **Live-region churn (4.1.3).** Results update continuously as votes
    land; whether the polite regions announce usefully or flood the
    listener is a runtime question.

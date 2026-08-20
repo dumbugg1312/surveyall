@@ -154,6 +154,14 @@ const MAX_SLOT = 49;
 const QA_MAX_PER_HOUR = 120;
 
 /**
+ * The "lost me" flare cooldown, enforced server-side per pseudonym. A
+ * flare is a one-bit signal, and one bit every 45 seconds is the fastest
+ * a human being genuinely re-loses a thread — anything quicker is a thumb
+ * with an opinion, and caps the table at ~80 rows per device per class.
+ */
+const FLARE_COOLDOWN_MS = 45_000;
+
+/**
  * Types where one device may submit several rows, each in its own slot.
  * Kept in step with MULTI_SUBMIT_TYPES in app/logic.js — and checked
  * here, because the client deciding not to send a slot is not the same
@@ -234,6 +242,11 @@ async function sanitiseQuestion(env, question) {
   // calibration anchors (the instructor's own rubric rating) would bias
   // the student ratings they exist to be compared against
   delete config.anchors;
+  // The "why" line that lands with the verdict. It is prose ABOUT the
+  // answer — "B, because a thesis has to be arguable" — so shipping it to
+  // phones would hand over the key in sentences after we spent this
+  // whole function deleting it in numbers.
+  delete config.explain;
   // Projector-only styling. Not a leak, just noise a phone never reads —
   // and the smaller the payload a phone is handed, the less there is to
   // audit the next time someone asks what students can see.
@@ -277,6 +290,15 @@ async function sanitiseQuestion(env, question) {
       config.items = order.map((from) => items[from]);
       break;
     }
+
+    // The reject list is moderation state, which is the presenter's
+    // business. Not a leak — the keys are hashes of text the room wrote —
+    // but the phone payload is the surface that gets audited line by
+    // line, and a key with no reason to be in it is a key someone has to
+    // reason about.
+    case 'consensus':
+      delete config.claim_hidden;
+      break;
 
     // Graded by pairing: left i is right when it points at right i. The
     // lefts can stay put — it is the correspondence that is secret — so
@@ -488,6 +510,20 @@ async function customThemeFor(env, deckId) {
     if (k.startsWith('--') && typeof v === 'string' && v.length <= 200) tokens[k] = v;
   }
   return Object.keys(tokens).length ? { tokens, dark: !!c.dark } : null;
+}
+
+/**
+ * Whether this deck runs the pace channel (the "lost me" button on every
+ * phone). A deck setting, read fresh like deckHasQuiz and for the same
+ * reason: the instructor can flip it between sessions. It discloses only
+ * that a button should exist.
+ */
+async function deckPaceOn(env, deckId) {
+  const row = await env.DB.prepare('select settings from decks where id = ?')
+    .bind(deckId).first();
+  let settings = {};
+  try { settings = JSON.parse(row?.settings || '{}'); } catch { /* ignore */ }
+  return settings.pace === true;
 }
 
 /** Ask the session's Durable Object to push an event to its room. */
@@ -755,6 +791,8 @@ async function participantRoute(request, env, seg, method, body, url) {
       // deckHasQuiz(): on a deck nobody is being scored on, a nickname is
       // an invitation to adopt a persona and nothing else.
       has_quiz: await deckHasQuiz(env, session.id),
+      // whether the "lost me" button should exist on this phone
+      pace: await deckPaceOn(env, session.deck_id),
       // instructor-built theme colours, when the deck uses one
       custom_theme: session.theme === 'custom'
         ? await customThemeFor(env, session.deck_id) : null,
@@ -905,6 +943,36 @@ async function participantRoute(request, env, seg, method, body, url) {
 
     // Payloads only — no pseudonyms, no timestamps, nothing per-person.
     return json({ round, payloads: (results || []).map((r) => parse(r.payload, {})) });
+  }
+
+  // ---- the "lost me" flare (pace channel) --------------------------------
+  if (tail === 'flare' && method === 'POST') {
+    if (session.state !== 'live') return fail('This session is not live.', 409);
+    if (!body.pseudonym) return fail('Missing nickname.', 400);
+    // Same signature check as an answer: the pseudonym is the cooldown
+    // key, so an unsigned label would let one device flare as sixty.
+    if (!(await verifyPseudonym(env, session.id, String(body.pseudonym), body.pseudonymToken))) {
+      return fail('This device has not joined this session. Reload the page.', 403);
+    }
+    const last = await env.DB.prepare(
+      'select created_at from flares where session_id = ? and pseudonym = ? order by created_at desc limit 1',
+    ).bind(session.id, String(body.pseudonym)).first();
+    if (last && now() - Number(last.created_at) < FLARE_COOLDOWN_MS) {
+      // Not an error to the student — their first tap was heard, and the
+      // phone shows the cooldown state either way.
+      return json({ ok: true, held: true });
+    }
+    const questionId = session.current_question_id || null;
+    await env.DB.prepare(
+      'insert into flares (session_id, question_id, round, pseudonym, created_at) values (?, ?, ?, ?, ?)',
+    ).bind(
+      session.id, questionId, Number(session.current_round) || 1,
+      String(body.pseudonym), now(),
+    ).run();
+    // Counts only, presenter only — the pseudonym never leaves the row.
+    await notifyRoom(env, session.id, 'flare',
+      { question_id: questionId, round: Number(session.current_round) || 1 }, 'presenter');
+    return json({ ok: true });
   }
 
   // ---- Q&A ---------------------------------------------------------------
@@ -1323,6 +1391,16 @@ async function instructorRoute(request, env, seg, method, body, url, ctx, user) 
       if (!fields.length) return fail('Nothing to update', 400);
       values.push(seg[1]);
       await DB.prepare(`update questions set ${fields.join(', ')} where id = ?`).bind(...values).run();
+      // If a live room is sitting on this very question, tell it. Editing
+      // a slide mid-class used to be invisible until the next navigation;
+      // now that consensus approves claims by patching config, the phones
+      // have to hear about it the moment it lands.
+      const { results: liveRooms } = await DB.prepare(
+        "select id from sessions where state = 'live' and current_question_id = ?",
+      ).bind(seg[1]).all();
+      for (const room of liveRooms || []) {
+        await notifyRoom(env, room.id, 'question', { changed: true });
+      }
       return json(rowToQuestion(
         await DB.prepare('select * from questions where id = ?').bind(seg[1]).first()));
     }
@@ -1442,6 +1520,21 @@ async function instructorRoute(request, env, seg, method, body, url, ctx, user) 
         'select max(round) as r from responses where session_id = ? and question_id = ?',
       ).bind(sessionId, q).first();
       return json({ round: row?.r || 1 });
+    }
+
+    if (sessionId && seg[2] === 'flares' && method === 'GET') {
+      if (!(await ownedSession(DB, sessionId, user))) return notYours();
+      // Counts per slide, nothing per person: the strip the presenter and
+      // the archive draw is "slide 9 flared 11 times", and that sentence
+      // is the whole disclosure.
+      const { results } = await DB.prepare(`
+        select question_id, count(*) as count
+        from flares where session_id = ?
+        group by question_id
+      `).bind(sessionId).all();
+      return json((results || []).map((r) => ({
+        question_id: r.question_id, count: Number(r.count) || 0,
+      })));
     }
 
     if (sessionId && method === 'GET') {

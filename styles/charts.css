@@ -1609,3 +1609,584 @@ svg.donut {
 @media (prefers-reduced-motion: reduce) {
   .exit-card, .cloze-chip { transition: none; }
 }
+
+/* ============================================ conviction veils (rider) */
+
+/* Right-anchored washes over the bar's tip: the solid base is the
+   certain vote, the veiled tip the softer support. Children of the fill
+   (like the glint) so they ride the spring and never change the encoded
+   length; widths + backgrounds are written per-frame by charts.js. */
+.chart-conv {
+  position: absolute;
+  top: 0; bottom: 0; right: 0;
+  width: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* the calibration sentence — display type, because it IS the finding */
+.conf-verdict {
+  margin-top: .55em;
+  font-family: var(--display);
+  font-size: 1.05em;
+  font-weight: 650;
+  letter-spacing: -.01em;
+}
+.conf-verdict-n {
+  color: var(--accent-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ========================================================= card sort */
+
+[data-chart="buckets"] { display: block; }
+
+.buckets-wrap { padding: .2em 0; }
+
+.buckets-head {
+  display: flex;
+  margin-bottom: .5em;
+}
+.buckets-col-head {
+  flex: 1;
+  text-align: center;
+  font-weight: 750;
+  font-size: .8em;
+  padding-bottom: .3em;
+  border-bottom: .18em solid var(--edge);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.buckets-field {
+  position: relative;
+  overflow: hidden;
+  border-radius: calc(var(--bar-radius) + 2px);
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--ink) 6%, transparent),
+      color-mix(in srgb, var(--ink) 3%, transparent));
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--ink) 10%, transparent);
+}
+
+/* the fences: where a contested card visibly sits */
+.buckets-rule {
+  position: absolute;
+  top: .4em; bottom: .4em;
+  width: 0;
+  border-left: 2px dashed color-mix(in srgb, var(--ink) 22%, transparent);
+  pointer-events: none;
+}
+
+.bcard {
+  position: absolute;
+  transform: translateX(-50%);
+  margin-top: .45em;
+  padding: .3em .6em .35em;
+  border: .14em solid var(--edge);
+  border-radius: calc(var(--bar-radius) + 1px);
+  background: var(--surface);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--ink) 12%, transparent);
+  will-change: left;
+}
+.bcard-label {
+  font-weight: 650;
+  font-size: .78em;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bcard-split {
+  display: flex;
+  height: .3em;
+  margin-top: .3em;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+.bcard-seg { height: 100%; }
+.bcard-mark {
+  position: absolute;
+  top: -.55em; right: -.55em;
+  display: grid;
+  place-items: center;
+  width: 1.15em; height: 1.15em;
+  border-radius: 50%;
+  background: var(--good);
+  color: var(--on-good);
+  font-size: .72em;
+  font-weight: 800;
+  opacity: 0;
+  transform: scale(0);
+}
+.bcard.is-right { border-color: color-mix(in srgb, var(--good) 55%, var(--edge)); }
+.bcard.is-right .bcard-mark {
+  opacity: 1;
+  transform: scale(1);
+  animation: check-pop .5s var(--ease-spring) backwards;
+}
+.bcard.is-moved { border-style: dashed; }
+.bcard-ghost {
+  position: absolute;
+  transform: translateX(-50%);
+  margin-top: .45em;
+  padding: .3em .6em .35em;
+  border: .14em dashed color-mix(in srgb, var(--ink) 30%, transparent);
+  border-radius: calc(var(--bar-radius) + 1px);
+  color: var(--ink-soft);
+  font-weight: 650;
+  font-size: .78em;
+  line-height: 1.25;
+  opacity: .5;
+  white-space: nowrap;
+  /* the card itself is capped to its column's width in JS; the ghost is
+     a plain node, so it needs its own ceiling or a long label escapes */
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+[data-awaiting] .buckets-field::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg,
+      transparent 20%,
+      color-mix(in srgb, var(--accent) 11%, transparent) 50%,
+      transparent 80%) no-repeat;
+  background-size: 55% 100%;
+  background-position: -150% 0;
+  animation: track-await 3.2s var(--ease-in-out) infinite;
+}
+
+/* ========================================================== quadrant */
+
+[data-chart="quadrant"] { display: block; }
+
+.quad-wrap {
+  display: flex;
+  gap: 1em;
+  align-items: stretch;
+}
+
+.quad-stage {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: min(15em, 52vh);
+  border-radius: calc(var(--bar-radius) + 2px);
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--ink) 6%, transparent),
+      color-mix(in srgb, var(--ink) 3%, transparent));
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--ink) 10%, transparent);
+}
+.quad-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+.quad-rule { stroke: color-mix(in srgb, var(--ink) 18%, transparent); stroke-width: .35; }
+
+.quad-pole {
+  position: absolute;
+  font-size: .68em;
+  font-weight: 700;
+  color: var(--ink-soft);
+  letter-spacing: .02em;
+  pointer-events: none;
+  max-width: 42%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.quad-pole.is-top { top: .5em; left: 50%; transform: translateX(-50%); }
+.quad-pole.is-bottom { bottom: .5em; left: 50%; transform: translateX(-50%); }
+.quad-pole.is-left { left: .7em; top: 50%; transform: translateY(-50%); }
+.quad-pole.is-right { right: .7em; top: 50%; transform: translateY(-50%); }
+
+/* the item's name sits on the thickest ink — the mode, never the mean */
+.quad-anchor {
+  position: absolute;
+  transform: translate(-50%, -140%);
+  padding: .12em .5em;
+  border: .12em solid var(--edge);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  font-size: .66em;
+  font-weight: 750;
+  white-space: nowrap;
+  max-width: 12em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.quad-legend {
+  display: flex;
+  flex-direction: column;
+  gap: .4em;
+  justify-content: center;
+  max-width: 11em;
+}
+.quad-key {
+  display: flex;
+  align-items: center;
+  gap: .45em;
+  padding: .3em .55em;
+  border: .1em solid var(--edge);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  font: inherit;
+  font-size: .68em;
+  font-weight: 650;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out);
+}
+.quad-key.is-focus {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.quad-key-swatch {
+  flex-shrink: 0;
+  width: .8em; height: .8em;
+  border-radius: 50%;
+}
+.quad-key-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.quad-key-count {
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+[data-awaiting] .quad-stage::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg,
+      transparent 20%,
+      color-mix(in srgb, var(--accent) 11%, transparent) 50%,
+      transparent 80%) no-repeat;
+  background-size: 55% 100%;
+  background-position: -150% 0;
+  animation: track-await 3.2s var(--ease-in-out) infinite;
+}
+
+/* ===================================================== common ground */
+
+[data-chart="consensus"] { display: block; }
+
+.consensus-wrap { padding: .2em 0; }
+
+.consensus-ends {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: .72em;
+  font-weight: 650;
+  color: var(--ink-soft);
+  margin-bottom: .5em;
+}
+.consensus-end.is-mid {
+  font-size: .85em;
+  font-weight: 600;
+  letter-spacing: .06em;
+  opacity: .7;
+}
+
+.consensus-field {
+  position: relative;
+  /* backstop: the transform above keeps chips inside, and a very long
+     claim on a narrow archive card must not escape the field either */
+  overflow: hidden;
+  border-radius: calc(var(--bar-radius) + 2px);
+  background:
+    linear-gradient(90deg,
+      color-mix(in srgb, var(--ink) 7%, transparent),
+      color-mix(in srgb, var(--ink) 2%, transparent) 50%,
+      color-mix(in srgb, var(--accent) 8%, transparent)),
+    var(--ground);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--ink) 10%, transparent);
+  transition: opacity var(--duration-moderate) var(--ease-out), filter var(--duration-moderate) var(--ease-out);
+}
+.consensus-field.is-backdrop {
+  opacity: .3;
+  filter: saturate(.4);
+}
+
+.claim-node {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: .5em;
+  margin-top: .4em;
+  max-width: 52%;
+  padding: .28em .65em;
+  border: .12em solid var(--edge);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--ink) 10%, transparent);
+  will-change: left, transform;
+}
+.claim-node-text {
+  min-width: 0;
+  font-weight: 650;
+  font-size: .72em;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.claim-node-votes {
+  flex-shrink: 0;
+  font-size: .62em;
+  font-weight: 700;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The verdict: sentences, set like the delta headline.
+   The SENTENCES are what is in flow and what sets the height — the field
+   stretches behind them as a backdrop. The other way round (an absolute
+   verdict over an in-flow field) sized the block to the field and let a
+   long verdict spill out of the slide and over whatever sat below it. */
+.consensus-wrap { position: relative; }
+.consensus-verdict {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: .35em;
+  padding: .2em .5em;
+}
+.consensus-wrap.is-verdict .consensus-ends { display: none; }
+.consensus-wrap.is-verdict .consensus-field {
+  position: absolute;
+  inset: 0;
+  height: auto;
+}
+.consensus-verdict-title {
+  font-size: .72em;
+  font-weight: 750;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-top: .3em;
+}
+.consensus-quote {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1em;
+  padding: .4em .7em;
+  border-left: .22em solid var(--accent);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  border-radius: 0 var(--bar-radius) var(--bar-radius) 0;
+  animation: quote-in .5s var(--ease-out) backwards;
+  animation-delay: calc(var(--q-i, 0) * 90ms);
+}
+.consensus-quote.is-split { border-left-color: var(--accent-2); }
+.consensus-quote-text {
+  font-family: var(--display);
+  font-weight: 650;
+  font-size: .95em;
+  line-height: 1.3;
+}
+.consensus-quote-tally {
+  flex-shrink: 0;
+  font-size: .66em;
+  font-weight: 700;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes quote-in {
+  from { opacity: 0; transform: translateY(.35em); }
+  to { opacity: 1; transform: none; }
+}
+
+[data-awaiting] .consensus-field::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg,
+      transparent 20%,
+      color-mix(in srgb, var(--accent) 11%, transparent) 50%,
+      transparent 80%) no-repeat;
+  background-size: 55% 100%;
+  background-position: -150% 0;
+  animation: track-await 3.2s var(--ease-in-out) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .consensus-quote { animation: none; }
+  .bcard.is-right .bcard-mark { animation: none; }
+}
+
+/* =====================================================================
+   The visual-pedagogy pass
+   ---------------------------------------------------------------------
+   Five additions, each answering a specific finding in the learning
+   science rather than a taste: an icon channel beside the word (dual
+   coding), a spotlight the instructor can point with (signalling), the
+   reasoning delivered on the verdict's beat (temporal contiguity), the
+   percentage written on its own slice (spatial contiguity), and a floor
+   under the smallest type on the wall (AVIXA/ISO visual-angle math).
+   ===================================================================== */
+
+/* ---------------------------------------------------------- option icons
+   A picture beside the word, never instead of it. Sized above the label
+   so it is findable at the back of the room, but capped: an emoji that
+   out-shouts its own text has stopped being a second encoding of the
+   answer and become the answer. Empty spans collapse, so an option with
+   no icon is laid out exactly as it was before this existed. */
+.chart-icon:empty { display: none; }
+.chart-icon {
+  font-size: 1.35em;
+  line-height: 1;
+  margin-right: .38em;
+}
+
+/* --------------------------------------------------------- the spotlight
+   "Look at these two." One preattentive distinction — everything else
+   steps back — because a display where several things are emphasised has
+   nothing emphasised. Opacity and saturation only: an encoded length is
+   never touched, so a spotlit chart is the same chart. */
+   Carried on `filter`, not on `opacity`, and that is not a style choice:
+   paint() writes an inline `opacity` on almost every row in this file
+   (it is how the entrance springs are drawn), and an inline style beats
+   a stylesheet — so a rule written on `opacity` here is silently
+   overruled on exactly the charts it is for. `filter` at row level is
+   unwritten, and filter's own opacity() function reaches the same
+   channel. The one inline filter in the file is on .chart-fill, a child,
+   so the two compose instead of fighting. */
+.chart[data-spotting] [data-spot] {
+  transition: filter .32s var(--ease-out);
+}
+.chart[data-spotting] [data-spot]:not(.is-spotlit) {
+  filter: opacity(.34) saturate(.28);
+}
+
+/* The mark itself is what the room sees; the ring is for the person
+   holding the pointer, and stays quiet enough not to read as a second
+   correctness signal from the back row.
+
+   `outline`, not `box-shadow`, and for a reason worth keeping: the
+   high-contrast theme draws every empty track as an inset 2px rule via
+   box-shadow, and this selector is the more specific of the two — so a
+   box-shadow here silently REPLACED that rule, and pointing at a bar in
+   the theme built for the hardest-to-read rooms took the outline off it.
+   Outline is a channel nothing else in this file uses. */
+.chart[data-spotting] .chart-row.is-spotlit .chart-track,
+.chart[data-spotting] .dotp-row.is-spotlit .dotp-field,
+.chart[data-spotting] .scale-row.is-spotlit .scale-track,
+.chart[data-spotting] .match-row.is-spotlit .match-track,
+.chart[data-spotting] .budget-row.is-spotlit .budget-track,
+.chart[data-spotting] .sample-card.is-spotlit,
+.chart[data-spotting] .mood-cell.is-spotlit,
+.chart[data-spotting] .passage-seg.is-spotlit {
+  outline: .1em solid color-mix(in srgb, var(--ink) 38%, transparent);
+  outline-offset: .16em;
+  border-radius: 4px;
+}
+
+/* Only the presenter can point, and only the presenter gets the cursor
+   that says so — the archive renders the same markup and is not
+   interactive. */
+.stage [data-spot] { cursor: pointer; }
+
+@media (prefers-reduced-motion: reduce) {
+  .chart[data-spotting] [data-spot] { transition: none; }
+}
+
+/* ----------------------------------------------------------- the because
+   The reasoning, arriving on the same beat as the verdict rather than a
+   slide later. Set at reading size, not chart size: it is a sentence the
+   room reads once, and it sits under the bars it explains. */
+.chart-explain {
+  margin: .85em 0 0;
+  padding: .7em .95em;
+  border-left: .22em solid var(--good);
+  border-radius: 0 6px 6px 0;
+  background: color-mix(in srgb, var(--good) 8%, transparent);
+  font-family: var(--body);
+  font-size: .84em;
+  line-height: 1.42;
+  font-weight: 550;
+  color: var(--ink);
+  max-width: 46em;
+  opacity: 0;
+  transform: translateY(.4em);
+  transition: opacity .5s var(--ease-out), transform .5s var(--ease-out);
+}
+.chart-explain.is-in { opacity: 1; transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-explain { transition: none; }
+}
+
+/* -------------------------------------------------------- donut slice tags
+   The percentage, written on the slice. The legend keeps the names — a
+   slice too thin to hold a number still needs one — but the figures the
+   room will actually say out loud are now where the eye already is. */
+.donut-tag {
+  font-family: var(--body);
+  font-size: 3.4px;          /* the donut's viewBox is 42 units wide */
+  font-weight: 750;
+  letter-spacing: -.04em;
+  paint-order: stroke;
+  transition: opacity .3s var(--ease-out);
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------ word list
+   The cloud's answers as lengths on a common baseline — the top of
+   Cleveland & McGill's accuracy ranking, where area is near the bottom.
+   Reuses the bar row wholesale; only the value column differs, because a
+   word's count is a count and never a share of anything. */
+.chart[data-chart="wordlist"] .chart-label { font-family: var(--display); }
+.chart[data-chart="wordlist"] .chart-value { min-width: 2.5em; }
+
+/* -------------------------------------------------- the text equivalent
+   .sr-only sets width:1px, which a table quietly ignores — an auto-layout
+   table is never narrower than its min-content width, so this one sat
+   there 250px wide, clipped but real. It is absolutely positioned, so it
+   was not pushing anything about; the danger was hit-testing, on a
+   projector whose charts are now click targets. table-layout makes the
+   width honest and pointer-events settles it either way. */
+table[data-sr-summary] {
+  table-layout: fixed;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------- legibility floor
+   AVIXA DISCAS puts the farthest viewer at 6x image height for reading a
+   chart and acting on it; ISO 9241-303 wants 16-22 arc-minutes of
+   character height for comfort. At 6H, 16' works out to ~2.8% of image
+   height — and the tier below was landing near 1.8%, which is the
+   threshold for *detecting* a character, not reading one. These are the
+   smallest things on the wall that carry a number or a name. */
+.conf-chip,
+.seg-count,
+.heat-legend-chip,
+.donut-total-label,
+.dotp-row .chart-count,
+.curate-chip { font-size: .78em; }
+
+.sample-count { font-size: .74em; }

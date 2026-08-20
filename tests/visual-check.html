@@ -55,6 +55,20 @@ import { aggregate, computeDelta, quizLeaderboard } from '../app/logic.js';
 import { renderAggregate, renderDelta, renderLeaderboard } from '../app/charts.js';
 import { THEMES, applyTheme } from '../app/themes.js';
 
+// A browser pauses requestAnimationFrame outright while a tab or pane is
+// hidden — which is the normal case for an automated run. __audit()
+// already steps the SPRINGS by hand, but that is not the whole clock:
+// the word cloud releases its first fill on delay() beats, and delay()
+// is rAF-driven, so a hidden run leaves sixteen words in the DOM parked
+// at scale 0 and the overlap audit then reports "no overlaps" about a
+// cloud that never assembled — a green tick for an unrun check, which is
+// worse than a red one. A timer-backed frame source keeps the real loop
+// running instead of skipping it. Only when hidden: a person watching
+// this page should see the browser's own clock.
+if (document.visibilityState === 'hidden') {
+  window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16);
+}
+
 const grid = document.getElementById('grid');
 const errors = [];
 const panels = {};
@@ -70,6 +84,20 @@ if (storedTheme && THEMES[storedTheme]) {
     getComputedStyle(document.documentElement).getPropertyValue('--ground');
 }
 
+/**
+ * Every panel's render, kept so it can be run a second time.
+ *
+ * A panel is built and drawn in the same breath, while the grid above it
+ * is still growing — so a chart that measures its own container at draw
+ * time (only the word cloud does; the spiral needs a box to pack into)
+ * packs for a box that is not the one it ends up in, and nothing here
+ * ever re-renders it. The projector never sees this because it repaints
+ * on every vote; results.html never sees it because its container is
+ * fully laid out before the chart goes in. It is this page's own shape
+ * that causes it, so it is this page's own job to settle and redraw.
+ */
+const redraws = [];
+
 function demo(title, fn) {
   const box = document.createElement('div');
   box.className = 'demo';
@@ -79,11 +107,15 @@ function demo(title, fn) {
   chart.className = 'chart';
   box.append(h, chart);
   grid.append(box);
-  try { fn(chart); } catch (err) {
-    errors.push(`${title}: ${err.message}`);
-    chart.textContent = `render failed: ${err.message}`;
-    chart.style.color = 'var(--bad)';
-  }
+  const draw = () => {
+    try { fn(chart); } catch (err) {
+      errors.push(`${title}: ${err.message}`);
+      chart.textContent = `render failed: ${err.message}`;
+      chart.style.color = 'var(--bad)';
+    }
+  };
+  draw();
+  redraws.push(draw);
   return chart;
 }
 
@@ -217,6 +249,85 @@ panels.confidence = demo('Confidence quadrant (revealed quiz)', (c) =>
       { choice: 0, conf: 3 }, { choice: 1, conf: 1 }, { choice: 2, conf: 2 },
     ])), { style: 'bars', revealCorrect: true }));
 
+// ---------------------------------------- the visual-pedagogy wave
+
+const bkCfg = {
+  buckets: ['Claim', 'Evidence'],
+  cards: ['“Uniforms cut bullying”', '“A 2019 survey found…”', '“Students feel policed”'],
+  correct: [0, 1, 0],
+};
+// card 1 unanimous, card 2 unanimous the other way, card 3 genuinely torn
+const bkRows = rows([
+  { places: [0, 1, 0] }, { places: [0, 1, 0] }, { places: [0, 1, 1] },
+  { places: [0, 1, 1] }, { places: [0, 1, 0] }, { places: [0, 1, 1] },
+]);
+
+panels.buckets = demo('Card sort — one card on the fence', (c) =>
+  renderAggregate(c, 'buckets', aggregate('buckets', bkCfg, bkRows), {}));
+
+panels.bucketsKeyed = demo('Card sort — revealed against the key', (c) =>
+  renderAggregate(c, 'buckets', aggregate('buckets', bkCfg, bkRows), { revealCorrect: true }));
+
+const qdCfg = {
+  x_left: 'Low effort', x_right: 'High effort',
+  y_low: 'Low payoff', y_high: 'High payoff',
+  items: ['Rereading', 'Practice testing'],
+};
+// item 1 splits the room into two camps; item 2 is a tight agreement blob
+const qdRows = rows([
+  { spots: [[22, 26], [78, 82]] }, { spots: [[26, 31], [82, 79]] },
+  { spots: [[19, 22], [76, 86]] }, { spots: [[74, 68], [80, 83]] },
+  { spots: [[79, 73], [77, 80]] }, { spots: [[71, 65], [83, 84]] },
+  { spots: [[24, 28], [79, 81]] },
+]);
+
+panels.quadrant = demo('Quadrant — a split room and a tight one', (c) =>
+  renderAggregate(c, 'quadrant', aggregate('quadrant', qdCfg, qdRows), {
+    axes: { xLeft: qdCfg.x_left, xRight: qdCfg.x_right, yLow: qdCfg.y_low, yHigh: qdCfg.y_high },
+  }));
+
+panels.quadrantSelf = demo('Quadrant — place yourself', (c) =>
+  renderAggregate(c, 'quadrant', aggregate('quadrant', { items: [] }, qdRows), {
+    axes: { xLeft: 'Disagree', xRight: 'Agree', yLow: 'Matters less', yHigh: 'Matters a lot' },
+  }));
+
+const csClaims = [
+  { key: 'c1', text: 'Using AI to brainstorm is fine' },
+  { key: 'c2', text: 'Submitting AI prose as your own is cheating' },
+  { key: 'c3', text: 'Citing AI use should be required' },
+];
+const csCfg = { claims: csClaims };
+const csRows = rows([
+  { votes: { c1: 1, c2: 1, c3: 1 } }, { votes: { c1: 1, c2: 1, c3: -1 } },
+  { votes: { c1: -1, c2: 1, c3: 1 } }, { votes: { c1: 1, c2: 1, c3: -1 } },
+  { votes: { c1: 1, c2: 1, c3: 0 } }, { votes: { c1: 0, c2: 1, c3: -1 } },
+  { votes: { c1: 1, c2: 1, c3: 1 } },
+]);
+
+panels.consensus = demo('Common ground — claims on the field', (c) =>
+  renderAggregate(c, 'consensus', aggregate('consensus', csCfg, csRows), {}));
+
+panels.consensusVerdict = demo('Common ground — the verdict', (c) =>
+  renderAggregate(c, 'consensus', aggregate('consensus', csCfg, csRows), { verdict: true }));
+
+panels.conviction = demo('Conviction veils — held vs merely hoped', (c) =>
+  renderAggregate(c, 'multiple_choice', aggregate('multiple_choice',
+    { options: ['Weber', 'Durkheim', 'Marx'] },
+    rows([
+      // Weber: mostly certain. Durkheim: the same height, nearly all guesses.
+      { choices: [0], conf: 3 }, { choices: [0], conf: 3 }, { choices: [0], conf: 3 },
+      { choices: [0], conf: 2 }, { choices: [1], conf: 1 }, { choices: [1], conf: 1 },
+      { choices: [1], conf: 1 }, { choices: [1], conf: 2 }, { choices: [2], conf: 2 },
+    ])), { style: 'bars' }));
+
+panels.awaitBuckets = demo('Waiting — card sort, no responses yet', (c) =>
+  renderAggregate(c, 'buckets', aggregate('buckets', bkCfg, []), {}));
+
+panels.awaitQuadrant = demo('Waiting — quadrant, no responses yet', (c) =>
+  renderAggregate(c, 'quadrant', aggregate('quadrant', qdCfg, []), {
+    axes: { xLeft: qdCfg.x_left, xRight: qdCfg.x_right, yLow: qdCfg.y_low, yHigh: qdCfg.y_high },
+  }));
+
 panels.awaitBars = demo('Waiting — multiple choice, no responses yet', (c) =>
   renderAggregate(c, 'multiple_choice', aggregate('multiple_choice', mcCfg, []), { style: 'bars' }));
 
@@ -234,6 +345,85 @@ demo('Regression: bars → donut → cloud → bars', (c) => {
   if (c.querySelectorAll('svg.donut').length) throw new Error('stale donut survived');
   const bars = c.querySelectorAll('.chart-row').length;
   if (bars !== mcCfg.options.length) throw new Error(`expected ${mcCfg.options.length} bars, got ${bars}`);
+});
+
+// ------------------------------------------- the visual-pedagogy pass
+// Each panel is one finding from the learning-science literature, drawn
+// so it can be checked against a real projector before class.
+
+const iconCfg = { options: ['🌱 Photosynthesis', '🔥 Combustion', '💧 Condensation', 'Diffusion'] };
+
+demo('Option icons — a picture beside the word (dual coding)', (c) =>
+  renderAggregate(c, 'multiple_choice',
+    aggregate('multiple_choice', iconCfg, mcRows([14, 6, 9, 3])), { style: 'bars' }));
+
+demo('Icons on the dot plot — one mark per person', (c) =>
+  renderAggregate(c, 'multiple_choice',
+    aggregate('multiple_choice', iconCfg, mcRows([14, 6, 9, 3])), { style: 'dots' }));
+
+demo('Donut — the percentage written on its own slice', (c) =>
+  renderAggregate(c, 'multiple_choice',
+    aggregate('multiple_choice', mcCfg, mcRows([12, 19, 8, 3])), { style: 'donut' }));
+
+// The bar-scale switch, side by side: the same near-three-way split
+// drawn against the leader (three nearly full tracks) and against the
+// room (three thirds). This is the panel that shows why it matters.
+demo('Scale — share of the leader (voting open)', (c) =>
+  renderAggregate(c, 'multiple_choice',
+    aggregate('multiple_choice', { options: ['A', 'B', 'C'] }, mcRows([20, 19, 18])),
+    { style: 'bars' }));
+
+demo('Scale — share of the room (voting closed)', (c) =>
+  renderAggregate(c, 'multiple_choice',
+    aggregate('multiple_choice', { options: ['A', 'B', 'C'] }, mcRows([20, 19, 18])),
+    { style: 'bars', roomScale: true }));
+
+demo('Sorted on close — ranking as a shape, not a calculation', (c) =>
+  renderAggregate(c, 'multiple_choice',
+    aggregate('multiple_choice', mcCfg, mcRows([12, 19, 8, 3])),
+    { style: 'bars', roomScale: true, sorted: true }));
+
+demo('The because — reasoning on the verdict’s beat', (c) =>
+  renderAggregate(c, 'quiz', aggregate('quiz', qzCfg, qzRows([6, 21, 9, 2])), {
+    style: 'bars',
+    revealCorrect: true,
+    roomScale: true,
+    explain: 'Weber tied the work ethic to capitalism’s rise — Durkheim was '
+      + 'writing about solidarity, and Marx about material conditions.',
+  }));
+
+demo('Word cloud as a ranked list — length, not area', (c) =>
+  renderAggregate(c, 'word_cloud',
+    aggregate('word_cloud', {}, rows(wcWords.flatMap((w, i) =>
+      fill(((wcWords.length - i) % 5) + 1, { words: [w] })))),
+    { style: 'list' }));
+
+demo('Screen-reader table (visually hidden, inspect the DOM)', (c) => {
+  renderAggregate(c, 'multiple_choice',
+    aggregate('multiple_choice', mcCfg, mcRows([12, 19, 8, 3])),
+    { style: 'bars', srSummary: true });
+  const table = c.querySelector('table[data-sr-summary]');
+  if (!table) throw new Error('no text equivalent was built');
+  if (table.querySelectorAll('tbody tr').length !== mcCfg.options.length + 1) {
+    throw new Error('the table does not describe every option');
+  }
+  // and the visual chart must be hidden from the reader, or every number
+  // is announced twice
+  const visible = [...c.children].filter((n) => n !== table
+    && n.getAttribute('aria-hidden') !== 'true');
+  if (visible.length) throw new Error('the visual chart is not aria-hidden beside its table');
+});
+
+demo('Spotlight — pointing at two bars mid-discussion', (c) => {
+  renderAggregate(c, 'multiple_choice',
+    aggregate('multiple_choice', mcCfg, mcRows([12, 19, 8, 3])),
+    { style: 'bars', roomScale: true });
+  // what present-page.js does when the instructor taps two bars
+  c.toggleAttribute('data-spotting', true);
+  c.querySelectorAll('[data-spot]').forEach((n) => {
+    n.classList.toggle('is-spotlit', n.dataset.spot === '1' || n.dataset.spot === '2');
+  });
+  if (!c.querySelectorAll('[data-spot]').length) throw new Error('no marks are pointable');
 });
 
 // ------------------------------------------------------- live simulation
@@ -357,18 +547,35 @@ window.__audit = function audit({ settle = true } = {}) {
 };
 
 const status = document.getElementById('status');
-const audit = window.__audit();
-if (audit.ok) {
-  status.className = 'status ok';
-  status.textContent =
-    `All ${grid.children.length} views rendered without error · word cloud placed with no overlaps.`;
-} else {
-  status.className = 'status bad';
-  status.textContent = errors.length
-    ? `${errors.length} render error(s): ${errors.join(' · ')}`
-    : `Layout problem: ${JSON.stringify(audit.clouds)}`;
+
+function paintStatus(audit) {
+  if (audit.ok) {
+    status.className = 'status ok';
+    status.textContent = `All ${grid.children.length} views rendered without error`
+      + ` · word cloud placed with no overlaps (${audit.clouds.map((c) => c.words).join(', ')} words).`;
+  } else {
+    status.className = 'status bad';
+    status.textContent = errors.length
+      ? `${errors.length} render error(s): ${errors.join(' · ')}`
+      : `Layout problem: ${JSON.stringify(audit.clouds)}`;
+  }
+  window.__visualCheck = { errors, count: grid.children.length, audit };
 }
-window.__visualCheck = { errors, count: grid.children.length, audit };
+
+// The first audit can only report on what has finished arriving, and the
+// cloud has not: its first fill is released over ~450ms of delay() beats,
+// so an audit taken at module-eval time inspects two or three words and
+// pronounces the cloud overlap-free. That is a green tick for a check
+// that did not run — the worst kind — and it is why the word count is
+// printed above. So this one is provisional: once the grid has settled
+// every panel is drawn again against its real box (see `redraws`), and
+// the audit that replaces this one is the one worth believing.
+paintStatus(window.__audit());
+setTimeout(() => {
+  errors.length = 0;
+  redraws.forEach((draw) => draw());
+  setTimeout(() => paintStatus(window.__audit()), 1400);
+}, 900);
 </script>
 </body>
 </html>

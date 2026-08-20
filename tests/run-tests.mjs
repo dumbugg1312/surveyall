@@ -15,11 +15,13 @@ import {
   buildCSV, toCSVValue, sessionToCSVRows, CSV_HEADERS, payloadToText,
   correctIndices, optionLabels, generateJoinCode, joinURL, joinURLPretty,
   neighbourQuestion, sortedQuestions, MULTI_SUBMIT_TYPES,
-  splitPassage, promptKey, isContentSlide, fillJoinPlaceholders, DEFAULT_JOIN_STEPS,
+  splitPassage, splitIcon, promptKey, isContentSlide, fillJoinPlaceholders, DEFAULT_JOIN_STEPS,
   questionNumber, retypeQuestion, defaultConfig, TYPE_LABELS, promptScale, promptAlign, resolvePromptAlign, showSlideLabel, QUESTION_TYPES, CONTENT_TYPES,
   clozeParts, clozeMatches, answerCorrectness,
+  bucketLabels, bucketCards, bucketKey, quadrantItems, quadrantAxes,
+  densestPoint, claimKey, consensusClaims, consensusMaxClaims,
 } from '../app/logic.js';
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { parseDeck, serialiseDeck, SAMPLE_DECK } from '../app/deck-format.js';
 import {
   SLIDE_TRANSITIONS, TRANSITION_IDS, DEFAULT_TRANSITION,
@@ -873,6 +875,80 @@ describe('slide transitions', () => {
       [{ type: 'qa', prompt: 'Ask', config: {} }]).includes('transition:'), false);
   });
 
+  it('round-trips the verdict explanation on one line', () => {
+    const src = '## quiz\nWho?\n- [x] Weber\n- Marx\nexplain: Weber tied it to capitalism.\n';
+    const parsed = parseDeck(src);
+    eq(parsed.questions[0].config.explain, 'Weber tied it to capitalism.');
+    eq(parsed.questions[0].prompt, 'Who?');
+    const again = parseDeck(serialiseDeck({ title: 'D' }, parsed.questions));
+    eq(again.questions[0].config.explain, 'Weber tied it to capitalism.');
+  });
+
+  it('folds a multi-line explanation onto one line rather than losing it', () => {
+    // The parser stops a value at the end of its line, so a "why" typed
+    // across three lines in the editor would come back with its tail
+    // appended to the prompt — the same failure an unknown setting
+    // causes, and the reason this is flattened on the way out.
+    const text = serialiseDeck({ title: 'D' }, [{
+      type: 'quiz',
+      prompt: 'Who?',
+      config: { options: ['a', 'b'], correct: [0], explain: 'First line.\nSecond line.' },
+    }]);
+    ok(/^explain: First line\. Second line\.$/m.test(text), text);
+    const again = parseDeck(text);
+    eq(again.questions[0].prompt, 'Who?');
+    eq(again.questions[0].config.explain, 'First line. Second line.');
+  });
+
+  it('round-trips show_counts in BOTH states', () => {
+    // false is meaningful here, unlike the settings beside it: it is how
+    // one slide opts out of a deck that reads in counts.
+    for (const v of [true, false]) {
+      const text = serialiseDeck({ title: 'D' }, [{
+        type: 'multiple_choice', prompt: 'Pick', config: { options: ['a', 'b'], show_counts: v },
+      }]);
+      eq(parseDeck(text).questions[0].config.show_counts, v);
+    }
+    const untouched = serialiseDeck({ title: 'D' }, [{
+      type: 'multiple_choice', prompt: 'Pick', config: { options: ['a', 'b'] },
+    }]);
+    notOk(/show_counts:/.test(untouched), 'nothing written for a slide that never chose');
+  });
+
+  it('round-trips the deck audience, and writes nothing for the default', () => {
+    const parsed = parseDeck('# D\naudience: younger\n\n## open_ended\nWhy?\n');
+    eq(parsed.settings?.audience, 'younger');
+    const text = serialiseDeck({ title: parsed.title, settings: parsed.settings }, parsed.questions);
+    ok(/^audience: younger$/m.test(text));
+    eq(parseDeck(text).settings?.audience, 'younger');
+
+    notOk(/audience:/.test(serialiseDeck({ title: 'D', settings: { audience: 'standard' } },
+      [{ type: 'qa', prompt: 'Ask', config: {} }])), 'standard is the absence of the setting');
+  });
+
+  it('drops an unknown audience without eating the prompt', () => {
+    const parsed = parseDeck('# D\naudience: toddlers\n\n## open_ended\nWhy?\n');
+    eq(parsed.settings?.audience, undefined);
+    eq(parsed.questions[0].prompt, 'Why?');
+  });
+
+  it('an audience line does not evict the other deck settings', () => {
+    // applyDeckSetting merges rather than assigns, because deck.settings
+    // also carries the theme an instructor built. Three header lines that
+    // all land on that one object have to coexist, in either order.
+    const parsed = parseDeck(
+      '# D\ntransition: push\naudience: younger\nalign: center\npace: on\n\n## open_ended\nWhy?\n');
+    eq(parsed.settings?.audience, 'younger');
+    eq(parsed.settings?.transition, 'push');
+    eq(parsed.settings?.promptAlign, 'center');
+    eq(parsed.settings?.pace, true);
+
+    const reversed = parseDeck(
+      '# D\naudience: younger\ntransition: push\n\n## open_ended\nWhy?\n');
+    eq(reversed.settings?.audience, 'younger');
+    eq(reversed.settings?.transition, 'push');
+  });
+
   it('drops an unknown transition without eating the prompt', () => {
     // The failure this guards against is specific and nasty: an
     // unrecognised "key: value" line is appended to the prompt (see
@@ -1257,6 +1333,35 @@ describe('slide types agree across the three places they are declared', () => {
     for (const t of CONTENT_TYPES) {
       ok(QUESTION_TYPES.includes(t), `${t} is a content type but not in QUESTION_TYPES`);
     }
+  });
+
+  /**
+   * The fourth place, which used to be guarded by a comment alone.
+   *
+   * schema.sql is what a NEW database gets; a database that already
+   * exists only ever learns a new type from a migration, and SQLite
+   * cannot ALTER a CHECK — so a type added to schema.sql without a
+   * migration works perfectly in every test and every fresh install, and
+   * 500s on the one database that matters. Only the LATEST migration is
+   * checked: the older ones are historical records of what the constraint
+   * was at the time, and rewriting them would be a lie about the past.
+   */
+  it('the newest migration that rebuilds the CHECK lists exactly QUESTION_TYPES', () => {
+    const dir = new URL('../worker/migrations/', import.meta.url);
+    const withCheck = readdirSync(dir)
+      .filter((f) => f.endsWith('.sql'))
+      .sort()
+      .map((f) => ({ file: f, sql: readFileSync(new URL(f, dir), 'utf8') }))
+      .filter((m) => /check\s*\(type in/i.test(m.sql));
+    ok(withCheck.length, 'no migration rebuilds the questions type CHECK');
+
+    const newest = withCheck[withCheck.length - 1];
+    const clause = newest.sql.match(/check\s*\(type in\s*\(([\s\S]*?)\)\)/i);
+    const inMigration = [...clause[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort();
+    eq(inMigration, [...QUESTION_TYPES].sort(),
+      `worker/migrations/${newest.file} and QUESTION_TYPES have drifted — an `
+      + 'existing database would reject the new slide type even though a fresh '
+      + 'one accepts it');
   });
 });
 
@@ -1718,6 +1823,38 @@ describe('writing showdown (sample_vote)', () => {
   });
 });
 
+describe('option icons (dual coding)', () => {
+  it('splits a leading emoji off the label', () => {
+    eq(splitIcon('🌱 Photosynthesis').icon, '🌱');
+    eq(splitIcon('🌱 Photosynthesis').text, 'Photosynthesis');
+    eq(splitIcon('Photosynthesis').icon, '');
+    eq(splitIcon('Photosynthesis').text, 'Photosynthesis');
+  });
+
+  it('keeps compound emoji whole', () => {
+    eq(splitIcon('👩‍🔬 Scientist').icon, '👩‍🔬');   // ZWJ sequence
+    eq(splitIcon('👍🏽 Agree').icon, '👍🏽');          // skin-tone modifier
+    eq(splitIcon('☀️ Clear').icon, '☀️');           // variation selector
+    eq(splitIcon('🇯🇵 Japan').icon, '🇯🇵');          // regional-indicator flag
+    eq(splitIcon('🇯🇵 Japan').text, 'Japan');
+  });
+
+  it('never leaves a bar without a name', () => {
+    // an option that is ONLY an emoji keeps it as the label — splitting
+    // would render a nameless row
+    eq(splitIcon('🌱').icon, '');
+    eq(splitIcon('🌱').text, '🌱');
+    eq(splitIcon('').text, '');
+    eq(splitIcon(null).text, '');
+  });
+
+  it('does not mistake ordinary punctuation for an icon', () => {
+    eq(splitIcon('1. First').icon, '');
+    eq(splitIcon('A) Letter').icon, '');
+    eq(splitIcon('- dash').icon, '');
+  });
+});
+
 describe('passage heatmap', () => {
   it('splits sentences conservatively and honours manual | splits', () => {
     eq(splitPassage('One. Two! Three?').length, 3);
@@ -2174,6 +2311,86 @@ Before you go
   it('says so when a matching pair is missing its other half', () => {
     const bad = parseDeck('# D\n## matching\nMatch\n- Weber | The Protestant Ethic\n- Durkheim\n');
     ok(bad.errors.some((e) => e.includes('both halves')));
+  });
+});
+
+describe('the visual-pedagogy wave round-trips the plain-text deck format', () => {
+  const src = `# Deck
+pace: on
+
+## buckets
+Sort each into its family
+buckets: Acid, Base
+- Vinegar | Acid
+- Lye | Base
+- Coffee
+
+## quadrant
+Where does each habit sit?
+- Flashcards
+- Rereading
+left: Low effort
+right: High effort
+top: High payoff
+bottom: Low payoff
+
+## consensus
+Where do we already agree?
+- Using AI to brainstorm is fine
+max_claims: 8
+`;
+
+  it('parses all three, with no errors', () => {
+    const deck = parseDeck(src);
+    eq(deck.errors.length, 0, deck.errors.join('; '));
+    eq(deck.questions.length, 3);
+    eq(deck.settings.pace, true);
+    const [bk, qd, cs] = deck.questions;
+    eq(bk.config.buckets.join(','), 'Acid,Base');
+    eq(bk.config.cards.join(','), 'Vinegar,Lye,Coffee');
+    // the unkeyed card stays unkeyed rather than defaulting into a column
+    eq(bk.config.correct.join(','), '0,1,');
+    eq(qd.config.x_left, 'Low effort');
+    eq(qd.config.y_high, 'High payoff');
+    eq(qd.config.items.join(','), 'Flashcards,Rereading');
+    eq(cs.config.claims.length, 1);
+    eq(cs.config.claims[0].key, claimKey('Using AI to brainstorm is fine'));
+    eq(cs.config.max_claims, 8);
+  });
+
+  it('serialise → parse survives the columns, the poles and the claims', () => {
+    const deck = parseDeck(src);
+    const text = serialiseDeck(
+      { title: 'Deck', theme: 'lecture-hall', settings: deck.settings }, deck.questions);
+    ok(text.includes('pace: on'));
+    const again = parseDeck(text);
+    eq(again.errors.length, 0, again.errors.join('; '));
+    eq(again.settings.pace, true);
+    const [bk, qd, cs] = again.questions;
+    eq(bk.config.buckets.join(','), 'Acid,Base');
+    eq(bk.config.correct.join(','), '0,1,');
+    eq(qd.config.x_right, 'High effort');
+    eq(qd.config.y_low, 'Low payoff');
+    eq(cs.config.claims[0].text, 'Using AI to brainstorm is fine');
+    eq(cs.config.max_claims, 8);
+  });
+
+  it('a quadrant with default poles writes no pole lines at all', () => {
+    const deck = parseDeck('# D\n## quadrant\nWhere do you stand?\n');
+    const text = serialiseDeck({ title: 'D' }, deck.questions);
+    notOk(/^left:/m.test(text), 'a default pole was serialised');
+    // and it still round-trips to the same defaults
+    eq(parseDeck(text).questions[0].config.x_left, 'Disagree');
+  });
+
+  it('names a card filed under a column that does not exist', () => {
+    const bad = parseDeck('# D\n## buckets\nSort\nbuckets: Acid, Base\n- Vinegar | Salt\n');
+    ok(bad.errors.some((e) => e.includes('not one of this sort')));
+  });
+
+  it('a card sort with one column is called out', () => {
+    const bad = parseDeck('# D\n## buckets\nSort\nbuckets: Acid\n- Vinegar\n');
+    ok(bad.errors.some((e) => e.includes('at least two columns')));
   });
 });
 
@@ -3123,6 +3340,19 @@ function exportFixture() {
     q('matching', { pairs: [{ left: 'Ribosome', right: 'Protein' }, { left: 'Nucleus', right: 'DNA' }] }, 'Match them'),
     q('timeline', { items: ['Tea Party', 'Declaration', 'Yorktown'] }, 'Put these in order'),
     q('exit_ticket', { prompts: ['One thing you learned', 'A question you still have'] }, 'Before you go'),
+    q('buckets', { buckets: ['Acid', 'Base'], cards: ['Vinegar', 'Lye', 'Coffee'], correct: [0, 1, 0] },
+      'Sort each into its family'),
+    q('quadrant', {
+      x_left: 'Low effort', x_right: 'High effort',
+      y_low: 'Low payoff', y_high: 'High payoff',
+      items: ['Flashcards', 'Rereading'],
+    }, 'Where does each study habit sit?'),
+    q('consensus', {
+      claims: [
+        { key: 'ca', text: 'Using AI to brainstorm is fine' },
+        { key: 'cb', text: 'Submitting AI prose as your own is cheating' },
+      ],
+    }, 'Where do we already agree?'),
     q('qa', {}, 'Questions from the room'),
   ];
 
@@ -3155,6 +3385,12 @@ function exportFixture() {
   each(byType.matching, (i) => ({ matches: i % 3 ? [0, 1] : [1, 0] }));
   each(byType.timeline, (i) => ({ order: i % 2 ? [0, 1, 2] : [1, 0, 2] }));
   each(byType.exit_ticket, (i) => ({ answers: [`Learned ${i + 1}`, `Wondering ${i + 1}`] }));
+  each(byType.buckets, (i) => ({ places: [0, 1, i % 2] }));
+  each(byType.quadrant, (i) => ({ spots: [[10 + i * 15, 80], [70, 15 + i * 12]] }));
+  each(byType.consensus, (i) => ({
+    votes: { ca: 1, cb: i % 3 ? 1 : -1 },
+    ...(i === 0 ? { claims: ['We need more worked examples'] } : {}),
+  }));
 
   return {
     people,
@@ -3173,6 +3409,223 @@ function exportFixture() {
 }
 
 const FORMS = new Set(['bars', 'splits', 'deltas', 'lines', 'sections', 'table', 'stats']);
+
+// =====================================================================
+// The visual-pedagogy wave: card sort, quadrant, common ground
+// =====================================================================
+
+describe('card sort', () => {
+  const cfg = {
+    buckets: ['Acid', 'Base'],
+    cards: ['Vinegar', 'Lye', 'Coffee'],
+    correct: [0, 1, 0],
+  };
+
+  it('caps the columns at four and reads a key only when one exists', () => {
+    eq(bucketLabels({ buckets: ['a', 'b', 'c', 'd', 'e'] }).length, 4);
+    eq(bucketKey(cfg).join(','), '0,1,0');
+    eq(bucketKey({ buckets: ['a', 'b'], cards: ['x'] }), null);
+    // an out-of-range column is not a key, it is a typo
+    eq(bucketKey({ buckets: ['a', 'b'], cards: ['x'], correct: [7] }), null);
+  });
+
+  it('wants every card placed', () => {
+    notOk(validateResponse('buckets', cfg, { places: [0, null, null] }).ok);
+    notOk(validateResponse('buckets', cfg, { places: [] }).ok);
+    const good = validateResponse('buckets', cfg, { places: [0, 1, 1] });
+    ok(good.ok);
+    eq(good.payload.places.join(','), '0,1,1');
+    // a column that does not exist is dropped, and dropping it means the
+    // answer is incomplete rather than silently mis-filed
+    notOk(validateResponse('buckets', cfg, { places: [0, 1, 9] }).ok);
+  });
+
+  it('measures the lean toward the runner-up column, not just the winner', () => {
+    const rows = [
+      { payload: { places: [0, 1, 0] } },
+      { payload: { places: [0, 1, 0] } },
+      { payload: { places: [0, 1, 1] } },
+      { payload: { places: [0, 1, 1] } },
+    ];
+    const agg = aggregate('buckets', cfg, rows);
+    eq(agg.total, 4);
+    // unanimous card: no lean at all
+    eq(agg.cards[0].top, 0);
+    eq(agg.cards[0].lean, 0);
+    eq(agg.cards[0].consensus, 1);
+    // dead heat: the card sits exactly on the fence
+    eq(agg.cards[2].lean, 1);
+    close(agg.cards[2].consensus, 0.5);
+    eq(agg.correct.join(','), '0,1,0');
+  });
+
+  it('grades against the key, and grades nothing without one', () => {
+    eq(answerCorrectness('buckets', cfg, { places: [0, 1, 0] }), '3/3');
+    eq(answerCorrectness('buckets', cfg, { places: [1, 1, 0] }), '2/3');
+    eq(answerCorrectness('buckets', { buckets: ['a', 'b'], cards: ['x'] }, { places: [0] }), '');
+    eq(payloadToText('buckets', cfg, { places: [0, 0, 0] }),
+      'Vinegar → Acid ✓ | Lye → Acid ✗ | Coffee → Acid ✓');
+  });
+});
+
+describe('quadrant', () => {
+  const cfg = {
+    x_left: 'Low effort', x_right: 'High effort',
+    y_low: 'Low payoff', y_high: 'High payoff',
+    items: ['Flashcards', 'Rereading'],
+  };
+
+  it('reads its poles with defaults, and caps the items', () => {
+    const ax = quadrantAxes({});
+    eq(ax.xLeft, 'Disagree');
+    eq(ax.yHigh, 'Matters a lot');
+    eq(quadrantAxes(cfg).xRight, 'High effort');
+    eq(quadrantItems({ items: [1, 2, 3, 4, 5, 6, 7, 8] }).length, 6);
+  });
+
+  it('wants a placement for every item, clamped to the plane', () => {
+    notOk(validateResponse('quadrant', cfg, { spots: [[10, 10]] }).ok);
+    notOk(validateResponse('quadrant', cfg, { spots: [] }).ok);
+    const good = validateResponse('quadrant', cfg, { spots: [[-20, 140], [50.4, 12]] });
+    ok(good.ok);
+    eq(good.payload.spots[0].join(','), '0,100');
+    eq(good.payload.spots[1].join(','), '50,12');
+    // no items = place yourself, so one spot is the whole answer
+    ok(validateResponse('quadrant', { items: [] }, { spots: [[40, 60]] }).ok);
+  });
+
+  it('keeps every placement and anchors on the mode, never the mean', () => {
+    const rows = [
+      { pseudonym: 'Amber Fox', payload: { spots: [[10, 80], [50, 50]] } },
+      { pseudonym: 'Blue Heron', payload: { spots: [[12, 82], [50, 50]] } },
+      { pseudonym: 'Copper Wren', payload: { spots: [[90, 20], [50, 50]] } },
+    ];
+    const agg = aggregate('quadrant', cfg, rows);
+    eq(agg.total, 3);
+    eq(agg.items[0].points.length, 3);
+    // the split room's anchor sits on the dense pair, NOT at the (37,60)
+    // centroid — that spot is the empty middle nobody chose
+    ok(agg.items[0].anchor.x < 20, `anchor was at x=${agg.items[0].anchor.x}`);
+    eq(agg.items[0].points[0].pseudonym, 'Amber Fox');
+    eq(agg.self, false);
+    eq(aggregate('quadrant', { items: [] }, rows).self, true);
+  });
+
+  it('densestPoint ignores junk and answers null for nothing', () => {
+    eq(densestPoint([]), null);
+    eq(densestPoint([{ x: 'a', y: 3 }]), null);
+    const d = densestPoint([{ x: 50, y: 50 }, { x: 52, y: 51 }, { x: 99, y: 1 }]);
+    ok(d.x < 60);
+  });
+
+  it('writes a readable CSV cell', () => {
+    eq(payloadToText('quadrant', cfg, { spots: [[10, 80], [90, 20]] }),
+      'Flashcards (10, 80) | Rereading (90, 20)');
+    eq(payloadToText('quadrant', { items: [] }, { spots: [[10, 80]] }), '(10, 80)');
+  });
+});
+
+describe('common ground', () => {
+  const claims = [
+    { key: claimKey('Using AI to brainstorm is fine'), text: 'Using AI to brainstorm is fine' },
+    { key: claimKey('Submitting AI prose is cheating'), text: 'Submitting AI prose is cheating' },
+  ];
+  const cfg = { claims, allow_submissions: true };
+
+  it('keys a claim by its normalised text, so duplicates merge', () => {
+    eq(claimKey('Warrants are hard'), claimKey('  warrants are HARD  '));
+    ok(claimKey('a') !== claimKey('b'));
+    // two claims with the same text collapse to one
+    eq(consensusClaims({ claims: [{ text: 'same' }, { text: 'Same' }] }).length, 1);
+    eq(consensusMaxClaims({}), 12);
+    eq(consensusMaxClaims({ max_claims: 500 }), 20);
+  });
+
+  it('takes votes and staged claims, and refuses an empty answer', () => {
+    notOk(validateResponse('consensus', cfg, { votes: {} }).ok);
+    const good = validateResponse('consensus', cfg, {
+      votes: { [claims[0].key]: 1, [claims[1].key]: -1, nope: 1 },
+      claims: ['We need more worked examples', 'We need more worked examples', 'Second'],
+    });
+    ok(good.ok);
+    // a vote on a claim this question does not have is dropped
+    eq(Object.keys(good.payload.votes).length, 2);
+    // deduped, and capped at two claims per voice
+    eq(good.payload.claims.length, 2);
+    // a claim alone is a valid answer even with no votes cast
+    ok(validateResponse('consensus', cfg, { claims: ['A new claim'] }).ok);
+    // ...unless the instructor closed submissions
+    notOk(validateResponse('consensus', { ...cfg, allow_submissions: false },
+      { claims: ['A new claim'] }).ok);
+  });
+
+  it('balances agreement among those who took a side, passes standing aside', () => {
+    const [a, b] = claims;
+    const agg = aggregate('consensus', cfg, [
+      { payload: { votes: { [a.key]: 1, [b.key]: 1 } } },
+      { payload: { votes: { [a.key]: 1, [b.key]: -1 } } },
+      { payload: { votes: { [a.key]: 1, [b.key]: 0 } } },
+      { payload: { votes: { [a.key]: -1 } } },
+    ]);
+    eq(agg.total, 4);
+    eq(agg.claims[0].agree, 3);
+    eq(agg.claims[0].disagree, 1);
+    close(agg.claims[0].balance, 0.5);
+    // the pass is counted, but it does not move the claim either way
+    eq(agg.claims[1].pass, 1);
+    eq(agg.claims[1].votes, 2);
+    eq(agg.claims[1].balance, 0);
+  });
+
+  it('queues claims the room wrote, counts repeats, and drops rejected ones', () => {
+    const rows = [
+      { payload: { votes: {}, claims: ['Warrants deserve their own week'] } },
+      { payload: { votes: {}, claims: ['warrants deserve their own week'] } },
+      { payload: { votes: {}, claims: ['Something declined'] } },
+    ];
+    const rejected = claimKey('Something declined');
+    const agg = aggregate('consensus', { ...cfg, claim_hidden: [rejected] }, rows);
+    eq(agg.pending.length, 1);
+    eq(agg.pending[0].count, 2);
+    // an approved claim leaves the queue because it is a claim now
+    const approved = aggregate('consensus',
+      { claims: [...claims, { key: claimKey('Warrants deserve their own week'), text: 'Warrants deserve their own week' }] },
+      rows);
+    eq(approved.pending.filter((p) => p.text.toLowerCase().startsWith('warrants')).length, 0);
+  });
+
+  it('writes votes and proposals into one CSV cell', () => {
+    eq(payloadToText('consensus', cfg, {
+      votes: { [claims[1].key]: -1, [claims[0].key]: 1 },
+      claims: ['Mine'],
+    }), '1. agree | 2. disagree | proposed: Mine');
+  });
+});
+
+describe('the confidence rider, drawn into the bars', () => {
+  const cfg = { options: ['A', 'B'], correct: [0] };
+
+  it('splits each option\'s votes by conviction', () => {
+    const agg = aggregate('multiple_choice', cfg, [
+      { payload: { choices: [0], conf: 3 } },
+      { payload: { choices: [0], conf: 1 } },
+      { payload: { choices: [1], conf: 3 } },
+      { payload: { choices: [1] } },
+    ]);
+    // [guessing, fairly sure, certain] per option
+    eq(agg.options[0].conf.join(','), '1,0,1');
+    eq(agg.options[1].conf.join(','), '0,0,1');
+    // a voter who skipped the rider is counted in the bar but in no
+    // conviction bucket — the veil understates rather than overstates
+    eq(agg.options[1].count, 2);
+  });
+
+  it('says nothing at all when nobody reported', () => {
+    const agg = aggregate('multiple_choice', cfg, [{ payload: { choices: [0] } }]);
+    eq(agg.options[0].conf, undefined);
+    eq(agg.confidence, null);
+  });
+});
 
 describe('deck export — the model', () => {
   const fx = exportFixture();

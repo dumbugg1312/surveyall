@@ -12,13 +12,14 @@ import {
   updateSession, updateQuestion, fetchResponses, subscribeToResponses,
   subscribeToSession, clearResponses, maxRound, deleteResponse,
   listAudienceQuestions, moderateAudienceQuestion, subscribeToAudienceQuestions,
-  subscribeToPresence,
+  subscribeToPresence, subscribeToFlares, fetchFlares,
 } from './db.js';
 import {
   aggregate, computeDelta, quizLeaderboard, sortedQuestions,
   neighbourQuestion, joinURL, joinURLPretty, TYPE_LABELS, correctIndices, optionLabels,
   promptKey, isContentSlide, fillJoinPlaceholders, DEFAULT_JOIN_STEPS,
   questionNumber, promptScale, promptAlign, resolvePromptAlign, showSlideLabel,
+  consensusClaims, consensusMaxClaims,
 } from './logic.js';
 import {
   applyTheme, backgroundStyles, scrimOpacity, resolveTheme,
@@ -87,6 +88,22 @@ const state = {
   countTween: null,
   // cancels the pending removal of .is-entering (the entrance cascade)
   enterTimer: null,
+  // pace channel: per-slide flare totals, and the timestamps of the
+  // recent ones — the ember shows the last two minutes, not the semester
+  flares: new Map(),
+  flareTimes: [],
+  paceTimer: null,
+  // The discussion spotlight: which marks the instructor is pointing at
+  // on THIS slide. Per-slide and never persisted — pointing at bar 2 is
+  // a thing you do for ninety seconds, not a property of the deck.
+  spotlit: new Set(),
+  // Sort the bars by size. Off while the room is answering (see the note
+  // in renderChoice); the presenter turns it on to make the ranking a
+  // shape instead of an arithmetic problem.
+  sorted: false,
+  // The word cloud drawn as a ranked list instead. Area is a poor
+  // magnitude encoding; length on a common baseline is the best one.
+  cloudList: false,
 };
 
 /**
@@ -140,6 +157,7 @@ async function boot() {
   await paintJoin();
   wireControls();
   wireKeyboard();
+  wireSpotlight();
 
   state.unsubs.push(subscribeToResponses(state.session.id, onResponseEvent));
   state.unsubs.push(subscribeToSession(state.session.id, (row) => {
@@ -151,6 +169,12 @@ async function boot() {
     state.presence = n;
     renderPresence();
   }));
+  state.unsubs.push(subscribeToFlares(state.session.id, onFlare));
+  // per-slide totals from before this window opened (a presenter reload
+  // mid-class must not zero the record)
+  fetchFlares(state.session.id).then((rows) => {
+    (rows || []).forEach((r) => state.flares.set(r.question_id, r.count));
+  }).catch(() => { /* the ember is a bonus; never block boot on it */ });
 
   // Backstop poll: if realtime drops, the count still creeps up.
   setInterval(() => {
@@ -467,6 +491,19 @@ function paintControlStates() {
   $('btnDelta').classList.toggle('is-active', state.view === 'delta');
   $('btnBoard').classList.toggle('is-active', state.view === 'leaderboard');
 
+  // Sorting applies to the bar-shaped types, and only once the vote is
+  // closed. The button is disabled rather than hidden while voting is
+  // open, so the instructor can see the move exists and why it is not
+  // available yet.
+  const q = state.question;
+  const sortable = !!q && (q.type === 'multiple_choice' || q.type === 'quiz');
+  $('btnSort').hidden = !sortable;
+  $('btnSort').disabled = !!s.accepting;
+  $('btnSort').classList.toggle('is-active', state.sorted);
+  $('btnCloudList').hidden = !q || q.type !== 'word_cloud';
+  setCtrlLabel('btnCloudList', state.cloudList ? 'Word cloud' : 'Ranked list');
+  $('btnCloudList').classList.toggle('is-active', state.cloudList);
+
   ui.stateNote.textContent = !s.accepting
     ? 'Voting closed'
     : (!s.reveal ? 'Results hidden from the room' : '');
@@ -556,8 +593,15 @@ function resetChart() {
   ui.chart.__chart?.group?.destroy();
   delete ui.chart.__chart;
   delete ui.chart.dataset.chart;
+  ui.chart.__srTable = null;
   ui.chart.removeAttribute('data-awaiting');
   ui.chart.textContent = '';
+  // Pointing at bar 2 means nothing on the next question, and a sort
+  // order carried into a fresh vote would reorder the room's options
+  // while they are still choosing between them. Both are per-slide.
+  state.spotlit.clear();
+  state.sorted = false;
+  ui.chart.removeAttribute('data-spotting');
 }
 
 /**
@@ -565,7 +609,44 @@ function resetChart() {
  * is closed AND results are revealed, so a slide left on screen while
  * people are still answering never prints the answer.
  */
-const KEYED_TYPES = new Set(['quiz', 'cloze', 'matching', 'timeline']);
+const KEYED_TYPES = new Set(['quiz', 'cloze', 'matching', 'timeline', 'buckets']);
+
+// ------------------------------------------------- pace ember (flares)
+// The "lost me" channel, kept deliberately quiet: a small footer pill
+// that warms while flares are fresh and cools to nothing on its own. A
+// count and a glow — never an alarm, never a graph mid-sentence, and the
+// spike that already passed is allowed to be over.
+
+const FLARE_EMBER_MS = 120_000;
+
+function onFlare(data) {
+  if (data?.question_id) {
+    state.flares.set(data.question_id, (state.flares.get(data.question_id) || 0) + 1);
+  }
+  state.flareTimes.push(Date.now());
+  pulseCount($('pacePill'));
+  paintPace();
+}
+
+function paintPace() {
+  const now = Date.now();
+  state.flareTimes = state.flareTimes.filter((t) => now - t < FLARE_EMBER_MS);
+  const recent = state.flareTimes.length;
+  const pill = $('pacePill');
+  pill.hidden = recent === 0;
+  if (recent) {
+    $('paceText').textContent = String(recent);
+    const q = state.question;
+    const slide = q ? state.flares.get(q.id) || 0 : 0;
+    pill.title = `${recent} lost-you flare${recent === 1 ? '' : 's'} in the last two minutes`
+      + (slide ? ` · ${slide} on this slide` : '');
+    // wake up again when the oldest flare expires, so the ember cools
+    // without waiting for the next vote to repaint the footer
+    clearTimeout(state.paceTimer);
+    state.paceTimer = setTimeout(paintPace,
+      FLARE_EMBER_MS - (now - state.flareTimes[0]) + 60);
+  }
+}
 
 function formatCount(q, nRows, nPeople) {
   // A Q&A slide collects questions, not answers; counting responses there
@@ -632,6 +713,7 @@ function paintChart() {
 
   paintHands();
   paintPIHint();
+  paintPace();
 
   if (state.view === 'leaderboard') {
     // The compare picker and the hold chips belong to the results view.
@@ -640,6 +722,7 @@ function paintChart() {
     // rounds of a question that isn't on screen any more.
     document.getElementById('compareBar')?.remove();
     document.getElementById('holdStrip')?.remove();
+    document.getElementById('claimStrip')?.remove();
     return paintLeaderboard();
   }
   if (state.view === 'delta') return paintDelta();
@@ -657,11 +740,18 @@ function paintChart() {
     && !s.accepting && s.reveal;
   const agg = aggregate(q.type, q.config, rows);
   renderAggregate(ui.chart, q.type, agg, {
-    style: q.config?.chart || 'bars',
+    style: chartStyle(q),
     hidden: !s.reveal,
     revealCorrect: revealKey,
     revealStyle: q.type === 'quiz' ? 'correct' : 'best',
-    showPercent: q.config?.show_counts !== true,
+    showPercent: showPercentFor(q),
+    // A full track means "share of the leader" while the votes are
+    // landing and "share of the room" once they have stopped — see the
+    // long note in renderChoice.
+    roomScale: !s.accepting && s.reveal,
+    sorted: state.sorted,
+    // the reasoning, delivered on the same beat as the verdict
+    explain: q.config?.explain,
     // the bin control is presenter-only; no other surface can act on it
     allowDelete: q.type === 'open_ended',
     questions: q.type === 'qa' ? state.qaRows : undefined,
@@ -673,12 +763,91 @@ function paintChart() {
     showRationales: !s.accepting && s.reveal,
     anchors: q.config?.anchors,
     showAnchors: !s.accepting && s.reveal,
+    axes: q.type === 'quadrant' ? {
+      xLeft: q.config?.x_left, xRight: q.config?.x_right,
+      yLow: q.config?.y_low, yHigh: q.config?.y_high,
+    } : undefined,
+    // the common-ground verdict follows the quiz's grammar: it lands
+    // when voting has closed AND results are showing
+    verdict: q.type === 'consensus' && !s.accepting && s.reveal,
   });
 
+  applySpotlight();
   paintCloudCuration(q, agg);
+  paintClaimQueue(q, agg);
 
   // let the instructor bin an inappropriate open response on the spot
   if (q.type === 'open_ended') wireCardDeletes(agg);
+}
+
+/**
+ * Which shape this slide's results are drawn as.
+ *
+ * Two knobs feed it. The slide's own `chart` is the instructor's choice.
+ * The deck's `audience` is a default: a younger room gets the dot plot,
+ * where one mark is one classmate and nobody has to trust the arithmetic
+ * — the concrete step on the way to the abstract bar (Alper et al.'s
+ * elementary visualization-literacy work), and the reason that renderer
+ * exists at all.
+ */
+function chartStyle(q) {
+  if (q.type === 'word_cloud') return state.cloudList ? 'list' : 'cloud';
+  const chosen = q.config?.chart;
+  if (chosen) return chosen;
+  return state.deck?.settings?.audience === 'younger' ? 'dots' : 'bars';
+}
+
+/**
+ * Headline the raw count or the percentage.
+ *
+ * Proportional reasoning is still developing through middle school, and
+ * "18 of us" is a fact a twelve-year-old can hold where "42%" is a
+ * conversion. The slide's own setting wins where it has one; otherwise
+ * the deck's audience decides.
+ */
+function showPercentFor(q) {
+  if (q.config?.show_counts != null) return q.config.show_counts !== true;
+  return state.deck?.settings?.audience !== 'younger';
+}
+
+// ------------------------------------------------- discussion spotlight
+//
+// "Look at these two." Signalling is the best-evidenced lever in the
+// multimedia literature and the one thing this projector could not do:
+// its only cue was "correct", which is unavailable on every opinion
+// question and premature on every question still being discussed.
+//
+// The presenter taps a mark; it keeps its colour while everything else
+// steps back. State lives here rather than in the chart because charts
+// are rebuilt and re-keyed constantly, and because pointing is a
+// presenter action, not a property of the data.
+
+function applySpotlight() {
+  const on = state.spotlit.size > 0;
+  ui.chart.toggleAttribute('data-spotting', on);
+  ui.chart.querySelectorAll('[data-spot]').forEach((node) => {
+    node.classList.toggle('is-spotlit', state.spotlit.has(node.dataset.spot));
+  });
+}
+
+function clearSpotlight() {
+  if (!state.spotlit.size) return;
+  state.spotlit.clear();
+  applySpotlight();
+}
+
+function wireSpotlight() {
+  ui.chart.addEventListener('click', (e) => {
+    // Curation owns taps on cloud words, and the bin button owns taps on
+    // an open-ended card. Pointing must not fight either of them.
+    if (e.target.closest('.cloud-word, .answer-delete, .claim-row')) return;
+    const mark = e.target.closest('[data-spot]');
+    if (!mark) return;
+    const key = mark.dataset.spot;
+    if (state.spotlit.has(key)) state.spotlit.delete(key);
+    else state.spotlit.add(key);
+    applySpotlight();
+  });
 }
 
 function wireCardDeletes(agg) {
@@ -798,6 +967,79 @@ function paintHoldStrip(q) {
   all.textContent = 'Show all';
   all.addEventListener('click', () => approveRows(q, pending.map((r) => r.id)));
   strip.append(all);
+}
+
+// ------------------------------------------------ consensus claim queue
+// Claims the room has written but nobody has approved. They ride the
+// students' own response payloads, so nothing lands on the projector
+// until the instructor waves it through — the same moderation-of-content
+// contract the Q&A drawer and hold strip already keep. Approving PATCHes
+// the question's config, which the worker broadcasts to every phone, so
+// a claim goes from "typed in row 3" to "on sixty screens" in one tap.
+
+function paintClaimQueue(q, agg) {
+  let strip = $('claimStrip');
+  if (q.type !== 'consensus') { if (strip) strip.remove(); return; }
+  const pending = agg.pending || [];
+  const room = Math.max(0, consensusMaxClaims(q.config) - consensusClaims(q.config).length);
+
+  if (!strip) {
+    strip = document.createElement('div');
+    strip.id = 'claimStrip';
+    strip.className = 'hold-strip';
+    ui.body.append(strip);
+  }
+  strip.textContent = '';
+  if (!pending.length) {
+    if (q.config?.allow_submissions !== false) {
+      strip.append(Object.assign(document.createElement('span'),
+        { className: 'hold-note', textContent: 'New claims from the room wait here.' }));
+    } else {
+      strip.remove();
+    }
+    return;
+  }
+
+  const note = document.createElement('span');
+  note.className = 'hold-note';
+  note.textContent = `${pending.length} claim${pending.length === 1 ? '' : 's'} waiting:`;
+  strip.append(note);
+
+  pending.slice(0, 8).forEach((p) => {
+    const chip = document.createElement('span');
+    chip.className = 'claim-pending';
+    const text = document.createElement('span');
+    text.className = 'claim-pending-text';
+    text.textContent = p.text.length > 60 ? `${p.text.slice(0, 60)}…` : p.text;
+    if (p.count > 1) text.textContent += ` ×${p.count}`;
+    const yes = document.createElement('button');
+    yes.type = 'button';
+    yes.className = 'hold-chip';
+    yes.textContent = room > 0 ? 'Approve' : 'Full';
+    yes.disabled = room <= 0;
+    yes.title = room > 0
+      ? 'Put this claim in front of the room'
+      : 'The claim list is full — raise max claims in the editor';
+    yes.addEventListener('click', ctrl(async () => {
+      const config = { ...state.question.config };
+      const claims = consensusClaims(config);
+      if (claims.some((c) => c.key === p.key)) return;
+      config.claims = [...claims, { key: p.key, text: p.text }];
+      await saveQuestionConfig(config);
+    }));
+    const no = document.createElement('button');
+    no.type = 'button';
+    no.className = 'hold-chip claim-reject';
+    no.textContent = '✕';
+    no.title = 'Decline — it never appears, and never comes back to this queue';
+    no.addEventListener('click', ctrl(async () => {
+      const config = { ...state.question.config };
+      config.claim_hidden = [...new Set([...(config.claim_hidden || []), p.key])];
+      await saveQuestionConfig(config);
+    }));
+    chip.append(text, yes, no);
+    strip.append(chip);
+  });
 }
 
 // --------------------------------------------------- cloud curation
@@ -1159,6 +1401,20 @@ async function paintDelta() {
       leftLabel: q.config?.left_label,
       rightLabel: q.config?.right_label,
       corners: !!q.config?.corners,
+    });
+    return;
+  }
+  // the quadrant migrates the same way, in two dimensions: the room
+  // watches its own clouds drift, split or gather after the discussion
+  if (q.type === 'quadrant') {
+    if (firstEntry) resetChart();
+    renderAggregate(ui.chart, q.type, afterAgg, {
+      awaiting: false,
+      beforeItems: beforeAgg.items,
+      axes: {
+        xLeft: q.config?.x_left, xRight: q.config?.x_right,
+        yLow: q.config?.y_low, yHigh: q.config?.y_high,
+      },
     });
     return;
   }
@@ -1546,6 +1802,19 @@ function wireControls() {
   $('btnFull').addEventListener('click', toggleFullscreen);
   $('btnEnd').addEventListener('click', ctrl(endSession));
 
+  $('btnSort').addEventListener('click', () => {
+    if (state.session?.accepting) return flash('Close the vote first');
+    state.sorted = !state.sorted;
+    paintControlStates();
+    return paintChart();
+  });
+  $('btnCloudList').addEventListener('click', () => {
+    state.cloudList = !state.cloudList;
+    resetChart();
+    paintControlStates();
+    paintChart();
+  });
+
   $('btnDelta').addEventListener('click', () => {
     setView(state.view === 'delta' ? 'results' : 'delta');
     paintControlStates(); paintChart();
@@ -1650,6 +1919,32 @@ function wireKeyboard() {
     if (k === 'p') return discussStep();
     if (k === 'r') return reask();
     if (k === 'x') return resetQuestion();
+
+    // Sort by size. Refused while the room is still answering: students
+    // are tracking their own option, and rows that swap under them
+    // mid-vote is the transient-information effect wearing a helpful face.
+    if (k === 's') {
+      if (state.session?.accepting) return flash('Close the vote first');
+      state.sorted = !state.sorted;
+      flash(state.sorted ? 'Sorted by size' : 'Original order');
+      return paintChart();
+    }
+    // The cloud, ranked. Area is a poor magnitude encoding; length on a
+    // common baseline is the best one, so the same answers get both.
+    if (k === 'w') {
+      if (state.question?.type !== 'word_cloud') return undefined;
+      state.cloudList = !state.cloudList;
+      flash(state.cloudList ? 'Ranked list' : 'Word cloud');
+      resetChart();
+      return paintChart();
+    }
+    // Drop the spotlight. Escape also closes the Q&A drawer, so pointing
+    // gives way to it: a drawer open over the room is the louder state.
+    if (e.key === 'Escape' && state.spotlit.size
+        && !ui.qaPanel.classList.contains('is-open')) {
+      clearSpotlight();
+      return undefined;
+    }
 
     if (k === 't') toggleTimer();
     else if (k === 'd') $('btnDelta').click();

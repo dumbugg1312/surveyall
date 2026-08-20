@@ -136,6 +136,31 @@
           <select id="deckTransition" aria-describedby="deckTransitionHint"></select>
           <p class="field-hint" id="deckTransitionHint"></p>
         </div>
+
+        <!-- Who is in the room. Not a learning style — those do not
+             survive contact with the evidence. This is prior knowledge
+             and development, which do: it moves the DEFAULTS for how
+             results are drawn, and every slide can still say otherwise. -->
+        <div class="field">
+          <label class="field-label" for="deckAudience">Audience</label>
+          <select id="deckAudience" aria-describedby="deckAudienceHint"></select>
+          <p class="field-hint" id="deckAudienceHint">
+            “Younger” headlines the raw count instead of the percentage and
+            draws polls as one dot per person. Any slide can override it.
+          </p>
+        </div>
+
+        <!-- The pace channel. A deck setting, not a slide one: the whole
+             point of the button is that it is there on every slide,
+             including the ones with nothing to answer. -->
+        <label class="checkline">
+          <input type="checkbox" id="deckPace" aria-describedby="deckPaceHint">
+          <span>Give phones a “lost me” button</span>
+        </label>
+        <p class="field-hint" id="deckPaceHint">
+          One anonymous tap, any time, on any slide. You see a quiet count
+          in the footer; the archive keeps a per-slide tally.
+        </p>
       </div>
     </details>
 

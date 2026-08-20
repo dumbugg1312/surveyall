@@ -18,13 +18,16 @@ import {
   getSessionByCode, fetchLiveQuestion, claimPseudonym,
   submitResponse, subscribeToSession, fetchSharedResults,
   askAudienceQuestion, listAudienceQuestions, upvoteAudienceQuestion,
-  subscribeToAudienceQuestions, reconnectSockets,
+  subscribeToAudienceQuestions, subscribeToQuestion, reconnectSockets,
+  sendFlare,
 } from './db.js';
 import {
   validateResponse, aggregate, optionLabels, MULTI_SUBMIT_TYPES,
   isContentSlide, fillJoinPlaceholders, DEFAULT_JOIN_STEPS,
   trafficLabels, moodIcons, pairList, budgetTotal, clozeParts,
   exitPrompts, timelineItems,
+  bucketLabels, bucketCards, quadrantItems, quadrantAxes, consensusClaims,
+  splitIcon,
 } from './logic.js';
 import { applyTheme } from './themes.js';
 import { renderAggregate } from './charts.js';
@@ -46,6 +49,7 @@ const state = {
   // server can refuse a label it did not issue. See worker/auth.js.
   pseudonymToken: null,
   unsubSession: null,
+  unsubQuestion: null,
   unsubAQ: null,
   submitted: false,
   volunteered: false,
@@ -213,6 +217,12 @@ async function joinByCode(code, attempt = 0) {
   if (state.unsubSession) state.unsubSession();
   state.unsubSession = subscribeToSession(session.id, onSessionChange);
 
+  // The question itself can change under the room — a consensus claim
+  // approved mid-class lands as a config patch, not a navigation. The
+  // event carries nothing; the sanitised truth comes from refetching.
+  if (state.unsubQuestion) state.unsubQuestion();
+  state.unsubQuestion = subscribeToQuestion(session.id, () => refresh());
+
   // Belt and braces: realtime can drop on flaky campus wifi, so poll
   // slowly as a backstop. This is the difference between "the app broke"
   // and "it caught up a few seconds later".
@@ -305,6 +315,88 @@ function setOnline(ok) {
   announce('Connection lost. This screen may be out of date.');
 }
 
+/**
+ * The "lost me" button (pace channel).
+ *
+ * Like the offline strip, it hangs off <body>: #app is emptied on every
+ * render, and the whole point of this button is that it is there on every
+ * slide, including the ones with nothing to answer. One tap sends one
+ * anonymous flare; a 45-second cooldown (mirrored server-side) keeps it a
+ * signal rather than a drum. The cooldown moment is also the reassurance
+ * moment — "Noted" is the only receipt an anonymous signal can give.
+ */
+let paceBtn = null;
+let paceTimer = null;
+const FLARE_COOLDOWN_MS = 45_000;
+
+function flareKey() { return `surveyall:flare:${state.session?.id || ''}`; }
+
+function syncPaceButton() {
+  const s = state.session;
+  const want = !!(s && s.pace && s.state === 'live' && state.pseudonym);
+  // The class is what reserves the band at the top of the shell, so it
+  // has to track the button exactly — a stale one leaves a gap over
+  // every question for the rest of the session.
+  document.body.classList.toggle('has-pace', want);
+  if (!want) {
+    paceBtn?.remove();
+    paceBtn = null;
+    clearTimeout(paceTimer);
+    return;
+  }
+  if (paceBtn) return;
+
+  paceBtn = document.createElement('button');
+  paceBtn.type = 'button';
+  paceBtn.className = 'pace-btn';
+  paceBtn.setAttribute('aria-label', 'Lost me — anonymously flag that the pace lost you');
+  document.body.append(paceBtn);
+
+  const coolUntil = () => {
+    let at = 0;
+    try { at = Number(sessionStorage.getItem(flareKey())) || 0; } catch { /* ignore */ }
+    return at + FLARE_COOLDOWN_MS;
+  };
+
+  const paint = () => {
+    if (!paceBtn) return;
+    const wait = coolUntil() - Date.now();
+    if (wait > 0) {
+      paceBtn.disabled = true;
+      paceBtn.textContent = '✓ Noted';
+      paceBtn.classList.add('is-cooling');
+      clearTimeout(paceTimer);
+      paceTimer = setTimeout(paint, wait + 50);
+    } else {
+      paceBtn.disabled = false;
+      paceBtn.textContent = '⚑ Lost me';
+      paceBtn.classList.remove('is-cooling');
+    }
+  };
+
+  paceBtn.addEventListener('click', async () => {
+    if (paceBtn.disabled) return;
+    try { sessionStorage.setItem(flareKey(), String(Date.now())); } catch { /* ignore */ }
+    paint();
+    try {
+      await sendFlare({
+        sessionId: state.session.id,
+        pseudonym: state.pseudonym,
+        pseudonymToken: state.pseudonymToken,
+      });
+      // Same reasoning as the submit beat: a non-visual receipt, kept
+      // outside the reduced-motion gate because nothing moves on screen.
+      try { navigator.vibrate?.(10); } catch { /* ignore */ }
+      announce('Noted, anonymously.');
+    } catch {
+      // The flare is best-effort by design; a failed one must never take
+      // the answering flow down with it. The cooldown stands either way.
+    }
+  });
+
+  paint();
+}
+
 function clearRetry() {
   if (state.retryTimer) {
     clearInterval(state.retryTimer);
@@ -332,7 +424,10 @@ function hasMoved(a, b) {
     || a.show_on_devices !== b.show_on_devices
     // An instructor can turn a poll into a quiz on a live deck, which is
     // what makes a nickname worth showing. Repaint when that flips.
-    || a.has_quiz !== b.has_quiz;
+    || a.has_quiz !== b.has_quiz
+    // Likewise the "lost me" button — a deck setting that can change
+    // between (or during) sessions.
+    || a.pace !== b.pace;
 }
 
 function onSessionChange(next) {
@@ -371,6 +466,7 @@ async function refresh() {
   const gen = (refreshGen += 1);
   const s = state.session;
   if (!s) return;
+  syncPaceButton();
 
   if (s.state === 'ended') {
     teardownShared();
@@ -741,6 +837,11 @@ function repaintChrome(q) {
   view.hint.textContent = hintText;
   view.hint.hidden = !hintText;
 
+  // A control that can absorb a config change (a consensus deck growing a
+  // freshly approved claim) does so here, keeping everything already
+  // tapped. Controls without an update() are untouched, as ever.
+  view.control?.update?.(q);
+
   syncSendButton(view, q);
   maybeShowSharedResults();
 }
@@ -819,6 +920,14 @@ function hintFor(q) {
       return 'Tap them in the order they happened';
     case 'exit_ticket':
       return 'A sentence each is plenty. Any one of them is enough to send';
+    case 'buckets':
+      return 'Give every card a home';
+    case 'quadrant':
+      return quadrantItems(cfg).length
+        ? 'Pick an item, then tap the grid where it belongs'
+        : 'Tap the grid where you stand. Drag to adjust';
+    case 'consensus':
+      return 'Your votes and your claims are both anonymous';
     default:
       return '';
   }
@@ -886,6 +995,9 @@ function buildControl(q, prior) {
       pool: shuffledBy(q.id, timelineItems(q.config).length),
     });
     case 'exit_ticket': return exitTicketControl(q, prior);
+    case 'buckets': return bucketsControl(q, prior);
+    case 'quadrant': return quadrantControl(q, prior);
+    case 'consensus': return consensusControl(q, prior);
     default: {
       const el = div('state-text', 'This question type isn\'t supported on your device.');
       return { el, value: () => ({}) };
@@ -1037,6 +1149,382 @@ function heatmapControl(q, prior) {
   };
 }
 
+// Card sort: every card gets a row of column chips — the same gesture the
+// heatmap's classify mode already taught this page.
+function bucketsControl(q, prior) {
+  const buckets = bucketLabels(q.config);
+  const cards = bucketCards(q.config);
+  const places = new Map();
+  (Array.isArray(prior?.places) ? prior.places : []).forEach((b, i) => {
+    if (Number.isInteger(b) && b >= 0 && b < buckets.length) places.set(i, b);
+  });
+
+  const wrap = div('stack-sm buckets-control');
+
+  cards.forEach((label, ci) => {
+    const row = div('bucket-row' + (places.has(ci) ? ' is-placed' : ''));
+    row.append(div('bucket-card', label || `Card ${ci + 1}`));
+    const chips = div('seg-chips');
+    buckets.forEach((bname, bi) => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'seg-chip' + (places.get(ci) === bi ? ' is-selected' : '');
+      chip.textContent = bname || `Bucket ${bi + 1}`;
+      chip.setAttribute('aria-pressed', places.get(ci) === bi ? 'true' : 'false');
+      chip.addEventListener('click', () => {
+        if (places.get(ci) === bi) places.delete(ci); else places.set(ci, bi);
+        [...chips.children].forEach((c, k) => {
+          c.classList.toggle('is-selected', places.get(ci) === k);
+          c.setAttribute('aria-pressed', places.get(ci) === k ? 'true' : 'false');
+        });
+        row.classList.toggle('is-placed', places.has(ci));
+      });
+      chips.append(chip);
+    });
+    row.append(chips);
+    wrap.append(row);
+  });
+
+  return {
+    el: wrap,
+    value: () => ({
+      places: cards.map((_, i) => (places.has(i) ? places.get(i) : null)),
+    }),
+  };
+}
+
+/**
+ * Quadrant: a square the thumb owns. Tap places the active item, drag
+ * adjusts, and a placed marker takes arrow keys for anyone not steering
+ * by touch. Coordinates leave here as percentages with y measured UP —
+ * 0 is the bottom pole, 100 the top — so the payload means the same
+ * thing however any screen draws it.
+ */
+function quadrantControl(q, prior) {
+  const items = quadrantItems(q.config);
+  const axes = quadrantAxes(q.config);
+  const n = Math.max(1, items.length);
+  const spots = new Map();
+  (Array.isArray(prior?.spots) ? prior.spots : []).forEach((s, i) => {
+    if (Array.isArray(s) && i < n) spots.set(i, [Number(s[0]) || 0, Number(s[1]) || 0]);
+  });
+
+  let active = 0;
+  for (let i = 0; i < n; i += 1) { if (!spots.has(i)) { active = i; break; } }
+
+  const wrap = div('quadrant-control');
+  const plane = div('quad-plane');
+  plane.tabIndex = 0;
+  plane.setAttribute('role', 'application');
+  plane.setAttribute('aria-label',
+    `A grid. Left is ${axes.xLeft}, right is ${axes.xRight}, `
+    + `bottom is ${axes.yLow}, top is ${axes.yHigh}. `
+    + 'Press Enter to place at the centre, then use arrow keys on the mark.');
+
+  plane.append(
+    div('quad-axis-label is-top', axes.yHigh),
+    div('quad-axis-label is-bottom', axes.yLow),
+    div('quad-axis-label is-left', axes.xLeft),
+    div('quad-axis-label is-right', axes.xRight),
+  );
+
+  const marks = [];
+  const chips = [];
+
+  const paint = () => {
+    for (let i = 0; i < n; i += 1) {
+      const spot = spots.get(i);
+      const mark = marks[i];
+      mark.hidden = !spot;
+      if (spot) {
+        mark.style.left = `${spot[0]}%`;
+        mark.style.top = `${100 - spot[1]}%`;
+      }
+      mark.classList.toggle('is-active', i === active);
+      if (chips[i]) {
+        chips[i].classList.toggle('is-active', i === active);
+        chips[i].classList.toggle('is-placed', !!spot);
+        chips[i].setAttribute('aria-pressed', i === active ? 'true' : 'false');
+      }
+    }
+  };
+
+  const place = (i, x, y) => {
+    spots.set(i, [
+      Math.min(100, Math.max(0, Math.round(x))),
+      Math.min(100, Math.max(0, Math.round(y))),
+    ]);
+    paint();
+  };
+
+  for (let i = 0; i < n; i += 1) {
+    const mark = document.createElement('button');
+    mark.type = 'button';
+    mark.className = 'quad-mark';
+    mark.textContent = items.length ? String(i + 1) : '';
+    mark.hidden = true;
+    mark.setAttribute('aria-label', items.length
+      ? `Mark for ${items[i] || `item ${i + 1}`}. Arrow keys move it.`
+      : 'Your mark. Arrow keys move it.');
+    mark.addEventListener('click', () => { active = i; paint(); });
+    mark.addEventListener('keydown', (e) => {
+      const spot = spots.get(i);
+      if (!spot) return;
+      const step = 3;
+      if (e.key === 'ArrowLeft') place(i, spot[0] - step, spot[1]);
+      else if (e.key === 'ArrowRight') place(i, spot[0] + step, spot[1]);
+      else if (e.key === 'ArrowUp') place(i, spot[0], spot[1] + step);
+      else if (e.key === 'ArrowDown') place(i, spot[0], spot[1] - step);
+      else return;
+      e.preventDefault();
+    });
+    plane.append(mark);
+    marks.push(mark);
+  }
+
+  const advance = () => {
+    for (let k = 1; k <= n; k += 1) {
+      const next = (active + k) % n;
+      if (!spots.has(next)) { active = next; break; }
+    }
+  };
+
+  const fromEvent = (e) => {
+    const rect = plane.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = 100 - ((e.clientY - rect.top) / rect.height) * 100;
+    place(active, x, y);
+  };
+
+  let dragging = false;
+  plane.addEventListener('pointerdown', (e) => {
+    // A tap on a placed mark selects it (the button's own click); a tap
+    // on open ground places the active item there.
+    if (e.target.closest('.quad-mark')) return;
+    dragging = true;
+    try { plane.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    fromEvent(e);
+  });
+  plane.addEventListener('pointermove', (e) => { if (dragging) fromEvent(e); });
+  plane.addEventListener('pointerup', () => {
+    if (!dragging) return;
+    dragging = false;
+    advance();
+    paint();
+  });
+  plane.addEventListener('pointercancel', () => { dragging = false; });
+  plane.addEventListener('keydown', (e) => {
+    if ((e.key === 'Enter' || e.key === ' ') && !spots.has(active)) {
+      place(active, 50, 50);
+      marks[active].focus();
+      e.preventDefault();
+    }
+  });
+
+  wrap.append(plane);
+
+  if (items.length) {
+    const queue = div('quad-queue');
+    items.forEach((label, i) => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'quad-item';
+      chip.setAttribute('aria-pressed', 'false');
+      chip.append(div('quad-item-n', String(i + 1)), div('quad-item-label', label || `Item ${i + 1}`));
+      chip.addEventListener('click', () => { active = i; paint(); });
+      queue.append(chip);
+      chips.push(chip);
+    });
+    wrap.append(queue);
+  }
+
+  paint();
+
+  return {
+    el: wrap,
+    value: () => ({
+      spots: Array.from({ length: n }, (_, i) => spots.get(i) || null),
+    }),
+  };
+}
+
+/**
+ * Common ground: walk the claims one at a time — disagree, pass, agree —
+ * then send the lot in one go. The compose box only STAGES a claim; it
+ * rides the same payload as the votes, and appears to the room only after
+ * the instructor approves it. update() absorbs freshly approved claims
+ * without touching a single vote already cast.
+ */
+function consensusControl(q, prior) {
+  let claims = consensusClaims(q.config);
+  let allowSubmit = q.config?.allow_submissions !== false;
+  const votes = new Map(Object.entries(prior?.votes || {}));
+  const mine = Array.isArray(prior?.claims) ? [...prior.claims] : [];
+
+  const wrap = div('consensus-control');
+  const pane = div('claim-pane');
+  const composeWrap = div('claim-compose');
+  wrap.append(pane, composeWrap);
+
+  let idx = 0;
+
+  const firstUnvoted = () => {
+    const i = claims.findIndex((c) => !votes.has(c.key));
+    return i >= 0 ? i : 0;
+  };
+  idx = firstUnvoted();
+
+  const votedCount = () => claims.filter((c) => votes.has(c.key)).length;
+
+  const paintPane = () => {
+    pane.textContent = '';
+
+    if (!claims.length) {
+      pane.append(div('state-text', allowSubmit
+        ? 'No claims yet — yours could be the first.'
+        : 'No claims yet. They\'ll appear here as your instructor adds them.'));
+      return;
+    }
+
+    idx = Math.min(idx, claims.length - 1);
+    const claim = claims[idx];
+    const done = votedCount();
+
+    const progress = div('claim-progress');
+    progress.append(
+      div('claim-count', `Claim ${idx + 1} of ${claims.length}`),
+      div('claim-done-count', done === claims.length ? 'All voted ✓' : `${done} voted`),
+    );
+    pane.append(progress);
+
+    const card = div('claim-card');
+    card.append(div('claim-text', claim.text));
+    pane.append(card);
+
+    const row = div('claim-votes');
+    [['Disagree', -1], ['Pass', 0], ['Agree', 1]].forEach(([label, v]) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = `claim-vote is-${label.toLowerCase()}`
+        + (votes.get(claim.key) === v ? ' is-selected' : '');
+      b.textContent = label;
+      b.setAttribute('aria-pressed', votes.get(claim.key) === v ? 'true' : 'false');
+      b.addEventListener('click', () => {
+        if (votes.get(claim.key) === v) votes.delete(claim.key);
+        else {
+          votes.set(claim.key, v);
+          // step forward to the next claim still waiting on a vote
+          const next = claims.findIndex((c, k) => k > idx && !votes.has(c.key));
+          const wrapAround = next < 0 ? claims.findIndex((c) => !votes.has(c.key)) : next;
+          if (wrapAround >= 0) idx = wrapAround;
+        }
+        paintPane();
+      });
+      row.append(b);
+    });
+    pane.append(row);
+
+    if (claims.length > 1) {
+      const nav = div('claim-nav');
+      const back = document.createElement('button');
+      back.type = 'button';
+      back.className = 'claim-step';
+      back.textContent = '‹ Back';
+      back.disabled = idx === 0;
+      back.addEventListener('click', () => { idx = Math.max(0, idx - 1); paintPane(); });
+      const fwd = document.createElement('button');
+      fwd.type = 'button';
+      fwd.className = 'claim-step';
+      fwd.textContent = 'Next ›';
+      fwd.disabled = idx >= claims.length - 1;
+      fwd.addEventListener('click', () => { idx = Math.min(claims.length - 1, idx + 1); paintPane(); });
+      nav.append(back, fwd);
+      pane.append(nav);
+    }
+  };
+
+  const paintCompose = () => {
+    composeWrap.textContent = '';
+    if (!allowSubmit) return;
+
+    mine.forEach((text, i) => {
+      const chip = div('claim-mine');
+      chip.append(div('claim-mine-text', text));
+      const x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'claim-mine-remove';
+      x.textContent = '✕';
+      x.setAttribute('aria-label', `Remove your claim: ${text}`);
+      x.addEventListener('click', () => { mine.splice(i, 1); paintCompose(); });
+      chip.append(x);
+      composeWrap.append(chip);
+    });
+    if (mine.length) {
+      composeWrap.append(div('q-hint', 'Sent with your votes. Appears once your instructor approves it.'));
+    }
+
+    if (mine.length >= 2) return; // two claims per voice is plenty
+
+    const row = div('claim-compose-row');
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'word-input claim-input';
+    input.maxLength = 140;
+    input.placeholder = mine.length ? 'One more claim…' : 'Add a claim of your own…';
+    input.autocomplete = 'off';
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'claim-add';
+    add.textContent = 'Add';
+    const commit = () => {
+      const text = input.value.replace(/\s+/g, ' ').trim();
+      if (!text) return;
+      mine.push(text.slice(0, 140));
+      input.value = '';
+      paintCompose();
+    };
+    add.addEventListener('click', commit);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { commit(); e.preventDefault(); }
+    });
+    row.append(input, add);
+    composeWrap.append(row);
+  };
+
+  paintPane();
+  paintCompose();
+
+  return {
+    el: wrap,
+    value: () => ({
+      votes: Object.fromEntries(votes),
+      ...(mine.length ? { claims: mine } : {}),
+    }),
+    update: (nextQ) => {
+      const next = consensusClaims(nextQ.config);
+      const nextAllow = nextQ.config?.allow_submissions !== false;
+      const changed = nextAllow !== allowSubmit
+        || next.length !== claims.length
+        || next.some((c, i) => c.key !== claims[i]?.key);
+      if (!changed) return;
+      const hadNone = !claims.length;
+      claims = next;
+      allowSubmit = nextAllow;
+      // A claim of THIS student's that just got approved stops being
+      // "pending" — it is in the deck now, and holding the local copy
+      // would send a duplicate and show it twice.
+      for (let i = mine.length - 1; i >= 0; i -= 1) {
+        if (claims.some((c) => c.text === mine[i])) mine.splice(i, 1);
+      }
+      if (hadNone) idx = 0;
+      paintPane();
+      paintCompose();
+      announce('New claims to vote on.');
+    },
+  };
+}
+
 function choiceControl(q, prior, isQuiz) {
   const cfg = q.config || {};
   const labels = optionLabels(cfg);
@@ -1056,7 +1544,20 @@ function choiceControl(q, prior, isQuiz) {
 
     const marker = div(`opt-marker${multiple ? ' is-square' : ''}`);
     marker.textContent = selected.has(i) ? '✓' : '';
-    btn.append(marker, div('opt-text', label));
+    // An option's icon is part of its label ("🌱 Photosynthesis"), and it
+    // has to be the SAME picture here as on the wall — the whole value of
+    // the second encoding is that a student can find their answer again
+    // in the projected chart without reading four labels. Split rather
+    // than printed inline so it can be sized and spaced as a picture.
+    const { icon, text } = splitIcon(label);
+    const body = div('opt-text', text);
+    if (icon) {
+      const glyph = div('opt-icon', icon);
+      glyph.setAttribute('aria-hidden', 'true'); // the text says it already
+      btn.append(marker, glyph, body);
+    } else {
+      btn.append(marker, body);
+    }
 
     if (selected.has(i)) btn.classList.add('is-selected');
 
@@ -1701,7 +2202,11 @@ function maybeShowSharedResults() {
       }
       const agg = aggregate(q.type, q.config, (res.payloads || []).map((p) => ({ payload: p })));
       renderAggregate(host.querySelector('.chart'), q.type, agg, {
-        style: q.config?.chart || 'bars',
+        style: q.config?.chart || (q.type === 'word_cloud' ? 'cloud' : 'bars'),
+        // On the phone the chart is the whole result — nobody is reading
+        // it out — so it carries its own table. This is the surface
+        // docs/accessibility.md called the sharpest edge of that gap.
+        srSummary: true,
       });
     } catch { /* results are a bonus; never break answering */ }
   };

@@ -21,6 +21,7 @@ import {
   TYPE_LABELS, optionLabels, DEFAULT_JOIN_STEPS, fillJoinPlaceholders,
   trafficLabels, moodIcons, pairList, clozeParts, exitPrompts, timelineItems,
   resolvePromptAlign,
+  bucketLabels, bucketCards, quadrantItems, quadrantAxes, consensusClaims,
 } from './logic.js';
 import { getTheme, applyTheme, backgroundStyles, scrimOpacity } from './themes.js';
 import { ambiencePlan, applyAmbience } from './ambience.js';
@@ -139,6 +140,9 @@ function sketch(q, opts) {
     case 'timeline': return timelineSketch(cfg);
     case 'exit_ticket': return exitSketch(cfg);
     case 'qa': return qaSketch();
+    case 'buckets': return bucketsSketch(cfg);
+    case 'quadrant': return quadrantSketch(cfg);
+    case 'consensus': return consensusSketch(cfg);
     default: return el('div', 'sp-blank', opts.placeholder ? '' : 'Slide');
   }
 }
@@ -532,6 +536,69 @@ function qaSketch() {
     // plain answer card at thumbnail size
     bubble.append(el('span', 'sp-bubble-vote', '▲'));
     wrap.append(bubble);
+  });
+  return wrap;
+}
+
+// -------------------------------------------- visual-pedagogy sketches
+
+function bucketsSketch(cfg) {
+  const wrap = el('div', 'sp-buckets');
+  const names = bucketLabels(cfg).filter((b) => b.trim());
+  const heads = el('div', 'sp-buckets-heads');
+  (names.length >= 2 ? names : ['', '']).slice(0, 4).forEach((b) => {
+    heads.append(el('span', 'sp-buckets-head', b ? short(b, 12) : ''));
+  });
+  wrap.append(heads);
+  const field = el('div', 'sp-buckets-field');
+  const cards = bucketCards(cfg).filter((c) => c.trim());
+  const rows = (cards.length ? cards : ['', '', '']).slice(0, 4);
+  // deterministic positions: one settled per column, one on the fence —
+  // the sketch shows the chart's whole idea in three chips
+  const xs = [25, 75, 50, 25];
+  rows.forEach((c, i) => {
+    const chip = el('span', 'sp-buckets-card', c ? short(c, 12) : '');
+    chip.style.left = `${xs[i] ?? 50}%`;
+    chip.style.top = `${12 + i * 26}%`;
+    if (!c) chip.classList.add('is-blank');
+    if ((xs[i] ?? 50) === 50) chip.classList.add('is-torn');
+    field.append(chip);
+  });
+  wrap.append(field);
+  return wrap;
+}
+
+function quadrantSketch(cfg) {
+  const wrap = el('div', 'sp-quad');
+  const axes = quadrantAxes(cfg);
+  wrap.append(el('span', 'sp-quad-pole is-top', short(axes.yHigh, 14)));
+  wrap.append(el('span', 'sp-quad-pole is-bottom', short(axes.yLow, 14)));
+  // one tight cloud and one split cloud — the two shapes this chart exists
+  // to tell apart
+  [[70, 26], [76, 34], [72, 38], [24, 30], [30, 72], [24, 66], [66, 74]]
+    .forEach(([x, y], i) => {
+      const dot = el('span', 'sp-quad-dot');
+      dot.style.left = `${x}%`;
+      dot.style.top = `${y}%`;
+      if (i > 2) dot.classList.add('is-alt');
+      wrap.append(dot);
+    });
+  return wrap;
+}
+
+function consensusSketch(cfg) {
+  const wrap = el('div', 'sp-consensus');
+  const claims = consensusClaims(cfg);
+  const rows = claims.length
+    ? claims.slice(0, 3).map((c) => c.text)
+    : ['', '', ''];
+  const xs = [82, 50, 24];
+  rows.forEach((text, i) => {
+    const chip = el('span', 'sp-claim', text ? short(text, 18) : '');
+    chip.style.left = `${xs[i] ?? 50}%`;
+    chip.style.top = `${14 + i * 30}%`;
+    if (!text) chip.classList.add('is-blank');
+    wrap.append(chip);
   });
   return wrap;
 }

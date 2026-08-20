@@ -2260,3 +2260,112 @@ details.panel[open] > .panel-head::after {
 @media (max-width: 640px) {
   .export-label { display: none; }
 }
+
+/* ---------------------------------------- visual-pedagogy sketches */
+
+.sp-buckets { display: flex; flex-direction: column; gap: .2em; width: 100%; }
+.sp-buckets-heads { display: flex; }
+.sp-buckets-head {
+  flex: 1;
+  min-height: .5em;
+  text-align: center;
+  font-size: .36em;
+  font-weight: 700;
+  color: var(--ink-soft);
+  border-bottom: .1em solid color-mix(in srgb, var(--accent) 45%, transparent);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sp-buckets-field {
+  position: relative;
+  height: 3.4em;
+  border-radius: .25em;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+.sp-buckets-field::after {
+  content: '';
+  position: absolute;
+  left: 50%; top: .25em; bottom: .25em;
+  border-left: 1px dashed color-mix(in srgb, var(--ink) 25%, transparent);
+}
+.sp-buckets-card {
+  position: absolute;
+  transform: translateX(-50%);
+  padding: .06em .3em;
+  border-radius: .2em;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  font-size: .34em;
+  font-weight: 650;
+  white-space: nowrap;
+  max-width: 44%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sp-buckets-card.is-torn {
+  border-style: dashed;
+  background: var(--surface);
+  color: var(--ink-soft);
+}
+.sp-buckets-card.is-blank { min-width: 1.6em; min-height: .9em; }
+
+.sp-quad {
+  position: relative;
+  width: 100%;
+  height: 4.2em;
+  border-radius: .25em;
+  background:
+    linear-gradient(color-mix(in srgb, var(--ink) 16%, transparent) 0 0) center / 100% 1px no-repeat,
+    linear-gradient(color-mix(in srgb, var(--ink) 16%, transparent) 0 0) center / 1px 100% no-repeat,
+    color-mix(in srgb, var(--ink) 5%, transparent);
+}
+.sp-quad-pole {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: .32em;
+  font-weight: 700;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+.sp-quad-pole.is-top { top: .3em; }
+.sp-quad-pole.is-bottom { bottom: .3em; }
+.sp-quad-dot {
+  position: absolute;
+  width: .34em; height: .34em;
+  margin: -.17em 0 0 -.17em;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 .3em color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.sp-quad-dot.is-alt {
+  background: var(--accent-2);
+  box-shadow: 0 0 .3em color-mix(in srgb, var(--accent-2) 60%, transparent);
+}
+
+.sp-consensus {
+  position: relative;
+  width: 100%;
+  height: 3.6em;
+  border-radius: .25em;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--ink) 7%, transparent),
+    color-mix(in srgb, var(--ink) 2%, transparent) 50%,
+    color-mix(in srgb, var(--accent) 10%, transparent));
+}
+.sp-claim {
+  position: absolute;
+  transform: translateX(-50%);
+  padding: .07em .35em;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--surface);
+  font-size: .34em;
+  font-weight: 650;
+  white-space: nowrap;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sp-claim.is-blank { min-width: 2.4em; min-height: .9em; }

@@ -381,6 +381,89 @@ export function bodyFor(type, config, agg) {
       };
     }
 
+    case 'buckets': {
+      if (!agg.total) return null;
+      const keyed = Array.isArray(agg.correct);
+      const fence = agg.cards.filter((c) => c.n && c.lean >= 0.6).length;
+      return {
+        form: 'table',
+        columns: keyed
+          ? ['Card', 'Room filed it', 'Belongs in', 'Right']
+          : ['Card', 'Room filed it', 'Agreement'],
+        rows: agg.cards.map((c, i) => {
+          const home = c.n && c.top != null ? agg.buckets[c.top] : '—';
+          if (keyed) {
+            const k = agg.correct[i];
+            return [
+              short(c.label, 34),
+              home,
+              k != null ? agg.buckets[k] : '—',
+              k != null && c.n ? pct((c.counts[k] / c.n) * 100) : '—',
+            ];
+          }
+          return [short(c.label, 34), home, c.n ? pct(c.consensus * 100) : '—'];
+        }),
+        footnote: fence
+          ? `${plural(fence, 'card', 'cards')} sat on the fence between two columns`
+          : '',
+      };
+    }
+
+    case 'quadrant': {
+      if (!agg.total) return null;
+      const ax = {
+        xl: cfg.x_left || 'Left', xr: cfg.x_right || 'Right',
+        yl: cfg.y_low || 'Low', yh: cfg.y_high || 'High',
+      };
+      const cell = (points, right, high) => points.filter((p) => (
+        (p.x >= 50) === right && (p.y >= 50) === high)).length;
+      return {
+        form: 'table',
+        columns: ['', `${ax.xl} · ${ax.yh}`, `${ax.xr} · ${ax.yh}`,
+          `${ax.xl} · ${ax.yl}`, `${ax.xr} · ${ax.yl}`],
+        rows: agg.items.map((it) => [
+          agg.self ? 'The room' : short(it.label, 28),
+          NUM.format(cell(it.points, false, true)),
+          NUM.format(cell(it.points, true, true)),
+          NUM.format(cell(it.points, false, false)),
+          NUM.format(cell(it.points, true, false)),
+        ]),
+        // The same doctrine the spectrum export states: a mean position on
+        // a plane is the one spot nobody stood on.
+        footnote: 'Placements counted in quadrants — never averaged',
+      };
+    }
+
+    case 'consensus': {
+      if (!agg.total) return null;
+      const heard = agg.claims.filter((c) => c.votes > 0);
+      if (!heard.length) return null;
+      const minVotes = Math.max(2, Math.ceil(agg.total / 3));
+      const line = (c) => ({
+        text: `“${short(c.text, 80)}” — ${pct(((c.agree / Math.max(1, c.votes)) * 100))} agree`
+          + ` (${NUM.format(c.agree)} of ${NUM.format(c.votes)})`,
+      });
+      const agreed = heard.filter((c) => c.votes >= minVotes && c.balance >= 0.6)
+        .sort((a, b) => b.balance - a.balance || b.votes - a.votes);
+      const contested = heard.filter((c) => c.votes >= minVotes && Math.abs(c.balance) <= 0.3)
+        .sort((a, b) => b.votes - a.votes);
+      const sections = [];
+      if (agreed.length) {
+        sections.push({ label: 'The room agrees', lines: agreed.slice(0, 6).map(line), more: Math.max(0, agreed.length - 6) });
+      }
+      if (contested.length) {
+        sections.push({ label: 'Still contested', lines: contested.slice(0, 6).map(line), more: Math.max(0, contested.length - 6) });
+      }
+      if (!sections.length) {
+        sections.push({ label: 'Every claim', lines: heard.slice(0, MAX_LINES).map(line), more: Math.max(0, heard.length - MAX_LINES) });
+      }
+      return {
+        form: 'sections',
+        sections,
+        footnote: 'Agreement among those who voted — passes stand aside',
+      };
+    }
+
     default:
       return null;
   }
