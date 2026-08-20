@@ -683,11 +683,22 @@ export function renderChoice(container, agg, opts = {}) {
   ]));
 
   // ---- one write per frame ------------------------------------------
+  const theme = {
+    good: token(root, '--good', '#15803d'),
+    ink: token(root, '--ink', '#111'),
+    ground: token(root, '--ground', '#ffffff'),
+  };
+
   function paint() {
     const g = state.group;
-    const good = token(root, '--good', '#15803d');
-    const ink = token(root, '--ink', '#111');
-    const ground = token(root, '--ground', '#ffffff');
+    // Read the theme ONCE per render, not once per frame.
+    //
+    // token() is getComputedStyle(), and a getComputedStyle() issued after
+    // the previous frame's style writes forces a synchronous style recalc.
+    // Three of them, sixty times a second, for values that cannot change
+    // between two frames of the same animation — the theme only moves when
+    // the deck is re-rendered, which is exactly when this cache is rebuilt.
+    const { good, ink, ground } = theme;
 
     state.rows.forEach((r, i) => {
       const enter = g.get(`in:${i}`, 1);
@@ -712,8 +723,17 @@ export function renderChoice(container, agg, opts = {}) {
 
       // A flat fill reads as a placeholder; the gradient plus the sheen
       // strip along the top edge is what gives the bar a lit surface.
-      r.fill.style.background =
-        `linear-gradient(180deg, ${mixColor(shown, '#ffffff', 0.10)} 0%, ${shown} 52%, ${mixColor(shown, '#000000', 0.06)} 100%)`;
+      // The gradient only depends on `shown`, and `shown` only moves while
+      // the reveal's dim spring is travelling — for the whole of a live
+      // vote it is a constant. Rebuilding the same string every frame cost
+      // three colour mixes per bar per frame and handed the compositor a
+      // fresh gradient to rasterise on an element that was already
+      // resizing. Write it when it changes, which is what it looks like.
+      if (r.__shown !== shown) {
+        r.__shown = shown;
+        r.fill.style.background =
+          `linear-gradient(180deg, ${mixColor(shown, '#ffffff', 0.10)} 0%, ${shown} 52%, ${mixColor(shown, '#000000', 0.06)} 100%)`;
+      }
       r.fill.style.opacity = String(1 - dim * 0.35);
 
       // Dimming alone was not enough separation at the verdict. A bar
@@ -725,22 +745,29 @@ export function renderChoice(container, agg, opts = {}) {
       // height are all off limits on something that represents a count.
       // Driven straight off the same dim spring, so it costs no new
       // state and arrives on the same critically damped curve.
-      r.fill.style.filter = dim > 0.01 ? `saturate(${(1 - dim * 0.55).toFixed(3)})` : '';
+      const sat = dim > 0.01 ? `saturate(${(1 - dim * 0.55).toFixed(3)})` : '';
+      if (r.__sat !== sat) { r.__sat = sat; r.fill.style.filter = sat; }
 
       // the verdict glow blooms as the correct row's dim spring settles
       // back to zero — tied to the spring, so it fades in, never pops
+      // Same reasoning as the gradient, and it matters more here: a blurred
+      // box-shadow is re-rasterised whenever it changes, on a box whose
+      // width is changing anyway. Outside the reveal this string is
+      // constant, so the shadow is rasterised once and then simply
+      // stretched by the compositor.
+      let shadow;
       if (marked) {
         const glow = Math.max(0, 1 - dim * 3);
         const ringColor = bestMode ? base : good;
         const ringAlpha = bestMode ? 0.26 : 0.18;
         const castAlpha = bestMode ? 0.32 : 0.5;
-        r.fill.style.boxShadow =
-          `0 0 0 .14em ${rgba(ringColor, ringAlpha * glow)}, 0 6px 22px ${rgba(ringColor, castAlpha * glow)}, 0 1px 2px ${rgba(ink, 0.10)}`;
+        shadow = `0 0 0 .14em ${rgba(ringColor, ringAlpha * glow)}, 0 6px 22px ${rgba(ringColor, castAlpha * glow)}, 0 1px 2px ${rgba(ink, 0.10)}`;
       } else {
-        r.fill.style.boxShadow = w > 0.5
+        shadow = w > 0.5
           ? `0 1px 2px ${rgba(ink, 0.10)}, 0 6px 16px ${rgba(shown, 0.26)}`
           : 'none';
       }
+      if (r.__shadow !== shadow) { r.__shadow = shadow; r.fill.style.boxShadow = shadow; }
 
       // Conviction veils: widths ride the same frame as the fill, pushed
       // toward the page ground so the tip visibly pales without a second
@@ -748,9 +775,12 @@ export function renderChoice(container, agg, opts = {}) {
       const veil = Math.max(0, g.get(`cw1:${i}`, 0));
       const tip = Math.max(0, g.get(`cw2:${i}`, 0));
       r.wash1.style.width = `${(veil * 100).toFixed(2)}%`;
-      r.wash1.style.background = rgba(ground, 0.34);
       r.wash2.style.width = `${(tip * 100).toFixed(2)}%`;
-      r.wash2.style.background = rgba(ground, 0.30);
+      if (r.__ground !== ground) {
+        r.__ground = ground;
+        r.wash1.style.background = rgba(ground, 0.34);
+        r.wash2.style.background = rgba(ground, 0.30);
+      }
 
       const pctVal = g.get(`p:${i}`);
       const cntVal = g.get(`c:${i}`);
@@ -1335,7 +1365,15 @@ export function renderWordCloud(container, agg, opts = {}) {
      * because relayout is throttled to a few times a second.
      */
     const measureAt = (s) => {
-      entries.forEach((e) => { e.node.style.fontSize = `${e.size * s}px`; });
+      entries.forEach((e) => {
+        // Only write when it actually changes. A vote that nudges one
+        // word's count leaves the other seventy-nine at exactly the size
+        // they already have, and re-writing the same px value still
+        // dirties the node's style — which is the difference between
+        // re-laying-out one word and re-laying-out the whole cloud.
+        const px = `${e.size * s}px`;
+        if (e.node.style.fontSize !== px) e.node.style.fontSize = px;
+      });
       return entries.map((e) => ({
         entry: e.entry,
         node: e.node,
@@ -1345,19 +1383,71 @@ export function renderWordCloud(container, agg, opts = {}) {
       }));
     };
 
-    // Shrink until the whole cloud fits. d3-cloud silently DROPS words it
-    // can't place and never rescales; in a classroom that means someone's
-    // answer vanishing with no explanation, so rescale first and only
-    // drop as a genuine last resort.
+    /**
+     * Shrink until the whole cloud fits. d3-cloud silently DROPS words it
+     * can't place and never rescales; in a classroom that means someone's
+     * answer vanishing with no explanation, so rescale first and only
+     * drop as a genuine last resort.
+     *
+     * WHY THE SEARCH RUNS ON PAPER AND ONLY LANDS ON THE DOM TWICE.
+     *
+     * This used to walk down in 12% steps, re-measuring at every rung —
+     * and a full class fills the canvas, so it reliably walked five or six
+     * rungs. Each rung is a forced synchronous layout of every word in the
+     * cloud, and the whole loop is a single blocking call on the frame
+     * that a new word arrived on. Measured at 80 words it cost ~30ms: two
+     * dropped frames on a fast laptop, five or six on the machine actually
+     * wired to the projector, every time the cloud changed.
+     *
+     * The fix is to stop asking the browser questions it can answer once.
+     * Word boxes scale close enough to linearly to SEARCH with — so the
+     * search bisects on scaled copies of a single measurement, which is
+     * pure arithmetic, and finds a finer-grained scale than the old ladder
+     * ever could. What is not safe is DRAWING at a scaled estimate: glyph
+     * advances do not scale perfectly once hinting and kerning are
+     * involved, and a few pixels of error is two words clipping. So the
+     * chosen scale is always re-measured for real before it is committed,
+     * and the layout that ships is computed from those real numbers.
+     */
     let scale = 1;
     let measured = measureAt(scale);
     let layout = tryLayout(measured, 1, W, H, false);
-    for (let attempt = 0; attempt < 10 && !layout; attempt += 1) {
-      const next = scale * 0.88;
-      if (smallSize * next < 11) break;
-      scale = next;
-      measured = measureAt(scale);
-      layout = tryLayout(measured, 1, W, H, false);
+
+    if (!layout) {
+      // Never shrink type below legibility — the same floor the old ladder
+      // stopped at, stated as a scale rather than walked into.
+      const floor = Math.min(1, Math.max(0.15, 11 / smallSize));
+      // How much of the canvas this spiral actually manages to cover when
+      // it is packed full: measured at 0.55–0.65 across word counts, so a
+      // guess drawn from total ink area lands within a few percent of the
+      // largest scale that fits, in one step instead of six. Deliberately
+      // a shade under what the spiral can achieve: the guess is checked
+      // against SCALED boxes, and real glyph metrics come back a hair
+      // wider, so aiming at the ceiling means the re-measure fails and
+      // costs another forced layout to climb back down.
+      const ink = measured.reduce((sum, m) => sum + m.w * m.h, 0);
+      let guess = Math.min(0.97, Math.sqrt((W * H * 0.58) / ink));
+      let best = 0;
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        if (guess < floor) break;
+        if (tryLayout(measured, guess, W, H, false)) { best = guess; break; }
+        guess *= 0.92;
+      }
+      if (best) {
+        scale = best;
+        measured = measureAt(scale);
+        layout = tryLayout(measured, 1, W, H, false);
+        // Real glyph metrics came back a hair wider than the scaled
+        // estimate. Give back a few percent rather than dropping
+        // somebody's answer.
+        for (let i = 0; i < 3 && !layout; i += 1) {
+          const next = scale * 0.94;
+          if (smallSize * next < 11) break;
+          scale = next;
+          measured = measureAt(scale);
+          layout = tryLayout(measured, 1, W, H, false);
+        }
+      }
     }
     if (!layout) layout = tryLayout(measured, 1, W, H, true);
 
@@ -1453,7 +1543,7 @@ export function renderWordCloud(container, agg, opts = {}) {
 }
 
 function tryLayout(measured, scale, W, H, allowDrop) {
-  const placed = [];
+  const placed = new PlacedGrid(W, H);
   const out = [];
   for (const m of measured) {
     const w = m.w * scale;
@@ -1464,34 +1554,120 @@ function tryLayout(measured, scale, W, H, allowDrop) {
       out.push(null);
       continue;
     }
-    placed.push({ x: pos.x, y: pos.y, w, h });
+    placed.add(pos.x, pos.y, w, h);
     out.push(pos);
   }
   return out;
 }
 
 /**
+ * The spiral, walked once at module load instead of once per candidate.
+ *
+ * Every placement attempt used to recompute the same 3200 sin/cos pairs;
+ * a full relayout of an 80-word cloud walks the spiral for every word, on
+ * every scale it tries, so the same few thousand angles were being
+ * evaluated millions of times per relayout. The curve does not depend on
+ * the word, the box or the canvas — only the centre it is offset from
+ * does — so it is a constant, and constants belong in a table.
+ */
+const SPIRAL_STEPS = 3200;
+const SPIRAL = (() => {
+  const pts = new Float64Array(SPIRAL_STEPS * 2);
+  for (let t = 0; t < SPIRAL_STEPS; t += 1) {
+    const angle = t * 0.30;
+    const radius = angle * 0.95;
+    // The 1.75 x-stretch matches the aspect of a projector slide, so the
+    // cloud fills a wide box instead of forming a circle in the middle.
+    pts[t * 2] = radius * Math.cos(angle) * 1.75;
+    pts[t * 2 + 1] = radius * Math.sin(angle);
+  }
+  return pts;
+})();
+
+/**
+ * The words placed so far, bucketed into a coarse grid.
+ *
+ * The collision test is the inner loop of the whole cloud: for each of
+ * ~3200 spiral steps, a candidate box is tested against everything
+ * already down. Scanning that list linearly makes a relayout quadratic in
+ * word count — the 80th word tests 79 rectangles at every step it tries —
+ * and an 80-word cloud is exactly what a full class produces.
+ *
+ * A word can only collide with something in a cell it overlaps, so each
+ * rectangle is filed into the cells it covers and a candidate only tests
+ * those. Same answer, a fraction of the comparisons. A rectangle spanning
+ * several cells is tested more than once in the worst case, which is
+ * cheaper than the bookkeeping to avoid it.
+ */
+const GRID_COLS = 32;
+const GRID_ROWS = 20;
+
+class PlacedGrid {
+  constructor(W, H) {
+    this.cw = W / GRID_COLS;
+    this.ch = H / GRID_ROWS;
+    this.cells = new Array(GRID_COLS * GRID_ROWS);
+    // The cluster's own bounding box. Every candidate is tested against
+    // this one rectangle first, and a spiral step that has walked clear of
+    // the cluster is accepted without touching a single word — which is
+    // most steps, because the spiral's whole job is to walk outward.
+    this.x0 = Infinity; this.y0 = Infinity;
+    this.x1 = -Infinity; this.y1 = -Infinity;
+  }
+
+  hits(x, y, w, h) {
+    if (x >= this.x1 || x + w <= this.x0 || y >= this.y1 || y + h <= this.y0) return false;
+    const { cw, ch, cells } = this;
+    // Truncation, not Math.floor: spiralPlace has already clamped the
+    // candidate inside the canvas, so these can never go negative.
+    const c0 = (x / cw) | 0, c1 = ((x + w) / cw) | 0;
+    const r0 = (y / ch) | 0, r1 = ((y + h) / ch) | 0;
+    for (let r = r0; r <= r1; r += 1) {
+      for (let c = c0; c <= c1; c += 1) {
+        const b = cells[r * GRID_COLS + c];
+        if (!b) continue;
+        for (let i = 0; i < b.length; i += 4) {
+          if (x < b[i] + b[i + 2] && x + w > b[i]
+              && y < b[i + 1] + b[i + 3] && y + h > b[i + 1]) return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  add(x, y, w, h) {
+    if (x < this.x0) this.x0 = x;
+    if (y < this.y0) this.y0 = y;
+    if (x + w > this.x1) this.x1 = x + w;
+    if (y + h > this.y1) this.y1 = y + h;
+    const { cw, ch, cells } = this;
+    const c0 = (x / cw) | 0, c1 = ((x + w) / cw) | 0;
+    const r0 = (y / ch) | 0, r1 = ((y + h) / ch) | 0;
+    for (let r = r0; r <= r1; r += 1) {
+      for (let c = c0; c <= c1; c += 1) {
+        const k = r * GRID_COLS + c;
+        (cells[k] || (cells[k] = [])).push(x, y, w, h);
+      }
+    }
+  }
+}
+
+/**
  * Walk an Archimedean spiral outward from the centre, returning the first
  * position where this box touches nothing already placed.
- * The 1.75 x-stretch matches the aspect of a projector slide, so the
- * cloud fills a wide box instead of forming a circle in the middle.
  * @returns {{x:number,y:number}|null}
  */
 function spiralPlace(placed, W, H, w, h) {
   if (w > W - 8 || h > H - 8) return null;
   const cx = W / 2 - w / 2;
   const cy = H / 2 - h / 2;
-  for (let t = 0; t < 3200; t += 1) {
-    const angle = t * 0.30;
-    const radius = angle * 0.95;
-    const x = cx + radius * Math.cos(angle) * 1.75;
-    const y = cy + radius * Math.sin(angle);
-    if (x < 4 || y < 4 || x + w > W - 4 || y + h > H - 4) continue;
-    let hit = false;
-    for (const p of placed) {
-      if (x < p.x + p.w && x + w > p.x && y < p.y + p.h && y + h > p.y) { hit = true; break; }
-    }
-    if (!hit) return { x, y };
+  const maxX = W - 4 - w;
+  const maxY = H - 4 - h;
+  for (let t = 0; t < SPIRAL_STEPS; t += 1) {
+    const x = cx + SPIRAL[t * 2];
+    const y = cy + SPIRAL[t * 2 + 1];
+    if (x < 4 || y < 4 || x > maxX || y > maxY) continue;
+    if (!placed.hits(x, y, w, h)) return { x, y };
   }
   return null;
 }

@@ -350,7 +350,12 @@
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   border: 1px solid var(--edge);
   box-shadow: 0 4px 20px rgba(0, 0, 0, .12);
-  backdrop-filter: blur(8px);
+  /* No backdrop-filter here, deliberately. This corner is on screen for
+     the whole class, sitting over a stage where a chart is animating and
+     the ambience is drifting — and a backdrop blur has to re-blur its
+     region on every frame the pixels behind it change. The panel is
+     already 92% opaque, so the blur was paying a per-frame GPU cost for
+     8% of an effect nobody in the room can see. */
   transition: opacity .3s ease, transform .3s ease, font-size .3s ease;
 }
 
@@ -545,7 +550,8 @@
   background: color-mix(in srgb, var(--surface) 95%, transparent);
   border: 1px solid var(--edge);
   box-shadow: 0 8px 30px rgba(0, 0, 0, .18);
-  backdrop-filter: blur(10px);
+  /* 95% opaque and permanently mounted over the stage — same reasoning as
+     .join-corner above. */
   transition: opacity .28s ease;
   opacity: .2;
   font-size: .6em;
