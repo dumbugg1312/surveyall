@@ -236,7 +236,7 @@ function audit() {
   });
 
   // nothing may escape the slide
-  const slideBox = document.querySelector('#canvas .sp-slide').getBoundingClientRect();
+  const slideBox = document.querySelector('#canvas .stage').getBoundingClientRect();
   document.querySelectorAll('#canvas .decor-layer .decor-item').forEach((n) => {
     const b = n.getBoundingClientRect();
     if (b.width < 2 || b.height < 2) errors.push(`${n.dataset.decorId} rendered at zero size`);
@@ -256,20 +256,23 @@ function audit() {
   const contentZ = Number(getComputedStyle(document.querySelector('#stage .stage-body')).zIndex);
   if (!(backZ < contentZ)) errors.push(`back layer ${backZ} is not under content ${contentZ}`);
   if (!(frontZ > contentZ)) errors.push(`front layer ${frontZ} is not over content ${contentZ}`);
-  // in a preview the two layers must bracket .sp-content in DOM order
-  const kids = [...document.querySelector('#canvas .sp-slide').children].map((n) => n.className);
+  // In a preview the two layers must bracket the slide's content in DOM
+  // order, exactly as they do in present.html — the back layer ties with
+  // the scrim at z-index 1 and only paints above it by coming later.
+  const kids = [...document.querySelector('#canvas .stage').children].map((n) => n.className);
   const iBack = kids.findIndex((c) => c.includes('decor-layer-back'));
-  const iContent = kids.findIndex((c) => c.includes('sp-content'));
+  const iHead = kids.findIndex((c) => c.includes('stage-head'));
+  const iFoot = kids.findIndex((c) => c.includes('stage-foot'));
   const iFront = kids.findIndex((c) => c.includes('decor-layer-front'));
-  if (!(iBack < iContent && iContent < iFront)) {
-    errors.push(`preview layer order is ${iBack}/${iContent}/${iFront}`);
+  if (!(iBack < iHead && iHead < iFoot && iFoot < iFront)) {
+    errors.push(`preview layer order is ${iBack}/${iHead}/${iFoot}/${iFront}`);
   }
 
   // sizes must be a fraction of the SLIDE, not of the local font-size:
   // the same element in the big canvas and a rail thumbnail should differ
   // in pixels by the same ratio as the two slides differ in height
-  const bigSlide = document.querySelector('#canvas .sp-slide').getBoundingClientRect();
-  const smallSlide = document.querySelector('#rail .sp-slide').getBoundingClientRect();
+  const bigSlide = document.querySelector('#canvas .stage').getBoundingClientRect();
+  const smallSlide = document.querySelector('#rail .stage').getBoundingClientRect();
   const big = document.querySelector('#canvas .decor-item').getBoundingClientRect();
   const small = document.querySelector('#rail .decor-item').getBoundingClientRect();
   const slideRatio = bigSlide.height / smallSlide.height;

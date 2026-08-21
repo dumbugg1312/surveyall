@@ -768,7 +768,7 @@ svg.donut {
   align-items: baseline;
   gap: .4em;
   font-family: var(--display);
-  font-size: min(1.5em, 4.2vh);
+  font-size: min(1.5em, calc(4.2 * var(--stage-vh)));
   font-weight: 600;
   color: var(--ink);
   letter-spacing: -.015em;
@@ -1777,7 +1777,7 @@ svg.donut {
   position: relative;
   flex: 1;
   min-width: 0;
-  height: min(15em, 52vh);
+  height: min(15em, calc(52 * var(--stage-vh)));
   border-radius: calc(var(--bar-radius) + 2px);
   background:
     linear-gradient(180deg,

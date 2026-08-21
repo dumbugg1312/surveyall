@@ -21,7 +21,7 @@
      tuned against a dim 1280×720 projector from the back row, capped a
      little higher for big panels. Tall content guards itself with
      height-aware min() caps (lobby, chart, delta). */
-  font-size: clamp(16px, 1.3vw + 9.5px, 33px);
+  font-size: clamp(16px, calc(1.3 * var(--stage-vw) + 9.5px), 33px);
 
   /* Clip here, not just on <body>. The closed Q&A drawer is parked just
      off the right edge with a transform, and a transform still counts
@@ -312,7 +312,7 @@
 .stage-body .chart {
   /* height-capped so the raised stage scale can never clip a six-option
      rack at 720p — width buys size only as far as height allows */
-  font-size: min(1.5em, 4.8vh);
+  font-size: min(1.5em, calc(4.8 * var(--stage-vh)));
   margin: auto 0;
   max-height: 100%;
 }
@@ -325,7 +325,7 @@
    so the "N% changed their answer" line — the point of the slide — is
    always on screen, 720p included. Same idea as the lobby's height cap. */
 .stage-body [data-chart="delta"] {
-  font-size: min(1.5em, calc((100vh - 290px) / (var(--delta-rows, 4) * 3.05 + 6.2)));
+  font-size: min(1.5em, calc((100 * var(--stage-vh) - 290px) / (var(--delta-rows, 4) * 3.05 + 6.2)));
 }
 
 /* --------------------------------------------------------- join corner
@@ -783,7 +783,7 @@
      720p, 1080p and small windows alike, and leaves the question view's
      sizing untouched. `1em` here resolves against .stage, so this only
      ever shrinks, never enlarges. */
-  font-size: min(1em, 2.5vh);
+  font-size: min(1em, calc(2.5 * var(--stage-vh)));
 
   flex: 1;
   display: flex; flex-direction: column;
@@ -824,13 +824,13 @@
 }
 .stage-panel.is-open { transform: none; }
 
-.panel-head {
+.stage-panel .panel-head {
   display: flex; align-items: center; gap: .6em;
   padding: 1em 1.2em;
   border-bottom: 1px solid var(--edge);
 }
-.panel-title { font-family: var(--display); font-size: 1.2em; font-weight: 650; }
-.panel-body { flex: 1; overflow-y: auto; padding: 1em 1.2em; display: flex; flex-direction: column; gap: .7em; }
+.stage-panel .panel-title { font-family: var(--display); font-size: 1.2em; font-weight: 650; }
+.stage-panel .panel-body { flex: 1; overflow-y: auto; padding: 1em 1.2em; display: flex; flex-direction: column; gap: .7em; }
 
 .aq-item {
   padding: .7em .9em;
@@ -915,7 +915,7 @@ kbd {
    slide nobody finishes reading.
    ===================================================================== */
 
-.stage-body [data-chart="instructions"] { font-size: min(1.5em, 5vh); }
+.stage-body [data-chart="instructions"] { font-size: min(1.5em, calc(5 * var(--stage-vh))); }
 
 .instructions-slide {
   display: flex;
@@ -1011,3 +1011,81 @@ kbd {
 .stage.is-content-slide .count-pill,
 .stage.is-content-slide .hands-pill,
 .stage.is-content-slide #stateNote { display: none; }
+
+
+/* =====================================================================
+   Previews — this same stage, drawn small.
+
+   The editor's rail, its canvas, the new-slide gallery and the dashboard
+   deck cards all show slides, and every one of them shows THIS stage:
+   laid out at its reference size and shrunk by one transform. Not a
+   sketch of it — see the long note at the top of app/slide-preview.js for
+   what the sketch cost.
+
+   A transform rather than a smaller font-size, because only a transform
+   is faithful. Everything above and in charts.css that is stated in
+   pixels — a hairline border, a shadow's blur radius, a corner radius,
+   the 290px the compare view subtracts — scales with it and keeps its
+   proportion. Re-deriving those from the container size instead would be
+   a second implementation of the projector, which is the thing this file
+   exists to not have.
+   ===================================================================== */
+
+/* The measured box. Width comes from wherever it was dropped; the height
+   follows, and the stage inside is clipped to it. */
+.slide-fit {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: var(--ground);
+}
+
+.stage.is-preview {
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* The reference projector, in full. app/slide-preview.js exports the
+     same two numbers as STAGE_W / STAGE_H and writes --slide-fit from
+     them; if you change one, change both. */
+  width: 1280px;
+  height: 720px;
+  /* ...and its hundredths, so the font-size clamp above resolves to what
+     a 1280×720 screen would have produced rather than to this window. */
+  --stage-vw: 12.8px;
+  --stage-vh: 7.2px;
+  transform: scale(var(--slide-fit, 1));
+  transform-origin: 0 0;
+
+  /* Hosts to inherit nothing from. The rail thumbnail and the gallery
+     tile are <button>s, and a button's UA styles are its own font family
+     and a centred text-align — which is how the rail once drew a centred
+     heading for a slide the canvas drew flush left. Two pictures of one
+     slide, neither of them the projector's. */
+  font-family: var(--body);
+  font-style: normal;
+  letter-spacing: normal;
+  text-align: left;
+  color: var(--ink);
+  line-height: 1.55;
+
+  /* A preview is a picture. Nothing in it is operable — not a chart that
+     would answer a tap on the projector, not a card with a bin on it —
+     and the thumbnail it usually sits in is itself a button that wants
+     the click. */
+  pointer-events: none;
+  user-select: none;
+}
+
+/* The one exception: the canvas's placement overlay, which is the whole
+   reason the canvas is bigger than a thumbnail. See app/elements-editor.js. */
+.stage.is-preview .decor-edit { pointer-events: auto; user-select: none; }
+
+/* A slide with no question typed yet still has to be recognisable in the
+   rail, so it prints "Untitled slide" and says so by going quiet. */
+.stage-prompt.is-empty { opacity: .45; font-style: italic; }
+
+/* The canvas is the one place a prompt is not clamped — you are editing
+   it, so you need to see all of it. */
+.stage-canvas .stage-prompt { overflow: visible; }

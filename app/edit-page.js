@@ -26,9 +26,9 @@ import {
 import {
   TYPE_LABELS, TYPE_BLURBS, splitPassage, DEFAULT_JOIN_STEPS, isContentSlide,
   joinURL, joinURLPretty,
-  PROMPT_SCALES, DEFAULT_PROMPT_SCALE, promptScale, showSlideLabel, questionNumber,
+  PROMPT_SCALES, DEFAULT_PROMPT_SCALE, promptScale, showSlideLabel, slideKicker,
   PROMPT_ALIGNS, promptAlign,
-  defaultConfig, retypeQuestion, clozeParts, claimKey,
+  defaultConfig, galleryConfig, retypeQuestion, clozeParts, claimKey,
 } from './logic.js';
 import { typeIcon, chartIcon, cloudIcon } from './icons.js';
 import { TEMPLATES } from './templates.js';
@@ -267,6 +267,14 @@ function renderRail() {
   }
 
   questions.forEach((q, i) => list.append(railItem(q, i)));
+  // Painted in a second pass, once every item is in the document. A slide
+  // preview measures its own box to work out how far to scale the
+  // projector down (app/slide-preview.js), and a node that is not in the
+  // document yet measures nothing.
+  for (const child of list.children) {
+    const thumb = child.querySelector('.rail-thumb');
+    if (thumb) paintThumb(thumb, questions.find((q) => q.id === child.dataset.id));
+  }
 
   if (!before.size) return;
   for (const child of list.children) {
@@ -300,7 +308,8 @@ function railItem(q, index) {
   button.setAttribute('aria-current', q.id === selectedId ? 'true' : 'false');
   button.setAttribute('aria-label',
     `Slide ${index + 1}: ${q.prompt || 'untitled'}, ${TYPE_LABELS[q.type] || q.type}`);
-  paintThumb(button, q);
+  // No paintThumb here — renderRail() does it once the item is in the
+  // document. See the note there.
   button.addEventListener('click', () => selectSlide(q.id));
 
   const caption = document.createElement('span');
@@ -317,7 +326,8 @@ function railItem(q, index) {
 }
 
 function paintThumb(host, q) {
-  renderSlide(host, q, deck, resolveTheme(deck.theme, deck), { join: joinArt });
+  renderSlide(host, q, deck, resolveTheme(deck.theme, deck),
+    { slides: questions, join: joinArt });
 }
 
 /** Re-draw only the open slide's thumbnail — called on every keystroke. */
@@ -691,8 +701,6 @@ function openSlideGallery() {
 
     const thumb = document.createElement('span');
     thumb.className = 'gallery-thumb';
-    renderSlide(thumb, { type, prompt: '', config: defaultConfig(type) },
-      deck, resolveTheme(deck.theme, deck), { placeholder: true });
 
     const name = document.createElement('span');
     name.className = 'gallery-name';
@@ -711,6 +719,17 @@ function openSlideGallery() {
 
   pop.append(grid);
   document.body.append(backdrop, pop);
+  // Tiles are drawn once the gallery is in the document, for the same
+  // reason the rail's are: a preview scales itself from its own measured
+  // box, and a detached node has none. galleryConfig, not defaultConfig —
+  // a tile answers "what does this type look like", and a type whose
+  // default is empty draws what the projector would draw for it, which is
+  // nothing. See logic.js.
+  grid.querySelectorAll('.gallery-tile').forEach((tile) => {
+    renderSlide(tile.querySelector('.gallery-thumb'),
+      { type: tile.dataset.type, prompt: '', config: galleryConfig(tile.dataset.type) },
+      deck, resolveTheme(deck.theme, deck), { placeholder: true });
+  });
   applyGalleryFilter(pop);
   $('addSlide').setAttribute('aria-expanded', 'true');
 
@@ -890,20 +909,13 @@ function renderCanvas() {
     return;
   }
 
-  const index = questions.findIndex((x) => x.id === q.id);
-  // The canvas is a preview, so it obeys the same two deck settings the
-  // projector does — including hiding the label, or you would be trusting
-  // a picture that disagrees with the room.
-  host.style.setProperty('--prompt-scale', String(promptScale(deck)));
+  // The deck's own slides, so the canvas can print the kicker and the
+  // progress dots the room will see — the same way, from the same list,
+  // as present-page.js. It used to be handed a kicker string built here,
+  // which is how the editor once said "Slide 3 of 9" where the projector
+  // said "Question 3 of 8": two nouns and two denominators for one slide.
   const slide = renderSlide(host, q, deck, resolveTheme(deck.theme, deck), {
-    // Mirrors present-page.js's kicker exactly, content-slide branch and
-    // all. It used to count every slide and say "Slide 3 of 9" where the
-    // projector says "Question 3 of 8" — two different nouns and two
-    // different denominators for the same slide, because the room is told
-    // how many times it will be asked to answer and an instructions slide
-    // is not one of those. An instructor could not predict from this
-    // canvas what the room would read, which is the one job it has.
-    kicker: showSlideLabel(deck) ? slideKicker(q, index) : '',
+    slides: questions,
     join: joinArt,
     ambience: true,
   });
@@ -912,7 +924,7 @@ function renderCanvas() {
   mountDecorEditor(slide, q, decorCtx(q));
   note.textContent = isContentSlide(q.type)
     ? 'Nothing to answer. This slide just sits on the projector.'
-    : 'A sketch of the projected slide. Real results appear when you run it.';
+    : 'The projected slide, with a made-up class in it. Your room replaces them.';
 }
 
 function renderSlideEditor() {
@@ -2891,27 +2903,13 @@ function warnIfBackgroundExpiring(files) {
 }
 
 /**
- * The line above the prompt, exactly as the projector will print it.
- *
- * KEEP IN STEP with the kicker in app/present-page.js. `questionNumber()`
- * is the shared source of truth for the numbering; the two call sites
- * differ only in where they read the deck from.
- */
-function slideKicker(q, index) {
-  if (isContentSlide(q.type)) {
-    return `Slide ${index + 1} of ${questions.length}`;
-  }
-  const n = questionNumber(questions, q.id);
-  return `${TYPE_LABELS[q.type] || q.type} · Question ${n.number} of ${n.total}`;
-}
-
-/**
  * Quote the line the open slide will actually print in the Slides panel.
  *
  * The tick used to quote a fixed “Word cloud · Question 1 of 8”, which
  * belongs to no deck anyone has open — you could not read it and tell what
- * was about to leave your own slide. It reads the open slide through the
- * same slideKicker() the canvas does, so the two never disagree.
+ * was about to leave your own slide. It reads the open slide through
+ * logic.js's slideKicker(), which is also what the canvas and the
+ * projector print, so the three never disagree.
  */
 function describeSlideLabel() {
   const host = $('showSlideLabelText');
@@ -2921,8 +2919,7 @@ function describeSlideLabel() {
     host.textContent = 'Show the type-and-number line above each question';
     return;
   }
-  const index = questions.findIndex((x) => x.id === q.id);
-  host.textContent = `Show “${slideKicker(q, index)}” above each question`;
+  host.textContent = `Show “${slideKicker(q, questions)}” above each question`;
 }
 
 /**
@@ -3433,8 +3430,30 @@ function scheduleFlush() {
   saveTimer = setTimeout(() => { flushSaves().catch(() => {}); }, 420);
   // The canvas and the open thumbnail follow every keystroke; the rest of
   // the rail is untouched, so nothing you are not looking at repaints.
-  renderCanvas();
-  refreshSelectedThumb();
+  queuePreviewPaint();
+}
+
+/**
+ * One repaint per frame, however fast you type.
+ *
+ * A preview is the projector now — a real chart, drawn by charts.js at
+ * 1280×720 (app/slide-preview.js) — and the heaviest of them, a word
+ * cloud packing twenty words, costs about 15ms. Called straight from the
+ * keystroke handler that is what a dropped frame looks like at speed.
+ * Coalescing into rAF makes a burst of typing cost one paint instead of
+ * one per letter, and the paint still lands on the very next frame, so
+ * the canvas keeps up with the words as they are typed.
+ */
+let previewPaintQueued = false;
+
+function queuePreviewPaint() {
+  if (previewPaintQueued) return;
+  previewPaintQueued = true;
+  requestAnimationFrame(() => {
+    previewPaintQueued = false;
+    renderCanvas();
+    refreshSelectedThumb();
+  });
 }
 
 /** Is there an edit that the server has not confirmed? */

@@ -25,6 +25,17 @@
 [hidden] { display: none !important; }
 
 :root {
+  /* How big the screen a slide is drawn on is, as one hundredth of it.
+     The projector fills the window, so these are just the viewport units
+     — but the editor's previews draw the very same stage into a 1280×720
+     box and scale it down, and `vw` inside a scaled box still means the
+     window. Every viewport-relative size in present.css and charts.css
+     goes through these two, so a preview can hand in the numbers its
+     reference projector would have produced and get that projector's
+     composition rather than the browser window's. See app/slide-preview.js. */
+  --stage-vw: 1vw;
+  --stage-vh: 1vh;
+
   --ink: #1c2434;
   --ink-soft: #4a5568;
   --ground: #f7f4ee;

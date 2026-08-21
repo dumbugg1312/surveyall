@@ -139,6 +139,43 @@ export function defaultConfig(type) {
 }
 
 /**
+ * A slide of this type with something in it, for the new-slide gallery.
+ *
+ * The gallery is not previewing a slide anybody owns — it is answering
+ * "what does a Card sort look like". Since the previews became the real
+ * projector (app/slide-preview.js), a type whose default config is empty
+ * draws exactly what the projector would draw for it, which is nothing:
+ * pairList() strips a blank pair, so a fresh This-or-That has no rows and
+ * the tile came up blank. That is honest about a slide you have not
+ * written yet and useless as a picture of a type.
+ *
+ * Only the types whose defaults draw nothing need an entry. Everything
+ * else already illustrates itself, and inventing content for those would
+ * be one more list to keep true.
+ */
+const GALLERY_EXAMPLES = {
+  this_or_that: { pairs: [{ left: 'Cats', right: 'Dogs' }, { left: 'Tea', right: 'Coffee' }] },
+  matching: {
+    pairs: [
+      { left: 'Thesis', right: 'The claim' },
+      { left: 'Evidence', right: 'The proof' },
+    ],
+  },
+  // Both keys, because aggregate() counts taps against `segments` and the
+  // editor is what normally writes them when a passage is typed.
+  heatmap: (() => {
+    const passage = 'The evidence is overwhelming. Nobody serious disputes it. '
+      + 'The policy has clearly worked. We should extend it everywhere.';
+    return { passage, segments: splitPassage(passage) };
+  })(),
+  cloze: { text: 'The [thesis] goes first, and the [evidence] follows it.' },
+};
+
+export function galleryConfig(type) {
+  return { ...defaultConfig(type), ...(GALLERY_EXAMPLES[type] || {}) };
+}
+
+/**
  * Traffic light's three states, in the order a room reads them: fine,
  * wobbling, lost. Editable, because "I'm with you" is a different
  * sentence in a lab than in a seminar — but three of them, always: a
@@ -405,6 +442,68 @@ export function promptScale(deck) {
  */
 export function showSlideLabel(deck) {
   return deck?.settings?.showSlideLabel !== false;
+}
+
+/**
+ * Types that carry an answer key. Their charts hold it back until voting
+ * is closed AND results are revealed, so a slide left on screen while
+ * people are still answering never prints the answer.
+ */
+export const KEYED_TYPES = new Set(['quiz', 'cloze', 'matching', 'timeline', 'buckets']);
+
+/**
+ * The small line above a question — "Word cloud · Question 1 of 8".
+ *
+ * The room is told how many times it will be asked to answer, so an
+ * instructions slide is not one of those and gets counted separately.
+ * Shared, because the projector prints it, the editor's previews print
+ * it, and the Slides panel quotes it: three copies of this sentence is
+ * three chances to tell an instructor a number their class will not see.
+ */
+export function slideKicker(question, slides, { round = 1 } = {}) {
+  const list = sortedQuestions(slides || []);
+  if (isContentSlide(question?.type)) {
+    const i = list.findIndex((x) => x.id === question.id);
+    return `Slide ${(i >= 0 ? i : (question?.position ?? 0)) + 1} of ${list.length}`;
+  }
+  const n = questionNumber(list, question?.id);
+  return `${TYPE_LABELS[question?.type] || question?.type || 'Slide'}`
+    + ` · Question ${n.number} of ${n.total}`
+    + (round > 1 ? ` · Round ${round}` : '');
+}
+
+/**
+ * Which shape this slide's results are drawn as.
+ *
+ * Two knobs feed it. The slide's own `chart` is the instructor's choice.
+ * The deck's `audience` is a default: a younger room gets the dot plot,
+ * where one mark is one classmate and nobody has to trust the arithmetic
+ * — the concrete step on the way to the abstract bar (Alper et al.'s
+ * elementary visualization-literacy work), and the reason that renderer
+ * exists at all.
+ *
+ * Here rather than in present-page.js because the editor's previews draw
+ * the same chart from the same settings, and a preview that picked bars
+ * where the room will see dots is a preview of a different slide.
+ */
+export function chartStyleFor(question, deck, { cloudList = false } = {}) {
+  if (question?.type === 'word_cloud') return cloudList ? 'list' : 'cloud';
+  const chosen = question?.config?.chart;
+  if (chosen) return chosen;
+  return deck?.settings?.audience === 'younger' ? 'dots' : 'bars';
+}
+
+/**
+ * Headline the raw count or the percentage.
+ *
+ * Proportional reasoning is still developing through middle school, and
+ * "18 of us" is a fact a twelve-year-old can hold where "42%" is a
+ * conversion. The slide's own setting wins where it has one; otherwise
+ * the deck's audience decides.
+ */
+export function showPercentFor(question, deck) {
+  if (question?.config?.show_counts != null) return question.config.show_counts !== true;
+  return deck?.settings?.audience !== 'younger';
 }
 
 /** Fill %CODE% / %URL% placeholders in an instructions step. */

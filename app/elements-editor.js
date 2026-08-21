@@ -125,10 +125,10 @@ function patchLive(q, index, patch) {
   // unscoped query repainted slide 7's second element with slide 3's
   // colour on every tick of the opacity slider.
   const mine = q?.id != null
-    ? `.sp-slide[data-qid="${CSS.escape(String(q.id))}"] `
+    ? `.stage[data-qid="${CSS.escape(String(q.id))}"] `
     : '';
   document.querySelectorAll(`${mine}.decor-item[data-decor-index="${index}"]`).forEach((node) => {
-    if (!node.closest('.sp-slide, .stage')) return;
+    if (!node.closest('.stage')) return;
     const fresh = decorNode(next);
     node.style.cssText = fresh.style.cssText;
     node.replaceChildren(...fresh.childNodes);
@@ -623,8 +623,10 @@ function addElement(q, id, ctx) {
 /**
  * Lay a drag surface over the rendered editor canvas.
  *
- * `slide` is the .sp-slide returned by renderSlide(), which already has
- * the decor drawn into it. This adds the part you can grab: one handle
+ * `slide` is the .stage returned by renderSlide() — the projector's own
+ * stage, laid out at 1280x720 and scaled to the canvas box — which
+ * already has the decor drawn into it. Percentages and getBoundingClientRect
+ * both read through the scale, so nothing here has to know about it. This adds the part you can grab: one handle
  * per element, the two shaded areas the projector's own furniture sits
  * in, and the alignment guides that appear mid-drag.
  */

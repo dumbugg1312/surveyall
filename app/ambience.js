@@ -301,7 +301,7 @@ function round1(n) { return Math.round(n * 10) / 10; }
  * their animations — which matters, because a restart is a visible jump
  * back to frame zero on something the room is looking at.
  *
- * @param {HTMLElement} host  the .stage-backdrop / .sp-backdrop element
+ * @param {HTMLElement} host  the .stage-backdrop element
  * @param {object} plan  from ambiencePlan()
  */
 export function applyAmbience(host, plan) {

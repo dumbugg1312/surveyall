@@ -13,6 +13,12 @@
 <link rel="apple-touch-icon" href="/favicon-180.png">
 <link rel="stylesheet" href="styles/fonts.css">
 <link rel="stylesheet" href="styles/base.css">
+<!-- The projector's own stylesheets. Every slide the editor draws IS the
+     projector, scaled down (app/slide-preview.js), so these are not a
+     copy of its look — they are its look. Loaded before app.css so the
+     editor's own rules win any tie. -->
+<link rel="stylesheet" href="styles/charts.css">
+<link rel="stylesheet" href="styles/present.css">
 <link rel="stylesheet" href="styles/app.css">
 <link rel="stylesheet" href="styles/ambience.css">
 <link rel="stylesheet" href="styles/preview.css">

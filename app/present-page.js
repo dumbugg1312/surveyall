@@ -16,10 +16,11 @@ import {
 } from './db.js';
 import {
   aggregate, computeDelta, quizLeaderboard, sortedQuestions,
-  neighbourQuestion, joinURL, joinURLPretty, TYPE_LABELS, correctIndices, optionLabels,
+  neighbourQuestion, joinURL, joinURLPretty, correctIndices, optionLabels,
   promptKey, isContentSlide, fillJoinPlaceholders, DEFAULT_JOIN_STEPS,
   questionNumber, promptScale, promptAlign, resolvePromptAlign, showSlideLabel,
   consensusClaims, consensusMaxClaims,
+  KEYED_TYPES, chartStyleFor, showPercentFor, slideKicker,
 } from './logic.js';
 import {
   applyTheme, backgroundStyles, scrimOpacity, resolveTheme,
@@ -330,10 +331,10 @@ async function render() {
   const n = questionNumber(state.questions, q.id);
   ui.stage.classList.toggle('is-content-slide', content);
   ui.kicker.hidden = !showSlideLabel(state.deck);
-  ui.kicker.textContent = content
-    ? `Slide ${(q.position ?? 0) + 1} of ${state.questions.length}`
-    : `${TYPE_LABELS[q.type] || q.type} · Question ${n.number} of ${n.total}`
-      + (s.current_round > 1 ? ` · Round ${s.current_round}` : '');
+  // The same sentence the editor's canvas and its rail print, from the
+  // same function — the editor used to build its own and said "Slide 3 of
+  // 9" where this said "Question 3 of 8".
+  ui.kicker.textContent = slideKicker(q, state.questions, { round: s.current_round });
   ui.prompt.textContent = q.prompt || '';
   // Per slide, not once at startup: a slide can sit its heading somewhere
   // other than the rest of the deck, which is what a title slide in the
@@ -604,13 +605,6 @@ function resetChart() {
   ui.chart.removeAttribute('data-spotting');
 }
 
-/**
- * Types that carry an answer key. Their charts hold it back until voting
- * is closed AND results are revealed, so a slide left on screen while
- * people are still answering never prints the answer.
- */
-const KEYED_TYPES = new Set(['quiz', 'cloze', 'matching', 'timeline', 'buckets']);
-
 // ------------------------------------------------- pace ember (flares)
 // The "lost me" channel, kept deliberately quiet: a small footer pill
 // that warms while flares are fresh and cools to nothing on its own. A
@@ -740,11 +734,11 @@ function paintChart() {
     && !s.accepting && s.reveal;
   const agg = aggregate(q.type, q.config, rows);
   renderAggregate(ui.chart, q.type, agg, {
-    style: chartStyle(q),
+    style: chartStyleFor(q, state.deck, { cloudList: state.cloudList }),
     hidden: !s.reveal,
     revealCorrect: revealKey,
     revealStyle: q.type === 'quiz' ? 'correct' : 'best',
-    showPercent: showPercentFor(q),
+    showPercent: showPercentFor(q, state.deck),
     // A full track means "share of the leader" while the votes are
     // landing and "share of the room" once they have stopped — see the
     // long note in renderChoice.
@@ -778,36 +772,6 @@ function paintChart() {
 
   // let the instructor bin an inappropriate open response on the spot
   if (q.type === 'open_ended') wireCardDeletes(agg);
-}
-
-/**
- * Which shape this slide's results are drawn as.
- *
- * Two knobs feed it. The slide's own `chart` is the instructor's choice.
- * The deck's `audience` is a default: a younger room gets the dot plot,
- * where one mark is one classmate and nobody has to trust the arithmetic
- * — the concrete step on the way to the abstract bar (Alper et al.'s
- * elementary visualization-literacy work), and the reason that renderer
- * exists at all.
- */
-function chartStyle(q) {
-  if (q.type === 'word_cloud') return state.cloudList ? 'list' : 'cloud';
-  const chosen = q.config?.chart;
-  if (chosen) return chosen;
-  return state.deck?.settings?.audience === 'younger' ? 'dots' : 'bars';
-}
-
-/**
- * Headline the raw count or the percentage.
- *
- * Proportional reasoning is still developing through middle school, and
- * "18 of us" is a fact a twelve-year-old can hold where "42%" is a
- * conversion. The slide's own setting wins where it has one; otherwise
- * the deck's audience decides.
- */
-function showPercentFor(q) {
-  if (q.config?.show_counts != null) return q.config.show_counts !== true;
-  return state.deck?.settings?.audience !== 'younger';
 }
 
 // ------------------------------------------------- discussion spotlight

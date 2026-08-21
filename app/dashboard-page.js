@@ -23,6 +23,7 @@ import { parseDeck, SAMPLE_DECK } from './deck-format.js';
 import { renderSlide } from './slide-preview.js';
 import { icon } from './icons.js';
 import { joinBase } from './config.js';
+import { qrSVG, qrInk } from './qr.js';
 import { joinURL, joinURLPretty } from './logic.js';
 import {
   el, button, linkBtn, emptyState, toast, openModal, askText, askConfirm, fmt,
@@ -388,6 +389,30 @@ function paintDeckYield(host, deck, stats) {
 }
 
 /**
+ * A deck's join code, address and encoded QR — what the projector prints.
+ *
+ * Memoised per code: the grid redraws whenever a deck is renamed, copied
+ * or deleted, and re-encoding the same QR on every repaint is work with a
+ * known answer.
+ */
+const joinArtCache = new Map();
+
+async function joinArtFor(deck) {
+  const code = deck.join_code || '';
+  if (!code) return { code: '', url: '', qrSVG: null };
+  if (joinArtCache.has(code)) return joinArtCache.get(code);
+  const ink = qrInk(getComputedStyle(document.documentElement)
+    .getPropertyValue('--ink').trim());
+  const art = {
+    code,
+    url: joinURLPretty(joinBase(), code),
+    qrSVG: await qrSVG(joinURL(joinBase(), code), { dark: ink, light: '#ffffff' }),
+  };
+  joinArtCache.set(code, art);
+  return art;
+}
+
+/**
  * Fill in the parts of a card that need the deck's slides.
  *
  * The card is already on screen by the time this runs, so the grid never
@@ -405,11 +430,23 @@ async function paintDeckPreview({ deck, themeRef, preview, meta, stats, gen }) {
   }
   if (gen !== generation) return;
 
+  // The deck's real, scannable join art. A card draws the projector now
+  // (app/slide-preview.js), and an instructions slide's QR is most of what
+  // that slide IS — handed only a code, renderInstructions has nothing to
+  // draw and hides the plate, so the card showed a join card with no join
+  // on it. Encoded here rather than in renderSlide because a QR is async
+  // and a slide is not.
+  const art = await joinArtFor(deck);
+  if (gen !== generation) return;
+
   preview.textContent = '';
   renderSlide(preview, questions[0] || { type: null, prompt: deck.title, config: {} },
     deck, themeRef, {
       placeholder: !questions.length,
-      join: { code: deck.join_code || '' },
+      // No `slides`: a card is one slide standing for a deck, and a
+      // kicker reading "Question 1 of 12" on it would be answering a
+      // question nobody asked of a card this small.
+      join: art,
     });
 
   if (failed) { meta.textContent = ''; return; }

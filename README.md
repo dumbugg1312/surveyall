@@ -106,6 +106,12 @@ app/                ES modules, no build step
   deck-format.js      plain-text deck parser/serialiser
   db.js               the ONLY file that knows a backend exists
   charts.js           result rendering
+  slide-preview.js    a slide, anywhere: the projector's own markup at
+                      1280x720, scaled to fit. The rail, the canvas, the
+                      type gallery and the deck cards all draw with it
+  sample-class.js     the invented class — one deterministic room of
+                      plausible answers, shared by the previews and the
+                      rehearsal room behind the Preview button
   motion.js           spring-physics animation engine
   export-model.js     a session as slides — the shape both deck exports read
   export-print.js     the PDF: real charts on a 16:9 page, then window.print()
@@ -115,6 +121,8 @@ app/                ES modules, no build step
   elements.js         slide elements: anchors, colour, the annotation marks
   elements-data.js    generated Lucide (ISC) + Tabler (MIT) path data — do not hand-edit
   elements-editor.js  the element picker and drag-to-place surface
+  preview-room.js     the classroom, faked in memory, so a deck can be
+                      rehearsed without a session or a database row
   participant-state.js session-scoped pseudonym handling
   *-page.js           one controller per page
 
@@ -129,7 +137,8 @@ styles/             base, app, charts, present, join, home, elements,
 tools/              build-elements.mjs — rebuilds the icon catalogue;
                     a11y-contrast.mjs — checks theme contrast ratios
 tests/              run-tests.mjs + run-worker-tests.mjs (node),
-                    visual-check.html, elements-check.html,
+                    visual-check.html, slide-check.html,
+                    elements-check.html, present-check.html,
                     export-check.html (browser)
 docs/               architecture.md, DEPLOYMENT.md, HANDOFF.md, elements.md,
                     accessibility.md, visual-craft.md, pedagogy-roadmap.md,
@@ -152,6 +161,8 @@ npm test
 `tests/run-worker-tests.mjs` — 97 tests of the API itself, and they are not mocked: they build a real SQLite database from `worker/schema.sql`, wrap it in the slice of the D1 API the Worker uses, and drive the Worker's own `fetch` handler with real requests. They cover password hashing (including that a stolen database is useless without the Worker's secret), token rules, sign-up gating, throttling, and — the reason the suite exists — **cross-account isolation**: that a second instructor cannot read or write another's decks, questions, sessions, responses, Q&A, or backgrounds. Each isolation test checks both halves, that the owner still can and the stranger cannot, because a blanket 404 would otherwise pass.
 
 `tests/elements-check.html` covers slide elements: it mounts the real editor canvas, drag surface and picker against an invented deck, then self-audits that every placed element reaches all three surfaces (projector, canvas, rail), that the decor layer stays below the join card so a QR can never be covered, that art scales with the slide rather than with the local font-size, and that a decorated deck survives a round trip through the text format. It re-runs the audit on every theme switch, so it covers all twenty themes in `app/themes.js`.
+
+`tests/slide-check.html` is the one that keeps the editor honest about what it is showing you. The editor draws every slide — rail, canvas, type gallery, deck cards — by laying out `present.html`'s own stage at 1280×720 and scaling it down (`app/slide-preview.js`), so a preview is not a picture of the projector, it is the projector. The page renders one question both ways at that exact size and compares where every landmark landed, then draws all twenty-three types at rail and canvas widths so a type that collapses when small is visible rather than theoretical. It exists because the previews used to be a separate renderer with its own stylesheet, and separate renderers drift: measured against the real slide, the sketch drew the heading 1.86× too large, started the chart 21 points of slide height too low, and left off the footer and the join card entirely.
 
 For the rendering itself, open `tests/visual-check.html` in a browser. It draws every chart type with sample data and no database, simulates a live class so you can watch results animate in, and self-audits the word-cloud layout for overlaps. It also doubles as a way to check a theme is readable on your projector before class.
 

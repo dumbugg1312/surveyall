@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slide check — SurveyAll</title>
+<link rel="stylesheet" href="../styles/fonts.css">
+<link rel="stylesheet" href="../styles/base.css">
+<link rel="stylesheet" href="../styles/charts.css">
+<link rel="stylesheet" href="../styles/present.css">
+<link rel="stylesheet" href="../styles/app.css">
+<link rel="stylesheet" href="../styles/ambience.css">
+<link rel="stylesheet" href="../styles/elements.css">
+<style>
+  body { margin: 0; padding: 1.2rem; }
+  h2 { font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); margin: 1.6rem 0 .6rem; }
+  .status { padding: .7rem 1rem; border-radius: 10px; font-weight: 600; font-size: .85rem; margin-bottom: .8rem; }
+  .status.ok { background: color-mix(in srgb, var(--good) 14%, transparent); color: var(--good); }
+  .status.bad { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
+  .side { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
+  .side > div { min-width: 0; }
+  .ref { width: 100%; aspect-ratio: 16/9; border: 1px solid var(--edge); border-radius: 10px; overflow: hidden; }
+  .ref iframe { width: 1280px; height: 720px; border: 0; transform-origin: 0 0; display: block; }
+  .cap { font-size: .68rem; color: var(--ink-soft); margin: .25rem 0 0; }
+  table.diff { border-collapse: collapse; font-size: .72rem; width: 100%; margin-top: .6rem; }
+  table.diff th, table.diff td { border-bottom: 1px solid var(--edge); padding: .2rem .4rem; text-align: left; font-variant-numeric: tabular-nums; }
+  table.diff td.bad { color: var(--bad); font-weight: 700; }
+  .types { display: grid; grid-template-columns: 11rem minmax(0, 26rem) 9rem; gap: 1rem; align-items: start; }
+  .types > .h { font-size: .7rem; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-soft); }
+  .name { font-size: .78rem; font-weight: 650; padding-top: .3rem; }
+  .box { border: 1px solid var(--edge); border-radius: 8px; overflow: hidden; }
+</style>
+</head>
+<body>
+
+<!--
+  Two questions this page answers.
+
+  1. IS A PREVIEW THE PROJECTOR? app/slide-preview.js draws every slide in
+     the editor by laying out present.html's own stage at 1280×720 and
+     scaling it. The check below renders one question both ways at that
+     exact size and compares where things landed. Before the renderers
+     were merged, this table read: heading 1.86× too big, chart 21 points
+     of slide height too low, footer and join card missing outright.
+
+  2. DOES EVERY TYPE SURVIVE BEING SMALL? A rail thumbnail is a real
+     chart at about a sixth scale. The strip at the bottom draws all of
+     them at rail, canvas and gallery widths so a type that collapses is
+     visible rather than theoretical.
+
+  Nothing here touches the database: the projector runs on preview-room.js,
+  the same faked classroom the editor's Preview button uses.
+-->
+
+<h1 class="h3">Slide check</h1>
+<p class="muted">The editor's previews against the projector they claim to be.</p>
+
+<div id="status" class="status">Measuring…</div>
+
+<h2>Same slide, both renderers, 1280×720</h2>
+<div class="side">
+  <div>
+    <div class="ref" id="refBox"><iframe id="proj" title="Projector"></iframe></div>
+    <p class="cap">present.html — the real projector</p>
+  </div>
+  <div>
+    <div id="prev"></div>
+    <p class="cap">renderSlide() — what the editor draws</p>
+  </div>
+</div>
+<div id="diff"></div>
+
+<h2>Every type, at every size a preview is asked for</h2>
+<div class="types" id="types">
+  <span class="h">Type</span><span class="h">Canvas</span><span class="h">Rail</span>
+</div>
+
+<script type="module">
+import { createPreviewRoom } from '../app/preview-room.js';
+import { renderSlide, STAGE_W, STAGE_H } from '../app/slide-preview.js';
+import { TYPE_LABELS, galleryConfig, joinURL, joinURLPretty } from '../app/logic.js';
+import { qrSVG } from '../app/qr.js';
+
+// joinBase() reads the page's own directory, and this harness lives in
+// /tests/ while the projector it is compared against lives at the root —
+// so left alone the two would print join addresses of different lengths
+// and the card would legitimately measure a different width. The editor
+// has no such problem: edit.html and present.html sit side by side.
+const base = `${window.location.origin}`;
+
+const deck = {
+  id: 'slide-check',
+  title: 'Slide check',
+  theme: 'lecture-hall',
+  join_code: 'CHECK1',
+  settings: {},
+};
+
+/** The question both renderers draw. Deliberately ordinary. */
+const question = {
+  id: 'q1', deck_id: deck.id, position: 0, type: 'multiple_choice',
+  prompt: 'Which of these is the strongest thesis?',
+  config: {
+    options: ['It grows over time', 'It burns quickly', 'It cools down', 'None of these'],
+    chart: 'bars',
+  },
+};
+const questions = [question, {
+  id: 'q2', deck_id: deck.id, position: 1, type: 'word_cloud',
+  prompt: 'One word for how the reading went', config: { max_words: 1 },
+}];
+
+// present.html sends a signed-out visitor to the sign-in page, so it would
+// never reach the rehearsal room. The value is never checked — preview-net.js
+// intercepts every /api/ call and the room answers auth/check itself.
+const TOKEN_KEY = 'surveyall:token';
+const hadToken = window.localStorage.getItem(TOKEN_KEY);
+if (!hadToken) window.localStorage.setItem(TOKEN_KEY, 'slide-check');
+window.addEventListener('beforeunload', () => {
+  if (!hadToken) window.localStorage.removeItem(TOKEN_KEY);
+});
+
+const joinArt = {
+  code: deck.join_code,
+  url: joinURLPretty(base, deck.join_code),
+  qrSVG: await qrSVG(joinURL(base, deck.join_code), { dark: '#1c2434', light: '#ffffff' }),
+};
+
+const room = createPreviewRoom(deck, questions);
+const frame = document.getElementById('proj');
+frame.src = `../present.html?preview=1&session=${encodeURIComponent(room.sessionId)}`;
+
+renderSlide(document.getElementById('prev'), question, deck, deck.theme,
+  { slides: questions, join: joinArt });
+
+// The reference iframe has to lay out at its true size to be a fair
+// comparison, so it is scaled the same way a preview is.
+const refBox = document.getElementById('refBox');
+new ResizeObserver(([e]) => {
+  frame.style.transform = `scale(${e.contentRect.width / STAGE_W})`;
+}).observe(refBox);
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Keep the projector animating even when nobody is looking at it.
+ * A hidden pane pauses rAF outright, and an unpumped projector freezes
+ * with its springs at zero and its delay() beats never arriving — which
+ * would fail every row below for reasons that say nothing about the code.
+ */
+function pumpFrames() {
+  const w = frame.contentWindow;
+  if (w.__pumped) return;
+  w.__pumped = true;
+  w.requestAnimationFrame = (cb) => w.setTimeout(() => cb(w.performance.now()), 16);
+}
+
+/** Where a node sits inside its stage, in percent — the only fair unit. */
+function boxIn(node, stageBox) {
+  if (!node) return null;
+  const b = node.getBoundingClientRect();
+  return {
+    x: (b.x - stageBox.x) / stageBox.width * 100,
+    y: (b.y - stageBox.y) / stageBox.height * 100,
+    w: b.width / stageBox.width * 100,
+    h: b.height / stageBox.height * 100,
+  };
+}
+
+const LANDMARKS = [
+  ['kicker', '.stage-kicker', '#kicker'],
+  ['prompt', '.stage-prompt', '#prompt'],
+  ['head', '.stage-head', '#head'],
+  ['body', '.stage-body', '#body'],
+  ['chart', '.chart', '#chart'],
+  ['foot', '.stage-foot', '#foot'],
+  ['join card', '.join-corner', '#joinCorner'],
+];
+
+/** Percentage points of slack. Sub-pixel rounding only. */
+const TOLERANCE = 0.05;
+
+async function audit() {
+  pumpFrames();
+  const doc = frame.contentDocument;
+
+  // A session opens in the lobby with the join code up, exactly as it does
+  // in a classroom; Next is what starts it. Then let the room answer, so
+  // both sides are showing a slide that has been voted on.
+  if (!doc.getElementById('lobby').hidden) {
+    doc.getElementById('btnNext').click();
+    await sleep(900);
+  }
+  room.setTestResponses(true);
+  for (let i = 0; i < 60 && doc.querySelectorAll('#chart .chart-row').length === 0; i += 1) {
+    await sleep(150);
+  }
+  await sleep(1200);
+  // Voting closed and results up: the state a preview draws, and the state
+  // an instructor is judging when they ask whether four options fit.
+  doc.getElementById('btnClose').click();
+  await sleep(900);
+  // Land any transition still in flight — chiefly the join card's
+  // awaiting step-down, a .3s font-size ease that starts the instant the
+  // first vote lands — so this measures the slide rather than a moment in
+  // it. Transitions only: the live dot and the backdrop's drift are
+  // infinite loops with no end to finish to.
+  doc.querySelectorAll('*').forEach((n) => n.getAnimations()
+    .forEach((a) => { if (a instanceof frame.contentWindow.CSSTransition) a.finish(); }));
+
+  const pStage = doc.getElementById('stage');
+  const pBox = pStage.getBoundingClientRect();
+  const eStage = document.querySelector('#prev .stage');
+  const eBox = eStage.getBoundingClientRect();
+
+  const rows = [];
+  const errors = [];
+
+  const pFont = frame.contentWindow.getComputedStyle(doc.getElementById('prompt')).fontSize;
+  const eFont = getComputedStyle(document.querySelector('#prev .stage-prompt')).fontSize;
+  rows.push({ name: 'heading font-size', a: pFont, b: eFont, bad: pFont !== eFont });
+  if (pFont !== eFont) errors.push(`heading is ${eFont}, projector draws ${pFont}`);
+
+  for (const [name, sel, id] of LANDMARKS) {
+    const a = boxIn(doc.querySelector(id), pBox);
+    const b = boxIn(document.querySelector(`#prev ${sel}`), eBox);
+    if (!a && !b) { rows.push({ name, a: '—', b: '—', bad: false }); continue; }
+    if (!a || !b) {
+      rows.push({ name, a: a ? 'drawn' : 'absent', b: b ? 'drawn' : 'absent', bad: true });
+      errors.push(`${name}: ${a ? 'the projector draws it and the preview does not' : 'the preview draws it and the projector does not'}`);
+      continue;
+    }
+    const off = Math.max(...['x', 'y', 'w', 'h'].map((k) => Math.abs(a[k] - b[k])));
+    const fmt = (v) => `${v.x.toFixed(2)}, ${v.y.toFixed(2)} · ${v.w.toFixed(2)}×${v.h.toFixed(2)}`;
+    rows.push({ name, a: fmt(a), b: fmt(b), bad: off > TOLERANCE });
+    if (off > TOLERANCE) errors.push(`${name} is off by ${off.toFixed(2)} points of slide`);
+  }
+
+  document.getElementById('diff').innerHTML = `<table class="diff">
+    <tr><th>landmark</th><th>projector (x, y · w×h, % of slide)</th><th>preview</th></tr>
+    ${rows.map((r) => `<tr><td>${r.name}</td><td>${r.a}</td><td class="${r.bad ? 'bad' : ''}">${r.b}</td></tr>`).join('')}
+  </table>`;
+
+  // Every preview on this page, including all forty-six in the type
+  // strip, must actually be scaled. A preview drawn into a node that is
+  // not in the document yet measures nothing, so it stays at scale 1 — a
+  // 1280px stage showing its top-left corner through a thumbnail-sized
+  // window. It is a quiet failure (the ResizeObserver usually rescues it
+  // on the next frame, and never on a page that is not being rendered),
+  // which is exactly why it is asserted rather than eyeballed.
+  //
+  // Generously toleranced on purpose. The observer that keeps the scale
+  // current only runs as part of the rendering steps, so on a page that
+  // is not being painted — this harness, opened in a hidden pane — a
+  // scale can lag a resize by a percent or two. That lag is harmless and
+  // self-correcting; the failure being hunted is a preview stuck at 1
+  // against a box a third the size, which is off by 200%, not by 2%.
+  const frames = [...document.querySelectorAll('.slide-fit')];
+  const unscaled = frames.filter((f) => {
+    const k = parseFloat(getComputedStyle(f).getPropertyValue('--slide-fit'));
+    const want = f.getBoundingClientRect().width / STAGE_W;
+    return !(k > 0) || Math.abs(k - want) / want > 0.05;
+  });
+  if (unscaled.length) {
+    errors.push(`${unscaled.length} of ${frames.length} previews are not scaled to their box`);
+  }
+
+  // A type that draws nothing is a tile that says nothing. Types whose
+  // default config is empty get example content from galleryConfig().
+  const blank = [...document.querySelectorAll('#types .box')]
+    .filter((b) => b.querySelector('.chart')?.getBoundingClientRect().height < 2);
+  if (blank.length) errors.push(`${blank.length} previews drew an empty chart`);
+
+  const box = document.getElementById('status');
+  box.className = `status ${errors.length ? 'bad' : 'ok'}`;
+  box.textContent = errors.length
+    ? `${errors.length} problem(s): ${errors.join(' · ')}`
+    : `ok — every landmark within ${TOLERANCE} points of slide, the heading is set at the projector's own size (${pFont}), and all ${frames.length} previews are scaled and drawing. The preview IS the projector at ${STAGE_W}×${STAGE_H}.`;
+  return { ok: !errors.length, errors };
+}
+
+// ---- every type, at the two sizes the editor asks for ------------------
+
+const grid = document.getElementById('types');
+Object.keys(TYPE_LABELS).forEach((type, i) => {
+  const q = { id: `t${i}`, type, prompt: TYPE_LABELS[type], config: galleryConfig(type) };
+
+  const name = document.createElement('div');
+  name.className = 'name';
+  name.textContent = TYPE_LABELS[type];
+
+  const canvas = document.createElement('div');
+  canvas.className = 'box';
+  const rail = document.createElement('div');
+  rail.className = 'box';
+
+  // Appended before they are drawn: a preview measures its own box to
+  // work out the scale, and a detached node has no box.
+  grid.append(name, canvas, rail);
+  renderSlide(canvas, q, deck, deck.theme, { slides: [q], join: joinArt });
+  renderSlide(rail, q, deck, deck.theme, { slides: [q], join: joinArt });
+});
+
+window.__audit = audit;
+// setTimeout, not requestAnimationFrame: rAF is throttled to nothing in a
+// background tab, and this page is often opened and read from a hidden one.
+setTimeout(() => audit().catch((e) => {
+  const box = document.getElementById('status');
+  box.className = 'status bad';
+  box.textContent = `harness failed: ${e.message}`;
+}), 400);
+</script>
+</body>
+</html>

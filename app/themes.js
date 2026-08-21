@@ -897,7 +897,7 @@ const AA_TEXT = 4.55;
 const AA_NONTEXT = 3.05;
 /**
  * The strongest `color-mix(TOKEN n%, transparent)` wash that has type of
- * that same colour drawn on it — .sp-rank-num, .lb-row.is-top3 .lb-rank,
+ * that same colour drawn on it — .lb-row.is-top3 .lb-rank,
  * .chip-live, .timer.is-urgent, .chip-ended respectively. Heavier washes
  * exist (a 45% accent border-mix, a 26% ink scrim) but carry no matching
  * type, so they set no floor. Raise a number here if a new chip does.
