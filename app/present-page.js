@@ -21,6 +21,7 @@ import {
   questionNumber, promptScale, promptAlign, resolvePromptAlign, showSlideLabel,
   consensusClaims, consensusMaxClaims,
   KEYED_TYPES, chartStyleFor, showPercentFor, slideKicker,
+  moodIcons, timelineItems,
 } from './logic.js';
 import {
   applyTheme, backgroundStyles, scrimOpacity, resolveTheme,
@@ -28,9 +29,12 @@ import {
 import { ambiencePlan, applyAmbience } from './ambience.js';
 import {
   renderAggregate, renderDelta, renderLeaderboard, renderInstructions,
-  celebrate, pulseCount, CLOUD_MAX_WORDS,
+  celebrate, pulseCount, CLOUD_MAX_WORDS, optionColors,
 } from './charts.js';
-import { countTo, delay } from './motion.js';
+import { countTo, delay, mixColor } from './motion.js';
+import {
+  mountMural, muralTheme, muralSync, muralPresence, muralRelease,
+} from './mural.js';
 import {
   captureSlide, playSlideTransition, clearSlideTransition,
   resolveTransition, transitionDirection,
@@ -142,8 +146,9 @@ async function boot() {
   state.deck = await getDeck(state.session.deck_id);
   state.questions = sortedQuestions(await listQuestions(state.deck.id));
 
-  applyTheme(document.documentElement,
+  const theme = applyTheme(document.documentElement,
     resolveTheme(state.session.theme || state.deck.theme, state.deck));
+  muralTheme(theme);
   // Deck-wide slide settings, applied once: the question's size, and
   // whether the room is told which slide it is looking at.
   document.documentElement.style.setProperty('--prompt-scale',
@@ -153,6 +158,10 @@ async function boot() {
   document.documentElement.style.setProperty('--prompt-align',
     promptAlign(state.deck));
   paintBackground();
+  // The mural: every answer comes up as a soft seed of light around the
+  // chart (app/mural.js). Mounted once; it paints from the rows
+  // paintChart() already holds.
+  mountMural(ui.stage);
   // awaited: an instructions slide stamps the encoded QR straight into the
   // slide, so it has to exist before the first render, not one frame later
   await paintJoin();
@@ -277,6 +286,8 @@ function renderPresence() {
   ui.lobbyPresenceText.textContent =
     n <= 0 ? 'Waiting for the room…' : `${n} here`;
   el.hidden = false;
+  // one seed of light per phone connected: the room gathering, on the wall
+  muralPresence(n);
 }
 
 async function render() {
@@ -295,6 +306,9 @@ async function render() {
       : (state.deck.title || 'Ready when you are');
     ui.lobbyKicker.textContent = s.state === 'ended' ? 'Thanks' : 'Join now';
     renderPresence();
+    // the wall: the last flower lets go at the end; in the lobby the
+    // seeds are the phones connecting (see renderPresence)
+    if (s.state === 'ended') muralRelease();
     return;
   }
 
@@ -354,6 +368,8 @@ async function render() {
     // vote, and repainting the decor each time would restart its
     // entrance animation under the room every few seconds.
     renderDecor(ui.decor, q.config);
+    // the old flower lets go; the next question grows its own
+    muralRelease();
 
     setView('results');
     state.rows = [];
@@ -733,6 +749,16 @@ function paintChart() {
   const revealKey = (KEYED_TYPES.has(q.type) || q.config?.mode === 'best')
     && !s.accepting && s.reveal;
   const agg = aggregate(q.type, q.config, rows);
+
+  // The wall: one seed per row, in the colour the answer wears on the
+  // chart — neutral while results are hidden, so the flower says how
+  // many without saying what. On a quiz verdict the seeds follow the
+  // bars: the right answer's seeds take the verdict green, the rest
+  // lose their colour, so the wall and the chart tell one story.
+  if (q.type !== 'qa') {
+    const verdict = q.type === 'quiz' && revealKey ? new Set(correctIndices(cfgOf(q))) : null;
+    muralSync(rows, s.reveal ? (row) => seedColor(q, row, verdict) : () => null);
+  }
   renderAggregate(ui.chart, q.type, agg, {
     style: chartStyleFor(q, state.deck, { cloudList: state.cloudList }),
     hidden: !s.reveal,
@@ -772,6 +798,77 @@ function paintChart() {
 
   // let the instructor bin an inappropriate open response on the spot
   if (q.type === 'open_ended') wireCardDeletes(agg);
+}
+
+/**
+ * What colour an answer is, in the chart's own palette.
+ *
+ * Every branch here reuses a colour the chart above already assigns to
+ * the same answer — the option wheel, the low→high ramp between
+ * --accent-2 and --accent, the lamp's light — so the flower behind the
+ * chart is the chart's distribution in another form, not a second
+ * palette. Anything without a natural colour is the accent.
+ */
+function cfgOf(q) { return q.config || {}; }
+
+function seedColor(q, row, verdict = null) {
+  const p = row?.payload || {};
+  const root = document.documentElement;
+  const tok = (name) => getComputedStyle(root).getPropertyValue(name).trim();
+  if (verdict) {
+    // the same two colours the verdict paints the rows in
+    return verdict.has(p.choice) ? tok('--good') : mixColor(tok('--ink-soft'), tok('--ground'), 0.45);
+  }
+  const ramp = (t) => mixColor(tok('--accent-2'), tok('--accent'),
+    Math.min(1, Math.max(0, Number(t) || 0)));
+  const cfg = q.config || {};
+  switch (q.type) {
+    case 'multiple_choice': {
+      const n = optionLabels(cfg).length;
+      const i = Array.isArray(p.choices) ? p.choices[0] : p.choice;
+      return optionColors(root, n)[i] || tok('--accent');
+    }
+    case 'quiz':
+    case 'sample_vote': {
+      const n = q.type === 'quiz' ? optionLabels(cfg).length
+        : (Array.isArray(cfg.samples) ? cfg.samples.length : 1);
+      return optionColors(root, n)[p.choice] || tok('--accent');
+    }
+    case 'scales': {
+      const vals = (Array.isArray(p.values) ? p.values : []).filter((v) => Number.isFinite(v));
+      if (!vals.length) return tok('--accent');
+      const min = Number.isFinite(cfg.min) ? cfg.min : 1;
+      const max = Number.isFinite(cfg.max) ? cfg.max : 5;
+      const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+      return ramp(max > min ? (mean - min) / (max - min) : 1);
+    }
+    case 'spectrum': return ramp((Number(p.pos) || 0) / 100);
+    case 'probability': return ramp((Number(p.pct) || 0) / 100);
+    case 'traffic': return [tok('--good'), tok('--accent-2'), tok('--bad')][p.choice] || tok('--accent');
+    case 'mood':
+      return optionColors(root, Math.max(2, moodIcons(cfg).length))[p.choice] || tok('--accent');
+    case 'this_or_that': {
+      const picks = Array.isArray(p.picks) ? p.picks.filter((v) => v === 0 || v === 1) : [];
+      if (!picks.length) return tok('--accent');
+      return ramp(picks.reduce((a, b) => a + b, 0) / picks.length);
+    }
+    case 'ranking':
+    case 'timeline': {
+      const items = q.type === 'timeline'
+        ? timelineItems(cfg).length
+        : (Array.isArray(cfg.items) ? cfg.items.length : 0);
+      const first = Array.isArray(p.order) ? p.order[0] : null;
+      return items && Number.isInteger(first) ? optionColors(root, items)[first] : tok('--accent');
+    }
+    case 'budget': {
+      const alloc = Array.isArray(p.alloc) ? p.alloc : [];
+      let best = -1; let bi = 0;
+      alloc.forEach((v, i) => { if (v > best) { best = v; bi = i; } });
+      return alloc.length ? optionColors(root, alloc.length)[bi] : tok('--accent');
+    }
+    default:
+      return tok('--accent');
+  }
 }
 
 // ------------------------------------------------- discussion spotlight

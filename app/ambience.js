@@ -68,7 +68,12 @@
  *   · Amplitudes are sub-perceptual per glance. Subtle moves a lattice
  *     ~6px over a minute. You are not supposed to notice it happening,
  *     only to notice that the screen isn't dead.
- *   · Student phones never render this. They take the theme colours only.
+ *   · Student phones render the blooms too, since the canvas pass (see
+ *     app/atmosphere.js): the layers are three small compositor textures
+ *     on a phone-sized stage, which is nothing like the projector-sized
+ *     cost this note used to guard against. Uploaded IMAGES still never
+ *     reach a phone — sixty devices each pulling a 2 MB photo is the
+ *     part that was always the real objection.
  */
 
 import { getTheme, resolveBackground, hexA, BACKGROUND_PRESETS } from './themes.js';

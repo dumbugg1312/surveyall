@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phone check — SurveyAll</title>
+<link rel="stylesheet" href="../styles/fonts.css">
+<link rel="stylesheet" href="../styles/base.css">
+<link rel="stylesheet" href="../styles/app.css">
+<style>
+  body { margin: 0; padding: 1rem; }
+  .bar { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin-bottom: .8rem; }
+  .status { padding: .7rem 1rem; border-radius: 10px; font-weight: 600; font-size: .9rem; margin-bottom: .8rem; }
+  .status.ok { background: color-mix(in srgb, var(--good) 14%, transparent); color: var(--good); }
+  .status.bad { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
+  .room { display: flex; gap: 1.5rem; align-items: flex-start; flex-wrap: wrap; }
+  /* the phone: a real join.html at a real phone size */
+  .phone {
+    width: 390px; height: 780px;
+    border: 10px solid #111; border-radius: 42px;
+    overflow: hidden; background: #000; flex-shrink: 0;
+    box-shadow: 0 30px 60px rgba(0,0,0,.35);
+  }
+  .phone iframe { width: 390px; height: 780px; border: 0; display: block; }
+  /* the wall, at half size */
+  .wall { width: 640px; height: 360px; overflow: hidden; border-radius: 10px; border: 1px solid var(--edge); background: #000; }
+  .wall iframe { width: 1280px; height: 720px; border: 0; transform: scale(.5); transform-origin: 0 0; }
+  /* ?wall=1 — the projector at full size, the phone tucked away, for
+     judging the wall the way the room will see it */
+  body.is-wall .phone { display: none; }
+  body.is-wall .wall { width: 1280px; height: 720px; }
+  body.is-wall .wall iframe { transform: none; }
+</style>
+</head>
+<body>
+
+<!--
+  The phone, driven for real.
+
+  present-check.html proves the projector; this proves the other screen
+  in the room. It hosts the same rehearsal room the editor's preview panel
+  does (preview-room.js answers the API over postMessage) and points a
+  real join.html at it, next to a real present.html so the two can be
+  seen agreeing — the colour a student taps on the phone is the colour
+  their bar wears on the wall. Nothing here touches the database.
+
+  Pick a theme, step through the deck with the projector's own Next, and
+  answer on the phone. "Class answers" fills the room from the invented
+  class so "Results to phones" has something to show.
+-->
+
+<h1 class="h3">Phone check</h1>
+<p class="muted">The real join.html, on a faked classroom, beside the real projector. Drives the canvas pass (docs/visual-craft.md §11).</p>
+
+<div id="status" class="status">Booting…</div>
+<div class="bar">
+  <label class="label" for="themeSel">Theme</label>
+  <select id="themeSel"></select>
+  <button class="btn" id="prev" type="button">‹ Prev</button>
+  <button class="btn btn-primary" id="next" type="button">Next ›</button>
+  <button class="btn" id="answers" type="button">Class answers</button>
+  <button class="btn" id="share" type="button">Results to phones</button>
+  <button class="btn" id="end" type="button">End session</button>
+  <button class="btn" id="runChecks" type="button">Run checks</button>
+  <span class="muted" id="detail" style="font-size:.82rem"></span>
+</div>
+
+<div class="room">
+  <div class="phone"><iframe id="phone" title="Phone"></iframe></div>
+  <div class="wall"><iframe id="proj" title="Projector"></iframe></div>
+</div>
+
+<script type="module">
+import { createPreviewRoom } from '../app/preview-room.js';
+import { THEMES } from '../app/themes.js';
+
+const themeSel = document.getElementById('themeSel');
+for (const [id, t] of Object.entries(THEMES)) {
+  const o = document.createElement('option');
+  o.value = id; o.textContent = t.name;
+  themeSel.append(o);
+}
+const params = new URLSearchParams(window.location.search);
+if (params.has('wall')) document.body.classList.add('is-wall');
+const storedTheme = params.get('theme') || sessionStorage.getItem('jc-theme') || 'lecture-hall';
+themeSel.value = THEMES[storedTheme] ? storedTheme : 'lecture-hall';
+themeSel.addEventListener('change', () => {
+  sessionStorage.setItem('jc-theme', themeSel.value);
+  const u = new URL(window.location.href);
+  u.searchParams.set('theme', themeSel.value);
+  window.location.href = u.toString();
+});
+
+const deck = {
+  id: 'preview-deck',
+  title: 'Phone check',
+  theme: themeSel.value,
+  settings: {},
+};
+
+const questions = [
+  { id: 'i0', deck_id: deck.id, position: 0, type: 'instructions', prompt: 'How to join',
+    config: { steps: ['Scan the code', 'Answer on your phone'], show_join: true } },
+  { id: 'q1', deck_id: deck.id, position: 1, type: 'multiple_choice',
+    prompt: 'Which of these is the strongest thesis?',
+    config: { options: ['🌱 It grows', '🔥 It burns', '💧 It cools', 'None of these'], chart: 'bars' } },
+  { id: 'q2', deck_id: deck.id, position: 2, type: 'scales',
+    prompt: 'How confident are you in the reading?',
+    config: { statements: ['I could explain the argument', 'I could find the evidence'], min: 1, max: 5, low_label: 'Not at all', high_label: 'Completely' } },
+  { id: 'q3', deck_id: deck.id, position: 3, type: 'word_cloud',
+    prompt: 'One word for how the reading went', config: { max_words: 1, max_length: 25 } },
+  { id: 'q4', deck_id: deck.id, position: 4, type: 'spectrum',
+    prompt: 'Cities should ban cars from their centres', config: { left_label: 'Disagree', right_label: 'Agree' } },
+  { id: 'q5', deck_id: deck.id, position: 5, type: 'budget',
+    prompt: 'Spend 100 points across the causes', config: { options: ['Housing', 'Transit', 'Parks'], total: 100 } },
+  { id: 'q6', deck_id: deck.id, position: 6, type: 'ranking',
+    prompt: 'Rank these by importance', config: { items: ['Evidence', 'Voice', 'Structure', 'Grammar'] } },
+  { id: 'q7', deck_id: deck.id, position: 7, type: 'traffic',
+    prompt: 'How is the pace?', config: {} },
+  { id: 'q8', deck_id: deck.id, position: 8, type: 'probability',
+    prompt: 'How likely is it that the thesis holds?', config: {} },
+  { id: 'q9', deck_id: deck.id, position: 9, type: 'quiz',
+    prompt: 'Who tied the work ethic to capitalism?',
+    config: { options: ['Durkheim', 'Weber', 'Marx', 'Simmel'], correct: [1], time: 20, chart: 'bars' } },
+  { id: 'q10', deck_id: deck.id, position: 10, type: 'mood', prompt: 'How are you today?', config: {} },
+  { id: 'q11', deck_id: deck.id, position: 11, type: 'open_ended',
+    prompt: 'What is one thing still unclear?', config: { max_length: 200 } },
+];
+
+const TOKEN_KEY = 'surveyall:token';
+const hadToken = window.localStorage.getItem(TOKEN_KEY);
+if (!hadToken) window.localStorage.setItem(TOKEN_KEY, 'preview-harness');
+window.addEventListener('beforeunload', () => {
+  if (!hadToken) window.localStorage.removeItem(TOKEN_KEY);
+});
+
+const room = createPreviewRoom(deck, questions);
+const proj = document.getElementById('proj');
+const phone = document.getElementById('phone');
+proj.src = `../present.html?preview=1&session=${encodeURIComponent(room.sessionId)}`;
+phone.src = `../join.html?preview=1#${encodeURIComponent(room.joinCode)}`;
+
+const status = document.getElementById('status');
+const detail = document.getElementById('detail');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const pdoc = () => proj.contentDocument;
+const jdoc = () => phone.contentDocument;
+const jwin = () => phone.contentWindow;
+
+document.getElementById('next').addEventListener('click', () => pdoc().getElementById('btnNext').click());
+document.getElementById('prev').addEventListener('click', () => pdoc().getElementById('btnPrev').click());
+let answering = false;
+document.getElementById('answers').addEventListener('click', (e) => {
+  answering = !answering;
+  room.setTestResponses(answering);
+  e.currentTarget.textContent = answering ? 'Class answering…' : 'Class answers';
+});
+document.getElementById('share').addEventListener('click', () => pdoc().getElementById('btnShare').click());
+
+// The room only answers messages from a window, and this window is one:
+// a PATCH to the session from here ends it without the projector's own
+// confirm dialog getting in the way.
+const CHANNEL = 'surveyall-preview';
+function patchSession(body) {
+  window.postMessage({
+    channel: CHANNEL, kind: 'http', id: Math.random(), method: 'PATCH',
+    path: `/api/sessions/${room.sessionId}`, body,
+  }, window.location.origin);
+}
+document.getElementById('end').addEventListener('click', () => patchSession({ state: 'ended' }));
+
+const results = [];
+function check(name, pass, note = '') { results.push({ name, pass, note }); }
+
+function pumpFrames(w) {
+  if (!w || w.__pumped) return;
+  w.__pumped = true;
+  w.requestAnimationFrame = (cb) => w.setTimeout(() => cb(w.performance.now()), 16);
+}
+
+async function until(fn, ms = 15000) {
+  const stop = Date.now() + ms;
+  while (Date.now() < stop) {
+    try { if (fn()) return true; } catch { /* not yet */ }
+    await sleep(120);
+  }
+  return false;
+}
+
+function tap(node) {
+  const r = node.getBoundingClientRect();
+  const M = jwin().MouseEvent;
+  node.dispatchEvent(new M('click', {
+    bubbles: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2,
+  }));
+}
+
+async function run() {
+  results.length = 0;
+  try {
+    const $p = (id) => pdoc().getElementById(id);
+    const $j = (sel) => jdoc().querySelector(sel);
+
+    // ---- the atmosphere is mounted behind the page --------------------
+    await until(() => jdoc()?.querySelector('.atmo'));
+    check('the atmosphere mounts behind the page', !!$j('.atmo'));
+    check('it carries the theme backdrop and the blooms',
+      !!$j('.atmo-backdrop') && !!$j('.atmo-backdrop .amb-stack'),
+      $j('.atmo-backdrop') ? 'backdrop present' : 'no backdrop');
+    check('the canvas sits on the backdrop', !!$j('.atmo-canvas'));
+    check('the page content stacks above it',
+      jwin().getComputedStyle($j('.join-shell')).zIndex === '1');
+
+    // ---- walk in ------------------------------------------------------
+    if (!$p('chart') || !$p('chart').children.length) {
+      $p('btnNext').click();
+      await sleep(900);
+    }
+    // slide 1 is the instructions; slide 2 the poll
+    await until(() => $j('.instr-card'));
+    check('the instructions slide reaches the phone', !!$j('.instr-card'));
+    $p('btnNext').click();
+    await until(() => $j('.opt'));
+    check('the poll reaches the phone', !!$j('.opt'));
+    check('the head shows where we are in the deck',
+      /Question 1 of/.test($j('.join-progress')?.textContent || ''), $j('.join-progress')?.textContent);
+    check('the rail is drawn', !!$j('.join-rail'));
+
+    // ---- wall colours on the phone -----------------------------------
+    const opts = [...jdoc().querySelectorAll('.opt')];
+    const cols = opts.map((o) => o.style.getPropertyValue('--opt-color'));
+    check('every option carries its wall colour', cols.every(Boolean) && new Set(cols).size === cols.length,
+      cols.join(' '));
+    tap(opts[1]);
+    // the rail on the left edge fades in over a transition; a hidden pane
+    // throttles transitions, so wait for it rather than sleeping past it
+    // (and do not compare mid-transition border colours — the rail's
+    // opacity is the state that matters, and it is a step to 1)
+    await until(() => jwin().getComputedStyle(opts[1], '::before').opacity === '1', 4000);
+    check('a tapped option is selected in its own colour',
+      opts[1].classList.contains('is-selected')
+      && opts[1].getAttribute('aria-pressed') === 'true'
+      && jwin().getComputedStyle(opts[1], '::before').opacity === '1',
+      `rail opacity ${jwin().getComputedStyle(opts[1], '::before').opacity}`);
+    check('the sky leans toward that colour',
+      $j('.atmo-mood').classList.contains('is-lit')
+      && $j('.atmo-mood').style.getPropertyValue('--mood').trim() === cols[1].trim(),
+      $j('.atmo-mood').style.getPropertyValue('--mood'));
+
+    // the projector paints that same option in that same colour
+    room.setTestResponses(true);
+    await until(() => parseInt($p('countText').textContent, 10) >= 3);
+    await sleep(600);
+    const fills = [...pdoc().querySelectorAll('.chart-fill')];
+    const wallColor = fills[1] && (fills[1].style.getPropertyValue('--bar-color') || fills[1].style.background || fills[1].style.backgroundColor);
+    check('the projector has bars for the same options', fills.length === 4, `${fills.length} bars`);
+    check('phone option colours are drawn from the wall\'s wheel',
+      typeof wallColor === 'string' && wallColor.length > 0, wallColor);
+
+    // ---- send: the comet ---------------------------------------------
+    tap($j('.submit-btn'));
+    await until(() => /sent/i.test($j('.submit-btn')?.textContent || ''), 5000);
+    check('the answer sends', /sent/i.test($j('.submit-btn')?.textContent || ''), $j('.submit-btn')?.textContent);
+
+    // ---- results to phones -------------------------------------------
+    $p('btnShare').click();
+    await until(() => $j('.shared-result .chart-row'), 8000);
+    check('results reach the phone as a card of glass', !!$j('.shared-result'));
+    check('the results card arrives with motion', $j('.shared-result')?.classList.contains('is-arriving'));
+
+    // ---- scales: the ramp --------------------------------------------
+    $p('btnNext').click();
+    await until(() => $j('.scale-btn'));
+    const scale = [...jdoc().querySelectorAll('.scale-item')[0].querySelectorAll('.scale-btn')];
+    const ramp = scale.map((b) => b.style.getPropertyValue('--scale-color'));
+    check('each scale step carries its place on the ramp', ramp.every(Boolean) && new Set(ramp).size === ramp.length);
+    tap(scale[3]);
+    await sleep(120);
+    check('choosing 4 lights 1–3 beneath it',
+      scale[3].classList.contains('is-selected')
+      && scale.slice(0, 3).every((b) => b.classList.contains('is-below'))
+      && !scale[4].classList.contains('is-below'));
+
+    // ---- sliders: the light follows the thumb ------------------------
+    $p('btnNext').click(); // word cloud
+    await until(() => $j('.word-input'));
+    $p('btnNext').click(); // spectrum
+    await until(() => $j('.spectrum-slider'));
+    const slider = $j('.spectrum-slider');
+    slider.value = '85';
+    slider.dispatchEvent(new (jwin().Event)('input', { bubbles: true }));
+    await sleep(60);
+    check('the slider thumb takes the colour of where it stands',
+      !!slider.style.getPropertyValue('--lean-color'), slider.style.getPropertyValue('--lean-color'));
+
+    // ---- budget: the fill ---------------------------------------------
+    $p('btnNext').click();
+    await until(() => $j('.budget-line'));
+    const plus = jdoc().querySelectorAll('.budget-line')[0].querySelectorAll('.budget-step')[1];
+    tap(plus); tap(plus);
+    await sleep(60);
+    const share = parseFloat(jdoc().querySelectorAll('.budget-line')[0].style.getPropertyValue('--share'));
+    check('a funded line fills to its share', share > 0 && share <= 1, `share ${share}`);
+
+    // ---- ranking: the fade -------------------------------------------
+    $p('btnNext').click();
+    await until(() => $j('button.rank-item'));
+    tap($j('button.rank-item'));
+    await sleep(60);
+    tap($j('button.rank-item'));
+    await sleep(60);
+    const ranked = [...jdoc().querySelectorAll('.rank-item.is-ranked')];
+    check('ranked rows carry a colour that cools down the list',
+      ranked.length === 2
+      && ranked[0].style.getPropertyValue('--rank-color') !== ranked[1].style.getPropertyValue('--rank-color'));
+
+    // ---- reduced motion: nothing moves ---------------------------------
+    check('the canvas is hidden under reduced motion',
+      /display:\s*none/.test([...jdoc().styleSheets].flatMap((ss) => { try { return [...ss.cssRules]; } catch { return []; } })
+        .filter((r) => r.media && /reduced-motion/.test(r.media.mediaText))
+        .flatMap((r) => [...r.cssRules]).map((r) => r.cssText).join('\n')));
+  } catch (err) {
+    check(`threw: ${err.message}`, false, err.stack?.split('\n')[1] || '');
+  }
+
+  const failed = results.filter((r) => !r.pass);
+  status.className = `status ${failed.length ? 'bad' : 'ok'}`;
+  status.textContent = failed.length
+    ? `${failed.length} of ${results.length} checks failed`
+    : `All ${results.length} phone checks passed`;
+  detail.textContent = results
+    .map((r) => `${r.pass ? '✓' : '✗'} ${r.name}${r.note ? ` (${r.note})` : ''}`)
+    .join('  ·  ');
+  window.__report = results;
+  return results;
+}
+
+window.__run = run;
+document.getElementById('runChecks').addEventListener('click', () => window.location.reload());
+
+let loaded = 0;
+const onLoad = async () => {
+  loaded += 1;
+  if (loaded < 2) return;
+  pumpFrames(proj.contentWindow);
+  pumpFrames(phone.contentWindow);
+  await sleep(1200);
+  status.textContent = 'Ready. Step through with Next, or run the checks.';
+  if (params.has('run')) run();
+};
+proj.addEventListener('load', onLoad);
+phone.addEventListener('load', onLoad);
+</script>
+</body>
+</html>

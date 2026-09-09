@@ -49,6 +49,16 @@
   pointer-events: none;
 }
 
+/* The mural — what the room paints on the wall (app/mural.js). A canvas
+   after the scrim in the DOM at the scrim's own z-index, so it paints
+   over the backdrop and the dim and under everything the room can read
+   or the instructor can place. */
+.stage-mural {
+  position: absolute; inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
 /* Lift the slide content above the backdrop and scrim.
    This lists the in-flow blocks by name on purpose. It used to be
    `.stage > *:not(.stage-backdrop):not(.stage-scrim)`, but `:not()`

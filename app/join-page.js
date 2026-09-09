@@ -30,8 +30,11 @@ import {
   splitIcon,
 } from './logic.js';
 import { applyTheme } from './themes.js';
-import { renderAggregate } from './charts.js';
-import { prefersReducedMotion } from './motion.js';
+import { renderAggregate, optionColors } from './charts.js';
+import { prefersReducedMotion, mixColor, readableOn } from './motion.js';
+import {
+  mountAtmosphere, ripple, tint, untint, lean, unlean, send, arrive, finale,
+} from './atmosphere.js';
 import {
   ensurePseudonym, rememberAnswer, recallAnswer,
   codeFromLocation, upvotedIds, markUpvoted,
@@ -188,10 +191,15 @@ async function joinByCode(code, attempt = 0) {
   state.view = null;
   // an instructor-built theme arrives as tokens on the join payload;
   // built-in themes are just an id
-  applyTheme(document.documentElement, session.custom_theme?.tokens
+  const themeRef = session.custom_theme?.tokens
     ? { id: 'custom', dark: !!session.custom_theme.dark, tokens: session.custom_theme.tokens }
-    : session.theme);
+    : session.theme;
+  applyTheme(document.documentElement, themeRef);
   syncThemeColor();
+  // The phone as a canvas: the theme's backdrop, the projector's blooms
+  // and a weather of particles behind everything, answering every tap.
+  // See app/atmosphere.js. Mounted once; a re-join re-tints in place.
+  mountAtmosphere(themeRef);
 
   // The label is no longer a nicety: it is the row key for this device's
   // answers, and the server now only accepts labels it signed. Minting a
@@ -475,8 +483,11 @@ async function refresh() {
     // confirmation says "Results are kept", and they are downloadable as
     // CSV afterwards. What is true is that nothing identifying you was
     // saved, and that is a claim this screen should not be making at all.
-    return showState('✓', 'That\'s a wrap',
+    const wrap = showState('✓', 'That\'s a wrap',
       'Thanks for taking part. You can close this page.');
+    // Everything that drifted up all session now falls, once, in colour.
+    if (!wrap.__finale) { wrap.__finale = true; finale(); }
+    return wrap;
   }
 
   if (s.state === 'lobby') {
@@ -724,6 +735,12 @@ function renderQuestion(q, isNew) {
         control.reset?.();
       }
 
+      // The answer leaves. A comet in the answer's own colour lifts off
+      // the button and out of the top of the screen toward the wall; a
+      // word rises as the word. See atmosphere.send().
+      send(answerColor(control.el), btn.getBoundingClientRect().top, answerWord(q, payload));
+      untint(1600);
+
       btn.classList.add('is-sent');
       btn.textContent = multi ? 'Sent. Add another' : 'Answer sent ✓';
       announce(multi ? 'Sent. You can add another.' : 'Answer sent.');
@@ -809,9 +826,21 @@ function renderQuestion(q, isNew) {
   state.view = view;
   syncSendButton(view, q);
 
-  if (isNew && !prefersReducedMotion()) prompt.animate?.(
-    [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }],
-    { duration: 260, easing: 'cubic-bezier(.22,.8,.3,1)' });
+  if (isNew && !prefersReducedMotion()) {
+    prompt.animate?.(
+      [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }],
+      { duration: 260, easing: 'cubic-bezier(.22,.8,.3,1)' });
+    // The question composes itself: each control lands a beat after the
+    // one above it, the same cascade the projector's slide uses. Capped
+    // so a twelve-option poll does not take a second to finish arriving.
+    [...control.el.children].slice(0, 14).forEach((child, i) => {
+      child.animate?.(
+        [{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }],
+        { duration: 420, delay: 80 + Math.min(i * 45, 400), easing: 'cubic-bezier(.16,1,.3,1)', fill: 'backwards' });
+    });
+    // and the sky settles back to the theme's own light for a new question
+    untint(0);
+  }
 
   maybeShowSharedResults();
 }
@@ -960,7 +989,14 @@ function header(q) {
     const n = Number.isInteger(q.number) && q.number > 0
       ? q.number
       : (Number.isInteger(q.position) ? q.position + 1 : null);
-    if (n) head.append(div('join-progress', q.total ? `Q${n}/${q.total}` : `Q${n}`));
+    if (n) head.append(div('join-progress', q.total ? `Question ${n} of ${q.total}` : `Question ${n}`));
+    // Where this question sits in the deck, as a rail under the head —
+    // the ground covered so far, and a lit tip for where the room is now.
+    if (n && q.total > 1) {
+      const rail = div('join-rail');
+      rail.style.setProperty('--p', String((n - 1) / (q.total - 1)));
+      head.append(rail);
+    }
   }
   return head;
 }
@@ -1026,7 +1062,10 @@ function spectrumControl(q, prior) {
   slider.className = 'spectrum-slider';
   slider.setAttribute('aria-label',
     `${cfg.left_label || 'Disagree'} to ${cfg.right_label || 'Agree'}`);
-  slider.addEventListener('input', () => { moved = true; });
+  slider.addEventListener('input', () => { moved = true; sliderLight(slider); });
+  slider.addEventListener('change', unlean);
+  slider.addEventListener('pointerup', unlean);
+  if (moved) sliderLight(slider, true);
 
   wrap.append(ends, slider);
   return {
@@ -1535,12 +1574,19 @@ function choiceControl(q, prior, isQuiz) {
       : (prior?.choices || []));
 
   const wrap = div('stack-sm');
+  // The colour each option wears on the wall — the same wheel, cache and
+  // contrast floor the projector's bars use — so a student sees the hue
+  // they are about to become before they tap, and finds it again in the
+  // room's chart afterwards.
+  const colors = optionColors(document.documentElement, labels.length);
 
   labels.forEach((label, i) => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'opt';
     btn.setAttribute('aria-pressed', String(selected.has(i)));
+    btn.style.setProperty('--opt-color', colors[i]);
+    btn.style.setProperty('--opt-on', readableOn(colors[i]));
 
     const marker = div(`opt-marker${multiple ? ' is-square' : ''}`);
     marker.textContent = selected.has(i) ? '✓' : '';
@@ -1653,26 +1699,39 @@ function scalesControl(q, prior) {
   const values = statements.map((_, i) => prior?.values?.[i] ?? null);
 
   const wrap = div('stack-sm');
+  // Low→high on the accent-2→accent ramp: the same ramp the projector
+  // paints the distribution in, so "4 of 5" on the phone is the colour
+  // the 4 column will be on the wall.
+  const rampColor = (v) => mixColor(token('--accent-2'), token('--accent'),
+    max > min ? (v - min) / (max - min) : 1);
 
   statements.forEach((stmt, si) => {
     const item = div('scale-item');
     item.append(div('scale-statement', typeof stmt === 'string' ? stmt : String(stmt?.label ?? '')));
 
     const row = div('scale-buttons');
+    const paintRow = () => {
+      [...row.children].forEach((c, idx) => {
+        const cv = min + idx;
+        c.classList.toggle('is-selected', values[si] === cv);
+        c.classList.toggle('is-below', values[si] != null && cv < values[si]);
+      });
+    };
     for (let v = min; v <= max; v += 1) {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'scale-btn';
       b.textContent = String(v);
       b.setAttribute('aria-label', `${v} out of ${max}`);
-      if (values[si] === v) b.classList.add('is-selected');
+      b.style.setProperty('--scale-color', rampColor(v));
+      b.style.setProperty('--scale-on', readableOn(rampColor(v)));
       b.addEventListener('click', () => {
         values[si] = v;
-        [...row.children].forEach((c, idx) =>
-          c.classList.toggle('is-selected', min + idx === v));
+        paintRow();
       });
       row.append(b);
     }
+    paintRow();
     item.append(row);
 
     if (cfg.low_label || cfg.high_label) {
@@ -1688,7 +1747,7 @@ function scalesControl(q, prior) {
       skip.textContent = 'Skip this one';
       skip.addEventListener('click', () => {
         values[si] = null;
-        [...row.children].forEach((c) => c.classList.remove('is-selected'));
+        [...row.children].forEach((c) => c.classList.remove('is-selected', 'is-below'));
       });
       item.append(skip);
     }
@@ -1742,6 +1801,11 @@ function rankingControl(q, prior, opts = {}) {
     ranked.forEach(({ i, rank }, pos) => {
       const row = div('rank-item is-ranked');
       row.dataset.i = String(i);
+      // #1 wears the accent; the badge cools toward accent-2 down the list
+      const rc = mixColor(token('--accent'), token('--accent-2'),
+        ranked.length > 1 ? (pos / (ranked.length - 1)) * 0.8 : 0);
+      row.style.setProperty('--rank-color', rc);
+      row.style.setProperty('--rank-on', readableOn(rc));
       row.append(div('rank-badge', String(rank)));
       row.append(div('rank-text', label(items[i])));
 
@@ -1988,6 +2052,8 @@ function budgetControl(q, prior) {
     rows.forEach((r, i) => {
       r.value.textContent = String(alloc[i]);
       r.row.classList.toggle('is-funded', alloc[i] > 0);
+      // the line fills to its share — the bar the projector will draw
+      r.row.style.setProperty('--share', String(total > 0 ? alloc[i] / total : 0));
       r.plus.disabled = left <= 0;
       r.minus.disabled = alloc[i] <= 0;
     });
@@ -2052,7 +2118,11 @@ function probabilityControl(q, prior) {
   slider.addEventListener('input', () => {
     moved = true;
     readout.textContent = `${slider.value}%`;
+    sliderLight(slider);
   });
+  slider.addEventListener('change', unlean);
+  slider.addEventListener('pointerup', unlean);
+  if (moved) sliderLight(slider, true);
 
   const ends = div('spectrum-control-ends');
   ends.append(div('spectrum-control-end', 'No chance'), div('spectrum-control-end', 'Certain'));
@@ -2194,11 +2264,13 @@ function maybeShowSharedResults() {
       if (!res) return;
       let host = app.querySelector('.shared-result');
       if (!host) {
-        host = div('shared-result');
+        host = div('shared-result is-arriving');
         host.append(heading('h2', 'eyebrow', 'The room so far'));
         const chart = div('chart');
         host.append(chart);
         app.querySelector('.q-body')?.append(host);
+        // the room's light reaches the phone: a wash from above
+        arrive();
       }
       const agg = aggregate(q.type, q.config, (res.payloads || []).map((p) => ({ payload: p })));
       renderAggregate(host.querySelector('.chart'), q.type, agg, {
@@ -2335,6 +2407,14 @@ function showState(icon, title, text, waiting = false) {
   state.view = null;
   app.textContent = '';
   const wrap = div('join-state');
+  // The halo: a slow breath of the accent behind every waiting screen —
+  // "the room is gathering", said without words. Not on an error, where
+  // a glow under a warning would read as reassurance it has not earned.
+  if (icon !== '⚠️') {
+    const halo = div('state-halo');
+    halo.setAttribute('aria-hidden', 'true');
+    wrap.append(halo);
+  }
   if (icon) {
     // The glyph restates the heading it sits above; read aloud it becomes
     // "warning sign" before the sentence that says what is actually wrong.
@@ -2418,6 +2498,9 @@ function showCodeEntry(message, prefill = '') {
   state.view = null;
   app.textContent = '';
   const wrap = div('join-state');
+  const codeHalo = div('state-halo');
+  codeHalo.setAttribute('aria-hidden', 'true');
+  wrap.append(codeHalo);
   wrap.append(heading('h1', 'state-title', 'Enter the code'));
   wrap.append(div('state-text', 'It\'s on the screen at the front of the room.'));
   if (message) {
@@ -2461,6 +2544,96 @@ function showCodeEntry(message, prefill = '') {
   wrap.append(form);
   app.append(wrap);
   setTimeout(() => input.focus(), 150);
+}
+
+// =====================================================================
+// The canvas answering back
+//
+// One delegated listener, so every control on the page leaves a mark
+// without each builder above having to know the atmosphere exists. The
+// colour of the mark is the colour the tap MEANS: an option's wall hue,
+// a scale step's place on the ramp, a lamp's own light, else the accent.
+// =====================================================================
+
+function token(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+const MARKING = '.opt, .scale-btn, .lamp-btn, .mood-btn, .tot-btn, .sample-pick, '
+  + '.claim-vote, .seg-chip, button.seg-body, button.rank-item, .quad-item, .conf-btn, '
+  + '.budget-step, .qa-vote';
+
+function markColor(btn) {
+  const own = btn.style.getPropertyValue('--opt-color')
+    || btn.style.getPropertyValue('--scale-color');
+  if (own) return own.trim();
+  if (btn.classList.contains('lamp-btn')) {
+    return getComputedStyle(btn).getPropertyValue('--lamp').trim() || token('--accent');
+  }
+  if (btn.classList.contains('is-disagree')) return token('--bad');
+  return token('--accent');
+}
+
+app.addEventListener('click', (e) => {
+  const btn = e.target.closest?.(MARKING);
+  if (!btn || !app.contains(btn) || btn.disabled) return;
+  const rect = btn.getBoundingClientRect();
+  // a keyboard activation has no pointer: mark from the control's middle
+  const x = e.clientX || rect.left + rect.width / 2;
+  const y = e.clientY || rect.top + rect.height / 2;
+  const color = markColor(btn);
+  ripple(x, y, color);
+
+  // The sky leans toward the colour of what is now chosen. The button's
+  // own handler ran first (this is the bubble), so the class is current.
+  if (btn.matches('.opt, .scale-btn, .lamp-btn, .mood-btn, .tot-btn, .sample-pick, .claim-vote')) {
+    if (btn.classList.contains('is-selected')) tint(color); else untint(400);
+  }
+  if (btn.classList.contains('opt') && !prefersReducedMotion()) {
+    btn.classList.remove('is-igniting');
+    void btn.offsetWidth; // restart the beat on a second tap
+    btn.classList.add('is-igniting');
+    btn.addEventListener('animationend', () => btn.classList.remove('is-igniting'), { once: true });
+  }
+});
+
+/**
+ * A slider's thumb takes the colour of where it stands, and the light
+ * behind the page follows it. `quiet` paints the thumb without moving
+ * the light — for a slider that arrives already set from a prior answer.
+ */
+function sliderLight(slider, quiet = false) {
+  const lo = Number(slider.min) || 0;
+  const hi = Number(slider.max) || 100;
+  const t = hi > lo ? (Number(slider.value) - lo) / (hi - lo) : 0;
+  const color = mixColor(token('--accent-2'), token('--accent'), t);
+  slider.style.setProperty('--lean-color', color);
+  if (quiet) return;
+  const rect = slider.getBoundingClientRect();
+  lean(t, color, rect.top + rect.height / 2);
+}
+
+/** The colour the answer leaves in: whatever is selected, else the accent. */
+function answerColor(controlEl) {
+  const picked = controlEl.querySelector?.(
+    '.opt.is-selected, .scale-btn.is-selected, .lamp-btn.is-selected, .tot-btn.is-selected, '
+    + '.mood-btn.is-selected, .sample-pick.is-selected');
+  return picked ? markColor(picked) : token('--accent');
+}
+
+/**
+ * A short answer that can rise off the screen as itself. Only the types
+ * whose whole answer is a word or two: a paragraph lifting off would be
+ * a wall of text in the sky, and a number is already on the wall.
+ */
+function answerWord(q, payload) {
+  if (q.type === 'word_cloud' && Array.isArray(payload?.words)) {
+    return payload.words.filter(Boolean).slice(0, 3).join(' · ');
+  }
+  if (q.type === 'cloze' && Array.isArray(payload?.blanks)) {
+    return payload.blanks.filter(Boolean).slice(0, 2).join(' · ');
+  }
+  return '';
 }
 
 function div(cls, text) {

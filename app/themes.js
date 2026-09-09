@@ -31,6 +31,11 @@
  *   tracking and optical size per theme live in styles/present.css under
  *   [data-theme-id]; the faces themselves stay within the eight we ship.
  * BLURBS state what the room looks like in one sentence. No jokes.
+ * A MOTIF IS WEATHER, NOT A MASCOT. `motif` names the particles the
+ *   phone's atmosphere (app/atmosphere.js) lets drift over the backdrop —
+ *   chalk dust, stars, embers, petals, snow. It is picked to be the thing
+ *   the palette already implies, so a theme reads as one place rather
+ *   than a palette with an effect on top. `none` is a valid answer.
  */
 export const THEMES = {
   'lecture-hall': {
@@ -53,6 +58,7 @@ export const THEMES = {
       '--bar-radius': '6px',
     },
     background: { kind: 'preset', id: 'paper-warm' },
+    motif: { motes: 'dust', n: 14 },
   },
 
   chalkboard: {
@@ -75,6 +81,7 @@ export const THEMES = {
       '--bar-radius': '6px',
     },
     background: { kind: 'preset', id: 'slate' },
+    motif: { motes: 'dust', n: 22 },
   },
 
   'clean-slate': {
@@ -97,6 +104,7 @@ export const THEMES = {
       '--bar-radius': '6px',
     },
     background: { kind: 'preset', id: 'none' },
+    motif: { motes: 'none' },
   },
 
   'neon-night': {
@@ -119,6 +127,7 @@ export const THEMES = {
       '--bar-radius': '0px',
     },
     background: { kind: 'preset', id: 'grid-glow' },
+    motif: { motes: 'sparks', n: 16 },
   },
 
   botanical: {
@@ -141,6 +150,7 @@ export const THEMES = {
       '--bar-radius': '999px',
     },
     background: { kind: 'preset', id: 'topo' },
+    motif: { motes: 'petals', n: 12 },
   },
 
   letterpress: {
@@ -163,6 +173,7 @@ export const THEMES = {
       '--bar-radius': '0px',
     },
     background: { kind: 'preset', id: 'paper-cream' },
+    motif: { motes: 'dust', n: 9 },
   },
 
   midnight: {
@@ -185,6 +196,7 @@ export const THEMES = {
       '--bar-radius': '6px',
     },
     background: { kind: 'preset', id: 'aurora' },
+    motif: { motes: 'stars', n: 34 },
   },
 
   'high-contrast': {
@@ -208,6 +220,7 @@ export const THEMES = {
       '--bar-radius': '0px',
     },
     background: { kind: 'preset', id: 'none' },
+    motif: { motes: 'none' },
   },
 
   'citrus-studio': {
@@ -230,6 +243,7 @@ export const THEMES = {
       '--bar-radius': '6px',
     },
     background: { kind: 'preset', id: 'gradient-sunrise' },
+    motif: { motes: 'embers', n: 16 },
   },
 
   riviera: {
@@ -252,6 +266,7 @@ export const THEMES = {
       '--bar-radius': '6px',
     },
     background: { kind: 'preset', id: 'gradient-dusk' },
+    motif: { motes: 'rings', n: 10 },
   },
 
   sorbet: {
@@ -274,6 +289,7 @@ export const THEMES = {
       '--bar-radius': '999px',
     },
     background: { kind: 'preset', id: 'paper-warm' },
+    motif: { motes: 'petals', n: 14 },
   },
 
   arcade: {
@@ -296,6 +312,7 @@ export const THEMES = {
       '--bar-radius': '6px',
     },
     background: { kind: 'preset', id: 'grid-glow' },
+    motif: { motes: 'pixels', n: 18 },
   },
   observatory: {
     name: 'Observatory',
@@ -317,6 +334,7 @@ export const THEMES = {
       '--bar-radius': '999px',
     },
     background: { kind: 'preset', id: 'starfield' },
+    motif: { motes: 'stars', n: 44 },
   },
 
   kiln: {
@@ -339,6 +357,7 @@ export const THEMES = {
       '--bar-radius': '999px',
     },
     background: { kind: 'preset', id: 'arches' },
+    motif: { motes: 'embers', n: 12 },
   },
 
   blueprint: {
@@ -361,6 +380,7 @@ export const THEMES = {
       '--bar-radius': '0px',
     },
     background: { kind: 'preset', id: 'drafting' },
+    motif: { motes: 'sparks', n: 12 },
   },
 
   gallery: {
@@ -383,6 +403,7 @@ export const THEMES = {
       '--bar-radius': '0px',
     },
     background: { kind: 'preset', id: 'plinth' },
+    motif: { motes: 'dust', n: 7 },
   },
 
   broadsheet: {
@@ -405,6 +426,7 @@ export const THEMES = {
       '--bar-radius': '0px',
     },
     background: { kind: 'preset', id: 'halftone' },
+    motif: { motes: 'none' },
   },
 
   velvet: {
@@ -427,6 +449,7 @@ export const THEMES = {
       '--bar-radius': '0px',
     },
     background: { kind: 'preset', id: 'vignette' },
+    motif: { motes: 'fireflies', n: 14 },
   },
 
   fjord: {
@@ -449,6 +472,7 @@ export const THEMES = {
       '--bar-radius': '6px',
     },
     background: { kind: 'preset', id: 'ridgeline' },
+    motif: { motes: 'snow', n: 26 },
   },
 
   'rice-paper': {
@@ -471,6 +495,7 @@ export const THEMES = {
       '--bar-radius': '0px',
     },
     background: { kind: 'preset', id: 'seigaiha' },
+    motif: { motes: 'ink', n: 5 },
   },
 };
 
@@ -520,8 +545,11 @@ export const BACKGROUND_PRESETS = {
                  radial-gradient(circle at 80% 10%, ${hexA(t['--accent'], 0.10)}, transparent 45%)`,
   },
   aurora: {
+    // A fourth, narrow band across the top: the curtain itself, where the
+    // three blooms were only its glow on the ground.
     name: 'Aurora',
-    css: (t) => `radial-gradient(ellipse 80% 50% at 20% 0%, ${hexA(t['--accent-2'], 0.14)}, transparent 60%),
+    css: (t) => `linear-gradient(104deg, transparent 22%, ${hexA(t['--accent-2'], 0.07)} 34%, ${hexA(t['--good'], 0.05)} 46%, transparent 58%),
+                 radial-gradient(ellipse 80% 50% at 20% 0%, ${hexA(t['--accent-2'], 0.14)}, transparent 60%),
                  radial-gradient(ellipse 70% 60% at 85% 30%, ${hexA(t['--accent'], 0.11)}, transparent 60%),
                  radial-gradient(ellipse 60% 45% at 55% 105%, ${hexA(t['--good'], 0.07)}, transparent 65%)`,
   },
@@ -547,8 +575,12 @@ export const BACKGROUND_PRESETS = {
   topo: {
     // wider rings than the first pass: at 28px the contours read as a
     // pattern swatch, at 44px they read as terrain seen from a long way up
+    // Two summits: a second, fainter set of rings from the opposite corner
+    // so the contours meet and bend the way real terrain does, instead of
+    // one bullseye in the corner of every slide.
     name: 'Contour',
-    css: (t) => `repeating-radial-gradient(circle at 15% 85%, transparent 0 44px, ${hexA(t['--accent'], 0.045)} 44px 45px)`,
+    css: (t) => `repeating-radial-gradient(circle at 15% 85%, transparent 0 44px, ${hexA(t['--accent'], 0.045)} 44px 45px),
+                 repeating-radial-gradient(circle at 92% 6%, transparent 0 58px, ${hexA(t['--accent-2'], 0.035)} 58px 59px)`,
   },
   stripes: {
     name: 'Diagonal',
@@ -568,14 +600,23 @@ export const BACKGROUND_PRESETS = {
   },
 
   starfield: {
+    // Two star tiles at co-prime pitches: a 260px field and a finer 170px
+    // one, so the sky has depth (the eye reads two densities as near and
+    // far) and no repeat can be found by counting. The band across the
+    // top is the milky way, at a wash alpha rather than a star alpha.
     name: 'Starfield',
     css: (t) => `radial-gradient(circle at 18% 22%, ${hexA('#ffffff', 0.7)} 0 1px, transparent 1.5px),
                  radial-gradient(circle at 62% 8%, ${hexA('#ffffff', 0.45)} 0 1px, transparent 1.5px),
                  radial-gradient(circle at 84% 46%, ${hexA('#ffffff', 0.58)} 0 1.5px, transparent 2px),
                  radial-gradient(circle at 38% 64%, ${hexA(t['--accent'], 0.6)} 0 1px, transparent 1.5px),
                  radial-gradient(circle at 72% 88%, ${hexA(t['--accent-2'], 0.5)} 0 1px, transparent 1.5px),
+                 radial-gradient(circle at 9% 71%, ${hexA('#ffffff', 0.32)} 0 .8px, transparent 1.3px),
+                 radial-gradient(circle at 47% 37%, ${hexA('#ffffff', 0.28)} 0 .8px, transparent 1.3px),
+                 radial-gradient(circle at 81% 14%, ${hexA(t['--accent-2'], 0.3)} 0 .8px, transparent 1.3px),
+                 radial-gradient(circle at 29% 91%, ${hexA('#ffffff', 0.22)} 0 .8px, transparent 1.3px),
+                 linear-gradient(112deg, transparent 38%, ${hexA(t['--accent-2'], 0.05)} 50%, transparent 62%),
                  radial-gradient(ellipse 90% 60% at 50% -20%, ${hexA(t['--accent-2'], 0.09)}, transparent 60%)`,
-    size: '260px 260px, 260px 260px, 260px 260px, 260px 260px, 260px 260px, 100% 100%',
+    size: '260px 260px, 260px 260px, 260px 260px, 260px 260px, 260px 260px, 170px 170px, 170px 170px, 170px 170px, 170px 170px, 100% 100%, 100% 100%',
   },
   arches: {
     name: 'Adobe arches',
@@ -610,8 +651,13 @@ export const BACKGROUND_PRESETS = {
                  radial-gradient(ellipse 80% 50% at 50% -10%, ${hexA(t['--accent'], 0.12)}, transparent 60%)`,
   },
   ridgeline: {
+    // Three ridges, each a shade closer and darker than the one behind
+    // it — aerial perspective, the reason a far hill is paler than a near
+    // one. The mist sits in the valley between the first two.
     name: 'Ridgeline',
-    css: (t) => `linear-gradient(172deg, transparent 62%, ${hexA(t['--accent'], 0.08)} 62%, ${hexA(t['--accent'], 0.08)} 100%),
+    css: (t) => `linear-gradient(176deg, transparent 54%, ${hexA(t['--accent-2'], 0.05)} 54%, ${hexA(t['--accent-2'], 0.05)} 100%),
+                 linear-gradient(172deg, transparent 62%, ${hexA(t['--accent'], 0.08)} 62%, ${hexA(t['--accent'], 0.08)} 100%),
+                 linear-gradient(180deg, transparent 60%, ${hexA('#ffffff', 0.10)} 66%, transparent 72%),
                  linear-gradient(188deg, transparent 74%, ${hexA(t['--ink'], 0.06)} 74%, ${hexA(t['--ink'], 0.06)} 100%),
                  radial-gradient(ellipse 80% 45% at 50% -15%, ${hexA(t['--accent-2'], 0.07)}, transparent 60%)`,
   },
@@ -710,6 +756,21 @@ export function resolveBackground(background, themeId) {
     return getTheme(themeId).background || { kind: 'none' };
   }
   return background;
+}
+
+/**
+ * The particles a theme lets drift over its backdrop on a phone.
+ *
+ * Built-in themes name theirs; a custom theme gets the quietest default
+ * that suits its ground — a little dust on a light one, faint stars on a
+ * dark one — so an instructor-built theme feels as alive as a shipped
+ * one without asking them a question they did not come to answer.
+ */
+export function themeMotif(themeRef) {
+  const theme = getTheme(themeRef);
+  if (theme.highContrast) return { motes: 'none' };
+  if (theme.motif && typeof theme.motif === 'object') return theme.motif;
+  return theme.dark ? { motes: 'stars', n: 24 } : { motes: 'dust', n: 10 };
 }
 
 /**

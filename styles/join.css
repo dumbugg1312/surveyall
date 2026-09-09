@@ -2,9 +2,39 @@
    SurveyAll — participant view. Mobile first, thumb first.
    Targets are >=48px, the submit button sits inside thumb reach, and
    nothing here ever asks who you are.
+
+   THE PHONE IS A CANVAS (docs/visual-craft.md §11). Everything sits on
+   the atmosphere app/atmosphere.js mounts behind the page — the theme's
+   own backdrop, the projector's blooms, a weather of particles — so the
+   surfaces here are glass rather than paint: translucent, edged with
+   light, letting the room show through. Colour on this page carries
+   meaning before decoration:
+
+     · an option's marker wears the hue its bar wears on the wall
+     · a scale fills low→high on the accent-2→accent ramp the histogram
+       is drawn in
+     · a budget line is filled to the share it has been given
+     · a rank badge fades from the accent as it drops down the list
+
+   Every rule that used to say "var(--surface)" now says "var(--glass)".
+   Contrast is unchanged: the glass is 90% of the same surface, over a
+   ground the surface already sat on.
    ===================================================================== */
 
 .join-body {
+  /* Corners follow the theme's own radius family — 0/6/999 for the
+     bars becomes 10/14/22 for the cards, so an editorial theme stays
+     crisp and a soft one stays soft. */
+  --card-radius: clamp(10px, calc(var(--bar-radius) + 8px), 22px);
+  --glass: color-mix(in srgb, var(--surface) 90%, transparent);
+  --glass-strong: color-mix(in srgb, var(--surface) 96%, transparent);
+  --glass-edge: color-mix(in srgb, var(--edge-strong) 72%, transparent);
+  --glass-inset: inset 0 1px 0 color-mix(in srgb, #ffffff 45%, transparent);
+  --card-shadow:
+    0 1px 2px color-mix(in srgb, var(--ink) 6%, transparent),
+    0 12px 32px -18px color-mix(in srgb, var(--ink) 28%, transparent);
+  --halo: 0 14px 40px -16px color-mix(in srgb, var(--accent) 55%, transparent);
+
   min-height: 100vh;
   min-height: 100dvh;
   display: flex;
@@ -12,8 +42,60 @@
   background: var(--ground);
   overscroll-behavior-y: contain;
 }
+[data-theme-dark="true"] .join-body {
+  --glass: color-mix(in srgb, var(--surface) 84%, transparent);
+  --glass-strong: color-mix(in srgb, var(--surface) 94%, transparent);
+  --glass-inset: inset 0 1px 0 color-mix(in srgb, #ffffff 9%, transparent);
+  --card-shadow:
+    0 1px 2px color-mix(in srgb, #000000 30%, transparent),
+    0 14px 36px -16px color-mix(in srgb, #000000 55%, transparent);
+}
+
+/* ---------------------------------------------------------- atmosphere
+   Fixed behind everything and inert. The backdrop is the projector's own
+   preset; the .amb-stack inside it is the projector's own blooms (see
+   styles/ambience.css, which this page links for the keyframes). */
+.atmo {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--ground);
+}
+.atmo.is-off > * { display: none; }
+.atmo-backdrop {
+  position: absolute;
+  inset: 0;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+/* the lattice drift, mirrored from .stage-backdrop.is-drifting */
+.atmo-backdrop.is-drifting {
+  inset: -24px;
+  animation: amb-drift var(--amb-drift-dur, 73s) ease-in-out infinite alternate;
+}
+/* the answer's colour as light. --mood is written by atmosphere.tint(). */
+.atmo-mood {
+  position: absolute;
+  inset: -20%;
+  background: radial-gradient(ellipse 62% 48% at 50% 30%,
+    color-mix(in srgb, var(--mood, var(--accent)) 22%, transparent),
+    transparent 70%);
+  opacity: 0;
+  transition: opacity 1.2s var(--ease-out);
+}
+[data-theme-dark="true"] .atmo-mood {
+  background: radial-gradient(ellipse 62% 48% at 50% 30%,
+    color-mix(in srgb, var(--mood, var(--accent)) 30%, transparent),
+    transparent 70%);
+}
+.atmo-mood.is-lit { opacity: 1; }
+.atmo-canvas { position: absolute; inset: 0; }
 
 .join-shell {
+  position: relative;
+  z-index: 1;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -30,6 +112,7 @@
 
 .join-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: .6rem;
   padding: .5rem 0 1rem;
@@ -39,31 +122,77 @@
 
 .join-pseudonym {
   display: inline-flex; align-items: center; gap: .35rem;
-  padding: .25rem .6rem;
+  padding: .3rem .7rem;
   border-radius: 999px;
   background: var(--accent-soft);
   color: color-mix(in srgb, var(--accent-text) 80%, var(--ink));
   font-weight: 600;
   font-size: .74rem;
+  box-shadow: var(--glass-inset);
 }
 
-.join-progress { margin-left: auto; font-variant-numeric: tabular-nums; }
+.join-progress {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  font-size: .68rem;
+}
+
+/* Where you are in the deck, as a rail: the filled part is the ground
+   already covered, the lit tip is this question. --p is the fraction. */
+.join-rail {
+  position: relative;
+  flex-basis: 100%;
+  height: 3px;
+  margin: .5rem 0 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
+  overflow: hidden;
+}
+.join-rail::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform-origin: left;
+  transform: scaleX(var(--p, 0));
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--accent) 55%, var(--accent-2)),
+    var(--accent));
+  border-radius: inherit;
+  transition: transform .7s var(--ease-snap);
+}
+.join-rail::after {
+  content: '';
+  position: absolute;
+  top: -3px;
+  left: calc(var(--p, 0) * 100%);
+  width: 9px; height: 9px;
+  margin-left: -5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+  transition: left .7s var(--ease-snap);
+}
 
 /* -------------------------------------------------------------- prompt */
 
 .q-prompt {
   font-family: var(--display);
-  font-size: 1.45rem;
-  font-weight: 600;
-  line-height: 1.18;
-  margin-bottom: .35rem;
+  font-size: clamp(1.55rem, 6.2vw, 1.95rem);
+  font-weight: 650;
+  line-height: 1.1;
+  letter-spacing: -.012em;
+  margin: 0 0 .5rem;
   text-wrap: balance;
 }
 
 .q-hint {
-  font-size: .82rem;
+  font-size: .84rem;
   color: var(--ink-soft);
-  margin-bottom: 1rem;
+  margin-bottom: 1.1rem;
+  line-height: 1.4;
 }
 
 .q-body {
@@ -77,48 +206,95 @@
 /* ------------------------------------------------------------- options */
 
 .opt {
+  position: relative;
   display: flex;
   align-items: center;
   gap: .8rem;
-  min-height: 3.4rem;
-  padding: .85rem 1rem;
-  border: 2px solid var(--edge-strong);
-  border-radius: 14px;
-  background: var(--surface);
+  min-height: 3.5rem;
+  padding: .9rem 1rem .9rem 1.1rem;
+  border: 1.5px solid var(--glass-edge);
+  border-radius: var(--card-radius);
+  background: var(--glass);
+  box-shadow: var(--card-shadow), var(--glass-inset);
+  color: var(--ink);
   text-align: left;
   font-size: 1rem;
   line-height: 1.3;
   cursor: pointer;
-  transition: border-color var(--duration-fast) var(--ease-out),
-              background var(--duration-fast) var(--ease-out),
+  overflow: hidden;
+  transition: border-color var(--duration-moderate) var(--ease-out),
+              background var(--duration-moderate) var(--ease-out),
+              box-shadow var(--duration-moderate) var(--ease-out),
               transform var(--duration-instant) var(--ease-out);
   -webkit-tap-highlight-color: transparent;
+}
+/* The rail on the left edge: the option's wall colour, lit on select. */
+.opt::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  background: var(--opt-color, var(--accent));
+  opacity: 0;
+  transform: scaleY(.3);
+  transition: opacity var(--duration-moderate) var(--ease-out),
+              transform var(--duration-slow) var(--ease-snap);
 }
 
 .opt:active { transform: scale(.985); }
 
 .opt.is-selected {
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--opt-color, var(--accent)) 70%, var(--edge-strong));
+  background: color-mix(in srgb, var(--opt-color, var(--accent)) 11%, var(--glass-strong));
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--opt-color, var(--accent)) 18%, transparent),
+    0 16px 36px -14px color-mix(in srgb, var(--opt-color, var(--accent)) 60%, transparent),
+    var(--glass-inset);
+}
+.opt.is-selected::before { opacity: 1; transform: none; }
+
+/* one physical beat on the tap — the ring on the canvas is the echo */
+.opt.is-igniting { animation: opt-ignite .5s var(--ease-spring); }
+@keyframes opt-ignite {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.022); }
+  100% { transform: scale(1); }
 }
 
 .opt-marker {
-  width: 1.5rem; height: 1.5rem;
+  position: relative;
+  width: 1.55rem; height: 1.55rem;
   border-radius: 50%;
   border: 2px solid var(--edge-strong);
+  background: var(--glass-strong);
   flex-shrink: 0;
   display: grid; place-items: center;
   font-size: .8rem;
   font-weight: 700;
-  color: var(--on-accent);
-  transition: background var(--duration-fast) var(--ease-out),
-              border-color var(--duration-fast) var(--ease-out);
+  color: var(--opt-on, var(--on-accent));
+  transition: background var(--duration-moderate) var(--ease-out),
+              border-color var(--duration-moderate) var(--ease-out),
+              box-shadow var(--duration-moderate) var(--ease-out);
 }
+/* the swatch: a dot of the colour this answer wears on the projector,
+   shown before it is chosen so the student can see what they will be */
+.opt-marker::after {
+  content: '';
+  width: .5rem; height: .5rem;
+  border-radius: 50%;
+  background: var(--opt-color, var(--accent));
+  opacity: .8;
+  transition: opacity var(--duration-fast) var(--ease-out),
+              transform var(--duration-moderate) var(--ease-spring);
+}
+.opt-marker:not(:empty)::after { display: none; }
 .opt.is-selected .opt-marker {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--opt-color, var(--accent));
+  border-color: var(--opt-color, var(--accent));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--opt-color, var(--accent)) 22%, transparent);
 }
 .opt-marker.is-square { border-radius: 6px; }
+.opt-marker.is-square::after { border-radius: 2px; }
 
 .opt-text { flex: 1; overflow-wrap: anywhere; }
 
@@ -134,19 +310,39 @@
 
 /* --------------------------------------------------------- word inputs */
 
-.word-input {
-  min-height: 3.4rem;
-  font-size: 1.1rem;
-  text-align: center;
-  border-width: 2px;
-  border-radius: 14px;
+.join-body input[type="text"],
+.join-body input[type="search"],
+.join-body textarea,
+.join-body select {
+  background: var(--glass);
+  border-color: var(--glass-edge);
+  box-shadow: var(--card-shadow), var(--glass-inset);
+  transition: border-color var(--duration-moderate) var(--ease-out),
+              box-shadow var(--duration-moderate) var(--ease-out);
 }
+.join-body input:focus-visible,
+.join-body textarea:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent), var(--halo);
+}
+
+.word-input {
+  min-height: 3.6rem;
+  font-family: var(--display);
+  font-size: 1.25rem;
+  font-weight: 600;
+  text-align: center;
+  border-width: 1.5px;
+  border-radius: var(--card-radius);
+  letter-spacing: .01em;
+}
+.word-input::placeholder { font-weight: 500; opacity: .5; }
 
 .text-input {
   min-height: 8rem;
   font-size: 1.02rem;
-  border-width: 2px;
-  border-radius: 14px;
+  border-width: 1.5px;
+  border-radius: var(--card-radius);
   line-height: 1.45;
 }
 
@@ -161,39 +357,56 @@
 /* -------------------------------------------------------------- scales */
 
 .scale-item {
-  padding: .9rem 1rem;
-  border: 1px solid var(--edge);
-  border-radius: 14px;
-  background: var(--surface);
+  padding: .9rem 1rem 1rem;
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--card-radius);
+  background: var(--glass);
+  box-shadow: var(--card-shadow), var(--glass-inset);
   display: flex; flex-direction: column; gap: .7rem;
 }
 
-.scale-statement { font-size: .96rem; line-height: 1.3; }
+.scale-statement { font-size: .98rem; line-height: 1.3; font-weight: 500; }
 
 .scale-buttons {
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
-  gap: .35rem;
+  gap: .3rem;
 }
 
+/* --scale-color is written per button by join-page.js: the low→high
+   ramp from --accent-2 to --accent, the same ramp the projector paints
+   the distribution in. Everything at or below the chosen value lights,
+   so a 4 of 5 reads as a filled rating rather than a lone number. */
 .scale-btn {
-  min-height: 2.9rem;
-  border: 2px solid var(--edge-strong);
-  border-radius: 10px;
-  background: var(--surface);
-  font-size: .95rem;
-  font-weight: 600;
+  --scale-color: var(--accent);
+  min-height: 3rem;
+  border: 1.5px solid var(--glass-edge);
+  border-radius: calc(var(--card-radius) - 4px);
+  background: var(--glass);
+  color: var(--ink);
+  font-size: .98rem;
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
-  transition: background var(--duration-fast) var(--ease-out),
-              border-color var(--duration-fast) var(--ease-out),
-              color var(--duration-fast) var(--ease-out);
+  transition: background var(--duration-moderate) var(--ease-out),
+              border-color var(--duration-moderate) var(--ease-out),
+              color var(--duration-moderate) var(--ease-out),
+              box-shadow var(--duration-moderate) var(--ease-out),
+              transform var(--duration-instant) var(--ease-out);
+  -webkit-tap-highlight-color: transparent;
+}
+.scale-btn:active { transform: scale(.96); }
+.scale-btn.is-below {
+  background: color-mix(in srgb, var(--scale-color) 22%, var(--glass-strong));
+  border-color: color-mix(in srgb, var(--scale-color) 45%, var(--glass-edge));
 }
 .scale-btn.is-selected {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
+  background: var(--scale-color);
+  border-color: var(--scale-color);
+  color: var(--scale-on, var(--on-accent));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--scale-color) 22%, transparent),
+              0 10px 24px -10px color-mix(in srgb, var(--scale-color) 70%, transparent);
 }
 
 .scale-ends {
@@ -223,14 +436,16 @@
 .conf-label { font-size: .78rem; font-weight: 600; color: var(--ink-soft); white-space: nowrap; }
 .conf-btns { display: flex; gap: .35rem; }
 .conf-btn {
-  padding: .4rem .6rem;
-  border: 2px solid var(--edge-strong);
+  padding: .45rem .65rem;
+  border: 1.5px solid var(--glass-edge);
   border-radius: 999px;
-  background: var(--surface);
+  background: var(--glass);
   font-size: .74rem;
   font-weight: 600;
   color: var(--ink-soft);
   cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-out),
+              background var(--duration-fast) var(--ease-out);
 }
 .conf-btn.is-selected {
   border-color: var(--accent);
@@ -241,22 +456,29 @@
 .hand-btn {
   margin-top: .5rem;
   width: 100%;
-  padding: .6rem;
-  border: 2px dashed var(--edge-strong);
-  border-radius: 12px;
+  padding: .65rem;
+  border: 1.5px dashed var(--edge-strong);
+  border-radius: calc(var(--card-radius) - 2px);
   background: transparent;
   color: var(--ink-soft);
   font-size: .85rem;
   font-weight: 600;
   cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out);
 }
 .hand-btn.is-raised {
   border-style: solid;
   border-color: var(--good);
   color: var(--good-text);
+  background: color-mix(in srgb, var(--good) 8%, transparent);
 }
 
-.spectrum-control { padding: 1rem 0; }
+/* ---- sliders: the position IS the answer, so the track is the meaning.
+   Left end accent-2, right end accent — the ramp the projector uses for
+   low→high. The thumb takes the colour of where it stands (--lean-color,
+   written by join-page.js on input) so it reads as a marker on a map. */
+.spectrum-control { padding: 1rem 0 .4rem; }
 .spectrum-control-ends {
   display: flex;
   justify-content: space-between;
@@ -266,10 +488,49 @@
   margin-bottom: .8rem;
 }
 .spectrum-slider {
+  --lean-color: var(--accent);
+  -webkit-appearance: none;
+  appearance: none;
   width: 100%;
-  height: 2.6rem;
-  accent-color: var(--accent);
+  height: 2.8rem;
+  margin: 0;
+  background: transparent;
   touch-action: pan-y;
+  cursor: pointer;
+}
+.spectrum-slider::-webkit-slider-runnable-track {
+  height: .7rem;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-2), var(--accent));
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--ink) 20%, transparent);
+}
+.spectrum-slider::-moz-range-track {
+  height: .7rem;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-2), var(--accent));
+}
+.spectrum-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1.8rem; height: 1.8rem;
+  margin-top: calc((.7rem - 1.8rem) / 2);
+  border-radius: 50%;
+  border: 3px solid var(--lean-color);
+  background: var(--glass-strong);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--lean-color) 22%, transparent),
+              0 6px 18px -4px color-mix(in srgb, var(--lean-color) 60%, transparent);
+  transition: box-shadow var(--duration-moderate) var(--ease-out);
+}
+.spectrum-slider::-moz-range-thumb {
+  width: 1.8rem; height: 1.8rem;
+  border-radius: 50%;
+  border: 3px solid var(--lean-color);
+  background: var(--glass-strong);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--lean-color) 22%, transparent);
+}
+.spectrum-slider:active::-webkit-slider-thumb {
+  box-shadow: 0 0 0 9px color-mix(in srgb, var(--lean-color) 22%, transparent),
+              0 6px 18px -4px color-mix(in srgb, var(--lean-color) 60%, transparent);
 }
 
 .sample-pick {
@@ -278,17 +539,21 @@
   align-items: flex-start;
   width: 100%;
   text-align: left;
-  padding: .8rem .9rem;
-  border: 2px solid var(--edge-strong);
-  border-radius: 14px;
-  background: var(--surface);
+  padding: .85rem .95rem;
+  border: 1.5px solid var(--glass-edge);
+  border-radius: var(--card-radius);
+  background: var(--glass);
+  box-shadow: var(--card-shadow), var(--glass-inset);
+  color: var(--ink);
   cursor: pointer;
-  transition: border-color var(--duration-fast) var(--ease-out),
-              background var(--duration-fast) var(--ease-out);
+  transition: border-color var(--duration-moderate) var(--ease-out),
+              background var(--duration-moderate) var(--ease-out),
+              box-shadow var(--duration-moderate) var(--ease-out);
 }
 .sample-pick.is-selected {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+  background: color-mix(in srgb, var(--accent) 7%, var(--glass-strong));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent), var(--halo);
 }
 .sample-pick-tag {
   flex-shrink: 0;
@@ -298,25 +563,26 @@
   background: color-mix(in srgb, var(--ink) 8%, transparent);
   font-weight: 700;
   font-size: .8rem;
+  transition: background var(--duration-moderate) var(--ease-out);
 }
 .sample-pick.is-selected .sample-pick-tag { background: var(--accent); color: var(--on-accent); }
 .sample-pick-text {
   font-family: var(--display);
-  font-size: .92rem;
+  font-size: .95rem;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
 .rationale-input {
   width: 100%;
   padding: .7rem .8rem;
-  border: 1px solid var(--edge-strong);
-  border-radius: 10px;
-  background: var(--surface);
+  border: 1px solid var(--glass-edge);
+  border-radius: calc(var(--card-radius) - 4px);
+  background: var(--glass);
   font-size: .9rem;
 }
 
 .heatmap-control .seg-row {
-  border-radius: 12px;
+  border-radius: calc(var(--card-radius) - 2px);
   overflow: hidden;
 }
 .seg-body {
@@ -324,18 +590,23 @@
   width: 100%;
   text-align: left;
   padding: .7rem .85rem;
-  border: 2px solid var(--edge-strong);
-  border-radius: 12px;
-  background: var(--surface);
+  border: 1.5px solid var(--glass-edge);
+  border-radius: calc(var(--card-radius) - 2px);
+  background: var(--glass);
+  color: var(--ink);
   font-family: var(--display);
-  font-size: .92rem;
+  font-size: .94rem;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
-button.seg-body { cursor: pointer; transition: border-color var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out); }
+button.seg-body {
+  cursor: pointer;
+  transition: border-color var(--duration-moderate) var(--ease-out),
+              background var(--duration-moderate) var(--ease-out);
+}
 .seg-row.is-picked > .seg-body {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+  background: color-mix(in srgb, var(--accent) 9%, var(--glass-strong));
 }
 .seg-chips {
   display: flex;
@@ -345,13 +616,15 @@ button.seg-body { cursor: pointer; transition: border-color var(--duration-fast)
 }
 .seg-chip {
   padding: .32rem .6rem;
-  border: 1.5px solid var(--edge-strong);
+  border: 1.5px solid var(--glass-edge);
   border-radius: 999px;
-  background: var(--surface);
+  background: var(--glass);
   font-size: .74rem;
   font-weight: 600;
   color: var(--ink-soft);
   cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-out),
+              background var(--duration-fast) var(--ease-out);
 }
 .seg-chip.is-selected {
   border-color: var(--accent);
@@ -362,18 +635,26 @@ button.seg-body { cursor: pointer; transition: border-color var(--duration-fast)
 /* ------------------------------------------------------------- ranking */
 
 .rank-item {
+  --rank-color: var(--accent);
   display: flex; align-items: center; gap: .7rem;
-  min-height: 3.4rem;
+  width: 100%;
+  min-height: 3.5rem;
   padding: .7rem .8rem;
-  border: 2px solid var(--edge);
-  border-radius: 14px;
-  background: var(--surface);
+  border: 1.5px solid var(--glass-edge);
+  border-radius: var(--card-radius);
+  background: var(--glass);
+  box-shadow: var(--card-shadow), var(--glass-inset);
+  color: var(--ink);
+  text-align: left;
   /* movement is FLIP-animated in join-page.js (the list is rebuilt on
      every change, so a transform transition here never fired) */
   transition: border-color var(--duration-fast) var(--ease-out);
 }
-.rank-item.is-ranked { border-color: var(--accent); }
+button.rank-item { cursor: pointer; }
+.rank-item.is-ranked { border-color: color-mix(in srgb, var(--rank-color) 60%, var(--glass-edge)); }
 
+/* the badge fades from the accent at #1 toward accent-2 down the list:
+   the top of a ranking is the brightest thing on the page */
 .rank-badge {
   width: 2rem; height: 2rem;
   flex-shrink: 0;
@@ -383,17 +664,23 @@ button.seg-body { cursor: pointer; transition: border-color var(--duration-fast)
   font-weight: 700;
   font-size: .88rem;
   font-variant-numeric: tabular-nums;
+  transition: background var(--duration-moderate) var(--ease-out);
 }
-.rank-item.is-ranked .rank-badge { background: var(--accent); color: var(--on-accent); }
+.rank-item.is-ranked .rank-badge {
+  background: var(--rank-color);
+  color: var(--rank-on, var(--on-accent));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rank-color) 20%, transparent);
+}
 
 .rank-text { flex: 1; font-size: .96rem; overflow-wrap: anywhere; }
 
 .rank-moves { display: flex; flex-direction: column; gap: .15rem; }
 .rank-move {
   width: 2.2rem; height: 1.6rem;
-  border: 1px solid var(--edge-strong);
+  border: 1px solid var(--glass-edge);
   border-radius: 6px;
-  background: var(--surface);
+  background: var(--glass-strong);
+  color: var(--ink);
   cursor: pointer;
   font-size: .7rem;
   line-height: 1;
@@ -412,23 +699,35 @@ button.seg-body { cursor: pointer; transition: border-color var(--duration-fast)
 .join-actions {
   position: sticky;
   bottom: var(--keyboard-inset, 0px);
+  z-index: 3;
   padding: .8rem 0 max(.8rem, env(safe-area-inset-bottom));
-  background: linear-gradient(to top, var(--ground) 72%, transparent);
+  background: linear-gradient(to top,
+    color-mix(in srgb, var(--ground) 92%, transparent) 60%,
+    transparent);
   display: flex; flex-direction: column; gap: .5rem;
 }
 
 .submit-btn {
+  position: relative;
   width: 100%;
-  min-height: 3.4rem;
+  min-height: 3.5rem;
   border: none;
-  border-radius: 14px;
-  background: var(--accent);
+  border-radius: var(--card-radius);
+  background: linear-gradient(135deg,
+    var(--accent),
+    color-mix(in srgb, var(--accent) 78%, var(--accent-2)));
   color: var(--on-accent);
-  font-size: 1.05rem;
+  font-size: 1.06rem;
   font-weight: 650;
+  letter-spacing: .005em;
   cursor: pointer;
+  overflow: hidden;
+  box-shadow: 0 1px 0 color-mix(in srgb, #ffffff 25%, transparent) inset,
+              0 10px 28px -10px color-mix(in srgb, var(--accent) 65%, transparent);
   transition: filter var(--duration-fast) var(--ease-out),
-              transform var(--duration-instant) var(--ease-out);
+              transform var(--duration-instant) var(--ease-out),
+              box-shadow var(--duration-moderate) var(--ease-out),
+              background var(--duration-moderate) var(--ease-out);
 }
 /* Disabled used to be opacity .4, which drops the label under AA on every
    theme. That is fine for a button nobody is reading — but this one is how
@@ -437,7 +736,18 @@ button.seg-body { cursor: pointer; transition: border-color var(--duration-fast)
 .submit-btn:disabled {
   background: color-mix(in srgb, var(--ink) 12%, var(--ground));
   color: var(--ink-soft);
+  box-shadow: none;
   cursor: not-allowed;
+}
+.submit-btn:active:not(:disabled) { transform: translateY(1px); }
+.submit-btn.is-sent {
+  background: var(--good);
+  color: var(--on-good);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--good) 45%, transparent);
+  animation: sent-ring .9s var(--ease-out);
+}
+@keyframes sent-ring {
+  to { box-shadow: 0 0 0 18px transparent; }
 }
 
 /* The connection strip. Fixed to the body rather than inside #app, so a
@@ -453,8 +763,6 @@ button.seg-body { cursor: pointer; transition: border-color var(--duration-fast)
   background: var(--bad);
   color: var(--on-bad);
 }
-.submit-btn:active:not(:disabled) { transform: translateY(1px); }
-.submit-btn.is-sent { background: var(--good); color: var(--on-good); }
 
 .field-error {
   font-size: .84rem;
@@ -481,6 +789,7 @@ button.seg-body { cursor: pointer; transition: border-color var(--duration-fast)
 /* --------------------------------------------------------------- state */
 
 .join-state {
+  position: relative;
   flex: 1;
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
@@ -489,16 +798,45 @@ button.seg-body { cursor: pointer; transition: border-color var(--duration-fast)
   padding: 2rem 1rem;
 }
 
+/* The halo: a slow breath of the accent behind the title of every
+   waiting screen. It is how "the room is gathering" is said without
+   words — and it is the one thing on a lobby screen that moves. */
+.state-halo {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: min(80vw, 22rem);
+  aspect-ratio: 1;
+  transform: translate(-50%, -54%);
+  border-radius: 50%;
+  background: radial-gradient(circle,
+    color-mix(in srgb, var(--accent) 22%, transparent),
+    color-mix(in srgb, var(--accent) 6%, transparent) 45%,
+    transparent 70%);
+  animation: halo-breathe 6s ease-in-out infinite;
+  pointer-events: none;
+  z-index: -1;
+}
+@keyframes halo-breathe {
+  0%, 100% { transform: translate(-50%, -54%) scale(.94); opacity: .7; }
+  50% { transform: translate(-50%, -54%) scale(1.04); opacity: 1; }
+}
+
 .state-icon { font-size: 2.6rem; line-height: 1; }
-.state-title { font-family: var(--display); font-size: 1.35rem; font-weight: 600; }
-.state-text { font-size: .92rem; color: var(--ink-soft); max-width: 24rem; line-height: 1.5; }
+.state-title {
+  font-family: var(--display);
+  font-size: clamp(1.6rem, 7vw, 2.1rem);
+  font-weight: 650;
+  letter-spacing: -.012em;
+}
+.state-text { font-size: .95rem; color: var(--ink-soft); max-width: 24rem; line-height: 1.5; }
 
 .pulse-wait {
-  display: flex; gap: .35rem;
+  display: flex; gap: .4rem;
 }
 .pulse-wait span {
   width: .55rem; height: .55rem; border-radius: 50%;
   background: var(--accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 60%, transparent);
   animation: wait-bounce 1.3s ease-in-out infinite;
 }
 .pulse-wait span:nth-child(2) { animation-delay: .18s; }
@@ -520,13 +858,13 @@ button.seg-body { cursor: pointer; transition: border-color var(--duration-fast)
 input.code-input {
   text-align: center;
   font-family: var(--display);
-  font-size: 2rem;
+  font-size: 2.1rem;
   font-weight: 700;
   letter-spacing: .28em;
   text-transform: uppercase;
-  padding: .8rem .5rem;
-  border: 2px solid var(--edge-strong);
-  border-radius: 14px;
+  padding: .85rem .5rem;
+  border: 1.5px solid var(--glass-edge);
+  border-radius: var(--card-radius);
 }
 .code-input::placeholder { letter-spacing: .18em; opacity: .35; }
 
@@ -541,9 +879,10 @@ input.code-input {
 .qa-card {
   display: flex; align-items: flex-start; gap: .7rem;
   padding: .8rem .9rem;
-  border: 1px solid var(--edge);
-  border-radius: 12px;
-  background: var(--surface);
+  border: 1px solid var(--glass-edge);
+  border-radius: calc(var(--card-radius) - 2px);
+  background: var(--glass);
+  box-shadow: var(--card-shadow), var(--glass-inset);
 }
 .qa-card-text { flex: 1; font-size: .92rem; line-height: 1.4; overflow-wrap: anywhere; }
 
@@ -551,32 +890,57 @@ input.code-input {
   display: flex; flex-direction: column; align-items: center; gap: .1rem;
   min-width: 2.6rem;
   padding: .35rem .4rem;
-  border: 1px solid var(--edge-strong);
+  border: 1px solid var(--glass-edge);
   border-radius: 10px;
-  background: var(--surface);
+  background: var(--glass-strong);
+  color: var(--ink);
   cursor: pointer;
   font-size: .72rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  transition: border-color var(--duration-fast) var(--ease-out),
+              background var(--duration-fast) var(--ease-out);
 }
 .qa-vote.is-voted { border-color: var(--accent); color: var(--accent-text); background: var(--accent-soft); }
 .qa-vote:disabled { cursor: default; }
 
 /* ------------------------------------------------------- shared result */
 
+/* The room, on the phone. It arrives as a card of glass under the
+   student's own control, with a live dot in the eyebrow — the projector
+   in miniature, not a printout of it. */
 .shared-result {
-  border-top: 1px solid var(--edge);
-  padding-top: 1rem;
-  margin-top: .5rem;
+  margin-top: .8rem;
+  padding: 1rem 1rem 1.1rem;
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--card-radius);
+  background: var(--glass);
+  box-shadow: var(--card-shadow), var(--glass-inset);
+}
+.shared-result.is-arriving { animation: result-arrive .7s var(--ease-decel, cubic-bezier(.16, 1, .3, 1)) backwards; }
+@keyframes result-arrive {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+.shared-result .eyebrow {
+  display: flex; align-items: center; gap: .45rem;
+  margin-bottom: .8rem;
+}
+.shared-result .eyebrow::before {
+  content: '';
+  width: .5rem; height: .5rem;
+  border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--good) 60%, transparent);
+  animation: pulse 2s infinite;
 }
 .shared-result .chart { font-size: .82rem; }
 .shared-result [data-chart="cloud"] { min-height: 11rem; }
 
 /* -------------------------------------------------------------- footer */
 
-
 @media (min-width: 640px) {
-  .q-prompt { font-size: 1.7rem; }
+  .q-prompt { font-size: 2.1rem; }
   .join-shell { padding-top: 1.5rem; }
 }
 
@@ -590,14 +954,15 @@ input.code-input {
   flex-direction: column;
   gap: var(--sp-3);
   padding: var(--sp-4);
-  border: 1px solid var(--edge);
-  border-radius: var(--radius);
-  background: var(--surface);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--card-radius);
+  background: var(--glass);
+  box-shadow: var(--card-shadow), var(--glass-inset);
 }
 
 .instr-badge {
   align-self: flex-start;
-  padding: .2rem .6rem;
+  padding: .25rem .65rem;
   border-radius: 999px;
   background: color-mix(in srgb, var(--good) 16%, transparent);
   color: var(--good-text);
@@ -607,12 +972,17 @@ input.code-input {
 
 .instr-list {
   margin: 0;
-  padding-left: 1.3rem;
+  padding-left: 1.5rem;
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
-  font-size: .94rem;
+  font-size: .95rem;
   line-height: 1.45;
+}
+.instr-list li::marker {
+  font-family: var(--display);
+  font-weight: 700;
+  color: var(--accent-text);
 }
 
 .instr-smallprint { font-size: .8rem; color: var(--ink-soft); }
@@ -634,15 +1004,18 @@ input.code-input {
   width: 100%;
   min-height: 4rem;
   padding: .9rem 1.1rem;
-  border: 2px solid var(--edge-strong);
-  border-radius: 14px;
-  background: var(--surface);
+  border: 1.5px solid var(--glass-edge);
+  border-radius: var(--card-radius);
+  background: var(--glass);
+  box-shadow: var(--card-shadow), var(--glass-inset);
+  color: var(--ink);
   text-align: left;
   font-size: 1.02rem;
   font-weight: 600;
   cursor: pointer;
-  transition: border-color var(--duration-fast) var(--ease-out),
-              background var(--duration-fast) var(--ease-out),
+  transition: border-color var(--duration-moderate) var(--ease-out),
+              background var(--duration-moderate) var(--ease-out),
+              box-shadow var(--duration-moderate) var(--ease-out),
               transform var(--duration-instant) var(--ease-out);
   -webkit-tap-highlight-color: transparent;
 }
@@ -652,20 +1025,25 @@ input.code-input {
   border-radius: 50%;
   flex-shrink: 0;
   background: var(--lamp, var(--ink-soft));
-  opacity: .5;
-  transition: opacity var(--duration-fast) var(--ease-out),
-              box-shadow var(--duration-fast) var(--ease-out);
+  opacity: .45;
+  transition: opacity var(--duration-moderate) var(--ease-out),
+              box-shadow var(--duration-moderate) var(--ease-out),
+              transform var(--duration-moderate) var(--ease-spring);
 }
 .lamp-0 { --lamp: var(--good); }
 .lamp-1 { --lamp: var(--accent-2); }
 .lamp-2 { --lamp: var(--bad); }
 .lamp-btn.is-selected {
   border-color: var(--lamp);
-  background: color-mix(in srgb, var(--lamp) 12%, var(--surface));
+  background: color-mix(in srgb, var(--lamp) 12%, var(--glass-strong));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lamp) 16%, transparent),
+              0 16px 36px -14px color-mix(in srgb, var(--lamp) 60%, transparent);
 }
 .lamp-btn.is-selected .lamp-dot {
   opacity: 1;
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--lamp) 22%, transparent);
+  transform: scale(1.12);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--lamp) 22%, transparent),
+              0 0 18px color-mix(in srgb, var(--lamp) 55%, transparent);
 }
 
 /* -------------------------------------------------------- mood check */
@@ -679,21 +1057,32 @@ input.code-input {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: .3rem;
-  min-height: 5.4rem;
-  padding: .8rem .4rem;
-  border: 2px solid var(--edge-strong);
-  border-radius: 14px;
-  background: var(--surface);
+  gap: .35rem;
+  min-height: 5.6rem;
+  padding: .85rem .4rem;
+  border: 1.5px solid var(--glass-edge);
+  border-radius: var(--card-radius);
+  background: var(--glass);
+  box-shadow: var(--card-shadow), var(--glass-inset);
   cursor: pointer;
-  transition: border-color var(--duration-fast) var(--ease-out),
-              background var(--duration-fast) var(--ease-out),
+  transition: border-color var(--duration-moderate) var(--ease-out),
+              background var(--duration-moderate) var(--ease-out),
+              box-shadow var(--duration-moderate) var(--ease-out),
               transform var(--duration-instant) var(--ease-out);
   -webkit-tap-highlight-color: transparent;
 }
 .mood-btn:active { transform: scale(.97); }
-.mood-btn.is-selected { border-color: var(--accent); background: var(--accent-soft); }
-.mood-btn-glyph { font-size: 2rem; line-height: 1; }
+.mood-btn.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent), var(--halo);
+}
+.mood-btn-glyph {
+  font-size: 2.1rem;
+  line-height: 1;
+  transition: transform var(--duration-moderate) var(--ease-spring);
+}
+.mood-btn.is-selected .mood-btn-glyph { transform: scale(1.18); }
 .mood-btn-label { font-size: .74rem; font-weight: 600; color: var(--ink-soft); text-align: center; }
 
 /* ------------------------------------------------------- this or that */
@@ -703,21 +1092,28 @@ input.code-input {
 .tot-btn {
   min-height: 3.6rem;
   padding: .7rem .8rem;
-  border: 2px solid var(--edge-strong);
-  border-radius: 14px;
-  background: var(--surface);
+  border: 1.5px solid var(--glass-edge);
+  border-radius: var(--card-radius);
+  background: var(--glass);
+  box-shadow: var(--card-shadow), var(--glass-inset);
+  color: var(--ink);
   font-size: .98rem;
   font-weight: 600;
   line-height: 1.25;
   cursor: pointer;
   overflow-wrap: anywhere;
-  transition: border-color var(--duration-fast) var(--ease-out),
-              background var(--duration-fast) var(--ease-out),
+  transition: border-color var(--duration-moderate) var(--ease-out),
+              background var(--duration-moderate) var(--ease-out),
+              box-shadow var(--duration-moderate) var(--ease-out),
               transform var(--duration-instant) var(--ease-out);
   -webkit-tap-highlight-color: transparent;
 }
 .tot-btn:active { transform: scale(.98); }
-.tot-btn.is-selected { border-color: var(--accent); background: var(--accent-soft); }
+.tot-btn.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent), var(--halo);
+}
 
 /* ------------------------------------------------------ budget split */
 
@@ -725,37 +1121,62 @@ input.code-input {
   position: sticky;
   top: .25rem;
   z-index: 2;
-  padding: .55rem .9rem;
+  padding: .6rem .9rem;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--ink) 8%, var(--surface));
+  background: color-mix(in srgb, var(--ink) 8%, var(--glass-strong));
+  box-shadow: var(--card-shadow);
   font-size: .88rem;
   font-weight: 700;
   text-align: center;
   font-variant-numeric: tabular-nums;
+  transition: background var(--duration-moderate) var(--ease-out),
+              color var(--duration-moderate) var(--ease-out);
 }
-.budget-bank.is-done { background: color-mix(in srgb, var(--good) 16%, var(--surface)); color: var(--good-text); }
-.budget-bank.is-over { background: color-mix(in srgb, var(--bad) 14%, var(--surface)); color: var(--bad-text); }
+.budget-bank.is-done { background: color-mix(in srgb, var(--good) 18%, var(--glass-strong)); color: var(--good-text); }
+.budget-bank.is-over { background: color-mix(in srgb, var(--bad) 14%, var(--glass-strong)); color: var(--bad-text); }
 
+/* --share (0..1, written by join-page.js) fills the line to the share of
+   the budget it holds — the allocation is visible as a bar before it is
+   read as a number, which is what the projector will draw. */
 .budget-line {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: .7rem;
   min-height: 3.6rem;
   padding: .5rem .6rem .5rem .9rem;
-  border: 2px solid var(--edge);
-  border-radius: 14px;
-  background: var(--surface);
+  border: 1.5px solid var(--glass-edge);
+  border-radius: var(--card-radius);
+  background: var(--glass);
+  box-shadow: var(--card-shadow), var(--glass-inset);
+  overflow: hidden;
+  transition: border-color var(--duration-moderate) var(--ease-out);
 }
-.budget-line.is-funded { border-color: color-mix(in srgb, var(--accent) 45%, var(--edge)); }
+.budget-line::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 100%;
+  transform-origin: left;
+  transform: scaleX(var(--share, 0));
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--accent) 26%, transparent),
+    color-mix(in srgb, var(--accent) 12%, transparent));
+  transition: transform .45s var(--ease-snap);
+  pointer-events: none;
+}
+.budget-line > * { position: relative; }
+.budget-line.is-funded { border-color: color-mix(in srgb, var(--accent) 50%, var(--glass-edge)); }
 .budget-line-label { font-size: .96rem; font-weight: 600; overflow-wrap: anywhere; }
 
 .budget-stepper { display: flex; align-items: center; gap: .2rem; flex-shrink: 0; }
 .budget-step {
   width: 2.9rem; height: 2.9rem;
-  border: 1px solid var(--edge-strong);
-  border-radius: 12px;
-  background: var(--surface);
+  border: 1px solid var(--glass-edge);
+  border-radius: calc(var(--card-radius) - 4px);
+  background: var(--glass-strong);
+  color: var(--ink);
   font-size: 1.3rem;
   line-height: 1;
   cursor: pointer;
@@ -766,7 +1187,8 @@ input.code-input {
 .budget-value {
   min-width: 2.6rem;
   text-align: center;
-  font-size: 1.1rem;
+  font-family: var(--display);
+  font-size: 1.2rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -776,19 +1198,22 @@ input.code-input {
 .prob-control { display: flex; flex-direction: column; gap: .3rem; }
 .prob-readout {
   font-family: var(--display, inherit);
-  font-size: 2.6rem;
+  font-size: 3.4rem;
   font-weight: 700;
   text-align: center;
-  line-height: 1.1;
+  line-height: 1.05;
+  letter-spacing: -.02em;
   font-variant-numeric: tabular-nums;
   color: var(--accent-text);
+  text-shadow: 0 0 28px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 /* ---------------------------------------------------- fill in the blank */
 
 .cloze-control {
-  font-size: 1.05rem;
-  line-height: 2.4;
+  font-family: var(--display);
+  font-size: 1.15rem;
+  line-height: 2.3;
   overflow-wrap: anywhere;
 }
 .cloze-run { display: inline; white-space: pre-wrap; }
@@ -803,11 +1228,12 @@ input.code-input {
   border-bottom: 2px solid var(--accent);
   border-radius: 4px 4px 0 0;
   background: var(--accent-soft);
+  box-shadow: none;
   font: inherit;
-  font-size: 1rem;
+  font-size: 1.05rem;
   text-align: center;
 }
-.cloze-input:focus { outline: none; background: color-mix(in srgb, var(--accent) 18%, var(--surface)); }
+.cloze-input:focus { outline: none; background: color-mix(in srgb, var(--accent) 18%, var(--surface)); box-shadow: none; }
 
 /* ----------------------------------------------------- matching pairs */
 
@@ -818,20 +1244,22 @@ input.code-input {
   gap: .6rem;
   min-height: 3.6rem;
   padding: .5rem .6rem .5rem .9rem;
-  border: 2px solid var(--edge);
-  border-radius: 14px;
-  background: var(--surface);
+  border: 1.5px solid var(--glass-edge);
+  border-radius: var(--card-radius);
+  background: var(--glass);
+  box-shadow: var(--card-shadow), var(--glass-inset);
+  transition: border-color var(--duration-moderate) var(--ease-out);
 }
-.match-line.is-set { border-color: color-mix(in srgb, var(--accent) 45%, var(--edge)); }
+.match-line.is-set { border-color: color-mix(in srgb, var(--accent) 50%, var(--glass-edge)); }
 .match-line-label { font-size: .96rem; font-weight: 600; overflow-wrap: anywhere; }
 .match-select {
   flex-shrink: 0;
   max-width: 52%;
   min-height: 2.8rem;
   padding: .4rem .6rem;
-  border: 1px solid var(--edge-strong);
-  border-radius: 10px;
-  background: var(--surface);
+  border: 1px solid var(--glass-edge);
+  border-radius: calc(var(--card-radius) - 4px);
+  background: var(--glass-strong);
   font: inherit;
   font-size: .92rem;
 }
@@ -840,21 +1268,23 @@ input.code-input {
 
 .exit-field { display: flex; flex-direction: column; gap: .3rem; }
 .exit-field-label {
-  font-size: .82rem;
-  font-weight: 700;
-  color: var(--ink-soft);
+  font-family: var(--display);
+  font-size: .92rem;
+  font-weight: 650;
+  color: var(--ink);
 }
 
 /* ---------------------------------------------------------- card sort */
 
 .bucket-row {
   padding: .6rem .7rem .55rem;
-  border: 2px solid var(--edge);
-  border-radius: 14px;
-  background: var(--surface);
-  transition: border-color var(--duration-fast) var(--ease-out);
+  border: 1.5px solid var(--glass-edge);
+  border-radius: var(--card-radius);
+  background: var(--glass);
+  box-shadow: var(--card-shadow), var(--glass-inset);
+  transition: border-color var(--duration-moderate) var(--ease-out);
 }
-.bucket-row.is-placed { border-color: color-mix(in srgb, var(--accent) 45%, var(--edge)); }
+.bucket-row.is-placed { border-color: color-mix(in srgb, var(--accent) 50%, var(--glass-edge)); }
 .bucket-card {
   font-family: var(--display);
   font-weight: 650;
@@ -878,12 +1308,14 @@ input.code-input {
   width: 100%;
   aspect-ratio: 1 / 1;
   max-height: 56dvh;
-  border: 2px solid var(--edge-strong);
-  border-radius: 14px;
+  border: 1.5px solid var(--glass-edge);
+  border-radius: var(--card-radius);
   background:
     linear-gradient(var(--edge) 0 0) center / 100% 1.5px no-repeat,
     linear-gradient(var(--edge) 0 0) center / 1.5px 100% no-repeat,
-    var(--surface);
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 60%),
+    var(--glass);
+  box-shadow: var(--card-shadow), var(--glass-inset);
   /* the square owns the gesture — without this the page steals the drag */
   touch-action: none;
   cursor: crosshair;
@@ -913,7 +1345,8 @@ input.code-input {
   color: var(--on-accent);
   font-weight: 800;
   font-size: .9rem;
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--ink) 25%, transparent);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--ink) 25%, transparent),
+              0 0 0 6px color-mix(in srgb, var(--accent) 18%, transparent);
   cursor: grab;
 }
 .quad-mark.is-active { outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 2px; }
@@ -924,9 +1357,10 @@ input.code-input {
   gap: .45rem;
   min-height: 2.7rem;
   padding: .35rem .7rem .35rem .4rem;
-  border: 2px solid var(--edge-strong);
+  border: 1.5px solid var(--glass-edge);
   border-radius: 999px;
-  background: var(--surface);
+  background: var(--glass);
+  color: var(--ink);
   font-size: .85rem;
   font-weight: 600;
   cursor: pointer;
@@ -955,40 +1389,45 @@ input.code-input {
   color: var(--ink-soft);
 }
 .claim-card {
-  padding: 1.1rem 1rem;
-  border: 2px solid var(--edge-strong);
-  border-radius: 14px;
-  background: var(--surface);
+  padding: 1.2rem 1.1rem;
+  border: 1.5px solid var(--glass-edge);
+  border-radius: var(--card-radius);
+  background: var(--glass);
+  box-shadow: var(--card-shadow), var(--glass-inset);
 }
 .claim-text {
   font-family: var(--display);
   font-weight: 650;
-  font-size: 1.15rem;
-  line-height: 1.45;
+  font-size: 1.2rem;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 .claim-votes { display: flex; gap: .5rem; padding-top: .6rem; }
 .claim-vote {
   flex: 1;
-  min-height: 3.4rem;
-  border: 2px solid var(--edge-strong);
-  border-radius: 14px;
-  background: var(--surface);
+  min-height: 3.5rem;
+  border: 1.5px solid var(--glass-edge);
+  border-radius: var(--card-radius);
+  background: var(--glass);
+  box-shadow: var(--card-shadow), var(--glass-inset);
+  color: var(--ink);
   font-weight: 700;
   font-size: .95rem;
   cursor: pointer;
-  transition: border-color var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out);
+  transition: border-color var(--duration-moderate) var(--ease-out),
+              background var(--duration-moderate) var(--ease-out),
+              box-shadow var(--duration-moderate) var(--ease-out);
 }
 .claim-vote.is-pass { flex: .7; color: var(--ink-soft); }
-.claim-vote.is-selected { border-color: var(--accent); background: var(--accent-soft); }
-.claim-vote.is-disagree.is-selected { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, var(--surface)); }
+.claim-vote.is-selected { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.claim-vote.is-disagree.is-selected { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, var(--glass-strong)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 14%, transparent); }
 .claim-nav { display: flex; justify-content: space-between; padding-top: .5rem; }
 .claim-step {
   min-height: 2.4rem;
   padding: .3rem .8rem;
-  border: 1.5px solid var(--edge);
+  border: 1.5px solid var(--glass-edge);
   border-radius: 999px;
-  background: var(--surface);
+  background: var(--glass);
   font-size: .82rem;
   font-weight: 600;
   color: var(--ink-soft);
@@ -1001,10 +1440,11 @@ input.code-input {
 .claim-add {
   flex-shrink: 0;
   min-width: 4.2rem;
-  min-height: 3.4rem;
-  border: 2px solid var(--edge-strong);
-  border-radius: 14px;
-  background: var(--surface);
+  min-height: 3.5rem;
+  border: 1.5px solid var(--glass-edge);
+  border-radius: var(--card-radius);
+  background: var(--glass);
+  color: var(--ink);
   font-weight: 700;
   cursor: pointer;
 }
@@ -1014,8 +1454,8 @@ input.code-input {
   gap: .5rem;
   padding: .55rem .5rem .55rem .8rem;
   border: 1.5px dashed var(--edge-strong);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+  border-radius: calc(var(--card-radius) - 2px);
+  background: color-mix(in srgb, var(--accent) 6%, var(--glass));
   font-size: .88rem;
 }
 .claim-mine-text { flex: 1; overflow-wrap: anywhere; }
@@ -1051,9 +1491,9 @@ input.code-input {
   z-index: 40;
   min-height: 2.4rem;
   padding: .35rem .8rem;
-  border: 1.5px solid var(--edge-strong);
+  border: 1.5px solid var(--glass-edge);
   border-radius: 999px;
-  background: var(--surface);
+  background: var(--glass-strong);
   color: var(--ink-soft);
   font-size: .8rem;
   font-weight: 700;
@@ -1064,4 +1504,89 @@ input.code-input {
   border-color: color-mix(in srgb, var(--good) 55%, var(--edge));
   color: var(--good-text);
   cursor: default;
+}
+
+/* =====================================================================
+   Per-theme flourishes — the same hooks styles/present.css gives the
+   projector's heading, so a question wears the same signature on the
+   phone as on the wall. applyTheme() stamps data-theme-id on the root.
+   Weight, tracking, optical size and one shadow; never a ninth font.
+   ===================================================================== */
+
+[data-theme-id="neon-night"] .q-prompt,
+[data-theme-id="neon-night"] .state-title {
+  text-shadow: 0 0 22px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+[data-theme-id="neon-night"] .opt.is-selected,
+[data-theme-id="arcade"] .opt.is-selected {
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--opt-color, var(--accent)) 22%, transparent),
+    0 0 28px color-mix(in srgb, var(--opt-color, var(--accent)) 40%, transparent),
+    var(--glass-inset);
+}
+[data-theme-id="chalkboard"] .q-prompt {
+  font-weight: 500;
+  text-shadow: 0 0 1px color-mix(in srgb, var(--ink) 40%, transparent);
+}
+[data-theme-id="letterpress"] .q-prompt {
+  padding-block: .3em;
+  border-block: 1px solid var(--edge);
+}
+[data-theme-id="clean-slate"] .q-prompt,
+[data-theme-id="arcade"] .q-prompt {
+  font-weight: 700;
+  letter-spacing: -.025em;
+}
+[data-theme-id="midnight"] .q-prompt,
+[data-theme-id="fjord"] .q-prompt {
+  font-weight: 650;
+  letter-spacing: -.015em;
+}
+[data-theme-id="blueprint"] .join-progress { letter-spacing: .22em; }
+[data-theme-id="blueprint"] .q-prompt { font-weight: 600; letter-spacing: .01em; }
+[data-theme-id="gallery"] .q-prompt,
+[data-theme-id="gallery"] .state-title {
+  font-weight: 400;
+  letter-spacing: -.005em;
+  font-variation-settings: 'opsz' 144, 'SOFT' 0, 'WONK' 0;
+}
+[data-theme-id="gallery"] .join-progress { letter-spacing: .28em; }
+[data-theme-id="citrus-studio"] .q-prompt { font-weight: 800; }
+[data-theme-id="sorbet"] .q-prompt,
+[data-theme-id="sorbet"] .state-title {
+  font-weight: 550;
+  font-variation-settings: 'SOFT' 100, 'WONK' 1;
+}
+[data-theme-id="rice-paper"] .q-prompt { font-weight: 500; letter-spacing: .005em; }
+[data-theme-id="velvet"] .q-prompt { font-weight: 500; letter-spacing: .005em; }
+[data-theme-id="observatory"] .q-prompt { font-weight: 500; }
+
+/* High contrast: no glass, no glow, no weather. Solid surfaces and the
+   2px rules the theme is built on. */
+[data-theme-id="high-contrast"] .join-body {
+  --glass: var(--surface);
+  --glass-strong: var(--surface);
+  --glass-edge: var(--ink);
+  --glass-inset: none;
+  --card-shadow: none;
+  --halo: none;
+}
+[data-theme-id="high-contrast"] .submit-btn { background: var(--accent); }
+[data-theme-id="high-contrast"] .state-halo,
+[data-theme-id="high-contrast"] .join-rail::after { display: none; }
+[data-theme-id="high-contrast"] .opt,
+[data-theme-id="high-contrast"] .scale-btn,
+[data-theme-id="high-contrast"] .lamp-btn,
+[data-theme-id="high-contrast"] .mood-btn,
+[data-theme-id="high-contrast"] .tot-btn { border-width: 2px; }
+
+/* ===================================================== reduced motion */
+
+@media (prefers-reduced-motion: reduce) {
+  .atmo-canvas { display: none; }
+  .atmo-mood { transition: none; }
+  .state-halo,
+  .shared-result .eyebrow::before { animation: none; }
+  .join-rail::before, .join-rail::after { transition: none; }
+  .budget-line::before { transition: none; }
 }

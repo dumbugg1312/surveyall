@@ -490,6 +490,100 @@ product: the projector repaints on every vote, and results.html renders
 into a container that is fully laid out first — verified both ways
 before concluding it was the harness's own shape at fault.
 
+## 11. The phone as a canvas
+
+The participant page used to be a form on a flat colour. It is now a
+place: `app/atmosphere.js` mounts, behind everything, the theme's own
+backdrop preset (the same `BACKGROUND_PRESETS` string the projector
+draws), the projector's own blooms (`ambiencePlan()` at `lively`, the
+same compositor-only layers from `styles/ambience.css`), and a weather
+of a few dozen particles the palette implies — `motif` on each theme in
+`themes.js`: chalk dust, stars, embers, petals, snow, fireflies, ink.
+The surfaces on top are glass (`--glass`, 84–90% of `--surface`) so the
+room shows through; contrast is unchanged because the glass sits on the
+ground the surface already sat on.
+
+Colour on the phone carries meaning before decoration, and every colour
+is one the projector already assigns to the same answer:
+
+- **An option's marker wears its wall colour.** `optionColors()` is a
+  new export from charts.js wrapping the same `palette(root, n, 'wheel')`
+  call `renderChoice` makes — same cache, same contrast floor — so the
+  second option on the phone is the hue of the second bar on the wall,
+  shown as a swatch before the tap and as the fill after it.
+- **A scale fills low→high on the accent-2→accent ramp** the histogram
+  is drawn in; everything at or below the chosen step lights.
+- **A slider's thumb takes the colour of where it stands**, and the
+  light behind the page follows it (`lean()`).
+- **A budget line fills to its share; a rank badge cools down the list.**
+
+The canvas answers back. A tap sends one soft ring out from the thumb in
+the answer's colour and the sky leans toward that hue (`tint()`, a CSS
+opacity transition on a radial wash, so it composites). On send, one
+mote of light rises off the button; a word answer rises as the word
+itself. The first cut had a comet with a trail, a flash wash and a
+scatter of sparks, and it looked like a game — all three were removed.
+Every mark is a memory of a gesture, never a quantity, which is why none
+of it runs on the spring engine; it shares motion.js's one rAF and
+releases it when nothing is moving. `prefers-reduced-motion` removes the
+particles, rings and motes entirely; the backdrop holds still.
+
+The phone deliberately stays the quieter of the two screens: the wall is
+what the room makes together (§12).
+
+## 12. The mural — what the room paints on the wall
+
+`app/mural.js`. A projected question is still a chart on a backdrop; the
+backdrop is now made by the room. Every answer that lands comes up as one
+soft seed of light in a phyllotaxis — angle i·137.5°, the sunflower's own
+spiral, so no two seeds ever touch and the pattern is the same shape at
+six answers and six hundred. Sixty students, sixty seeds, in the colours
+their answers wear on the chart above: the distribution in another form,
+that nobody drew and everybody made.
+
+**Filled from the rim inward.** An ordinary phyllotaxis puts seed 0 at
+the centre, which on a slide is exactly where the bars are; the first
+ten answers of every question would have landed behind the chart. The
+radius is inverted — √(1 − i/ref) — so the first answers sit on an
+elliptical rim that frames the chart and later ones fill inward. The
+flower is complete when the room is. `ref` grows in steps of 24 so the
+ring holds still between arrivals, and every seed eases to a new slot
+rather than jumping.
+
+**What a seed means.** One seed is one row, never an identity. Its colour
+is what the answer *was*, from the chart's own palette (`seedColor()` in
+present-page.js): the option wheel, the low→high ramp, the lamp's light,
+a ranking's first choice. While results are hidden every seed is the
+accent, so the wall says how many without saying what — and on reveal
+they ease into colour, which is the reveal happening on the wall. On a
+quiz verdict the right answer's seeds take the verdict green and the rest
+lose their colour, exactly as the rows do. In the lobby the seeds are the
+phones connecting (`muralPresence()`), the room gathering.
+
+**What it refuses to do.** No flights, no trails, no sparks, no highlights.
+The first cut flew each answer in from the join corner on a lit arc, and
+sixty arcs a minute turned the wall into a screensaver. A seed arrives the
+way light does — it comes up over about a second, slightly larger than it
+settles — and the arrival is already told once by the bar's glint and the
+count's pulse. Each seed is a gaussian disc, bokeh on a dark ground and a
+watercolour dab on a light one; every fourth sits at a second depth,
+larger and fainter, so the field has a near and a far. On a new question
+the old flower dissolves in place, drifting a breath outward.
+
+**Cost and rules.** One canvas after the scrim at the scrim's z-index
+(`.stage-mural`), so it paints over the backdrop and under everything the
+room can read or the instructor can place. It shares motion.js's single
+rAF and lets go of it after one settled frame, so a resting slide costs
+the main thread nothing. Peak alpha is .5 on a dark ground and .44 on a
+light one, in colours that already clear 3:1 against that ground, so
+chart labels stay AA over any seed. The high-contrast theme gets no
+mural. Under reduced motion seeds appear where they belong, instantly.
+
+`tests/join-check.html` is the harness for both passes: the real
+join.html beside the real present.html on the same rehearsal room
+(`?theme=…`, `?run=1` for the checks, `?wall=1` for the projector at full
+size).
+
 ## Infrastructure
 
 `qrcode-generator` is vendored (`app/vendor/`, MIT) instead of imported from

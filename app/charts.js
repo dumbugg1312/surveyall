@@ -319,6 +319,18 @@ function palette(root, count, mode = 'categorical', minContrast = MARK_CONTRAST)
   return p;
 }
 
+/**
+ * The colour each option wears on the wall, for a surface that is not the
+ * chart — the phone. A student who taps the second option sees it fill
+ * with the exact hue the projector will give the second bar, so their
+ * answer is findable in the room's chart without reading four labels.
+ * Same cache, same wheel, same contrast floor as renderChoice(); there is
+ * no second palette to drift.
+ */
+export function optionColors(root, count) {
+  return palette(root, Math.max(1, count), 'wheel');
+}
+
 // =====================================================================
 // Multiple choice / quiz — bars, columns, donut
 // =====================================================================
