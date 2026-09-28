@@ -753,9 +753,21 @@ async function participantRoute(request, env, seg, method, body, url) {
   // Not a poll at all: conference boards share the join-code namespace,
   // so a student types one code into one box whatever the instructor is
   // running. Looked up last, because polls are the common case.
+  //
+  // A failed lookup counts as "no board", never as an error. This branch
+  // runs for EVERY code that isn't a poll — a typo, a deck not started
+  // yet — so if the conference_boards table were ever missing (a
+  // deployment that skipped migration 0007), letting it throw would turn
+  // every student's "no session found" into "something went wrong".
+  // Conference boards are an add-on; they must not be able to break polls.
   if (!session) {
-    const board = await env.DB.prepare('select * from conference_boards where join_code = ?')
-      .bind(code).first();
+    let board = null;
+    try {
+      board = await env.DB.prepare('select * from conference_boards where join_code = ?')
+        .bind(code).first();
+    } catch (err) {
+      console.error('conference board lookup failed (is migration 0007 applied?)', err);
+    }
     if (board) return boardParticipantRoute(request, env, board, code, seg, method, body, url);
   }
 
@@ -1390,7 +1402,16 @@ async function instructorRoute(request, env, seg, method, body, url, ctx, user) 
 
   // ----------------------------------------------------- conference boards
   if (seg[0] === 'boards') {
-    return boardInstructorRoute(request, env, seg, method, body, user);
+    try {
+      return await boardInstructorRoute(request, env, seg, method, body, user);
+    } catch (err) {
+      // The one failure an operator can fix in a minute, named plainly
+      // rather than hidden behind the generic 500 sentence.
+      if (/no such table: conference_boards/i.test(String(err?.message))) {
+        return fail('Conference boards aren’t set up on this server yet. Whoever runs this site needs to run worker/migrations/0007-conference-boards.sql against the database (see docs/conferences.md).', 503);
+      }
+      throw err;
+    }
   }
 
   // ------------------------------------------------------------- decks

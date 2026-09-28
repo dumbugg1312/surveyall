@@ -1918,6 +1918,26 @@ describe('conference boards', () => {
     eq((await call(b.env, 'POST', `/api/join/${b.code}/seat`)).status, 410);
   });
 
+  it('cannot break polls if the conference table is missing', async () => {
+    // A deployment that shipped the code but skipped migration 0007.
+    const env = freshEnv();
+    env.DB.db.exec('drop table conference_boards');
+    const token = await account(env, 'alice');
+    const deck = (await call(env, 'POST', '/api/decks', { token, body: { title: 'D' } })).data;
+
+    const typo = await call(env, 'GET', '/api/join/ZZZZZZ');
+    eq(typo.status, 404);
+    eq(typo.data.error, 'No session found for that code.');
+    const early = await call(env, 'GET', `/api/join/${deck.join_code}`);
+    eq(early.status, 404);
+    ok(/not started/.test(early.data.error), early.data.error);
+
+    // ...and the instructor is told what to fix, not "something went wrong".
+    const start = await call(env, 'POST', '/api/boards', { token, body: { title: 'x' } });
+    eq(start.status, 503);
+    ok(/0007-conference-boards\.sql/.test(start.data.error), start.data.error);
+  });
+
   it('cleans what the instructor configures', async () => {
     const b = await conferenceBoard({ stages: ['  Topic  ', 'topic', '', 'Sources'], target: 999 });
     eq(b.board.settings.stages, ['Topic', 'Sources']);
