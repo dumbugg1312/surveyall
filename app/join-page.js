@@ -180,6 +180,14 @@ async function joinByCode(code, attempt = 0) {
       `No session found for “${code}”. Check the code on the screen.`, code);
   }
 
+  // The code belongs to a conference board, not a poll. Boards share the
+  // join-code namespace so the room types one code into one box whatever
+  // is running; the board has its own page.
+  if (session.kind === 'conference') {
+    window.location.replace(`conference#${encodeURIComponent(code)}`);
+    return;
+  }
+
   state.session = session;
   // A different session (or a re-join) means none of the per-question
   // bookkeeping below belongs to this device any more.

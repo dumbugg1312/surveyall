@@ -25,6 +25,7 @@ import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 import worker from '../worker/index.js';
+import { ConferenceRoom } from '../worker/conference-room.js';
 import {
   hashPassword, checkPassword, issueToken, verifyToken, safeEqual,
   normaliseUsername, validateCredentials,
@@ -112,6 +113,53 @@ function freshEnv(overrides = {}) {
     },
     ...overrides,
   };
+}
+
+/**
+ * A real ConferenceRoom per board, over an in-memory stand-in for Durable
+ * Object storage. Unlike SESSION_ROOM this object holds the state under
+ * test — student cards — so it cannot be stubbed out. WebSockets are not
+ * exercised here (node has no WebSocketPair); every state change goes
+ * through the HTTP ops the Worker actually calls.
+ */
+function fakeDurableState() {
+  const data = new Map();
+  let alarm = null;
+  return {
+    data,
+    get alarm() { return alarm; },
+    storage: {
+      async get(k) { return structuredClone(data.get(k)); },
+      async put(k, v) { data.set(k, structuredClone(v)); },
+      async delete(k) { return data.delete(k); },
+      async list({ prefix = '' } = {}) {
+        return new Map([...data].filter(([k]) => k.startsWith(prefix))
+          .map(([k, v]) => [k, structuredClone(v)]));
+      },
+      async deleteAll() { data.clear(); },
+      async setAlarm(t) { alarm = t; },
+      async deleteAlarm() { alarm = null; },
+    },
+    getWebSockets: () => [],
+    acceptWebSocket() {},
+  };
+}
+
+function withConferenceRooms(env) {
+  const rooms = new Map();
+  env.CONFERENCE_ROOM = {
+    idFromName: (name) => name,
+    get(id) {
+      if (!rooms.has(id)) {
+        const state = fakeDurableState();
+        rooms.set(id, { state, room: new ConferenceRoom(state, env) });
+      }
+      const { room } = rooms.get(id);
+      return { fetch: (req, init) => room.fetch(req instanceof Request ? req : new Request(req, init)) };
+    },
+  };
+  env.__rooms = rooms;
+  return env;
 }
 
 /** Drive the Worker's real fetch handler. */
@@ -1657,6 +1705,223 @@ describe('consensus moderation stays server-side', () => {
     const q = (await call(room.env, 'GET', `/api/join/${room.code}/question`)).data;
     eq(q.config.claims.length, 1);
     eq(q.config.claim_hidden, undefined);
+  });
+});
+
+
+// =====================================================================
+// Conference boards — the one feature that holds student names
+// =====================================================================
+
+async function conferenceBoard(settings = {}) {
+  const env = withConferenceRooms(freshEnv());
+  const token = await account(env, 'alice');
+  const board = (await call(env, 'POST', '/api/boards',
+    { token, body: { title: 'ENC 1102 · Pensacola essay', ...settings } })).data;
+  ok(board?.join_code, `board not created: ${JSON.stringify(board)}`);
+  const code = board.join_code;
+
+  /** A phone: claims a seat, and acts only through /api/join/:code/board. */
+  async function phone() {
+    const claim = (await call(env, 'POST', `/api/join/${code}/seat`)).data;
+    const act = (op, data) => call(env, 'POST', `/api/join/${code}/board`,
+      { body: { op, seat: claim.seat, token: claim.token, data } });
+    return { ...claim, act };
+  }
+  const view = async () => (await call(env, 'GET', `/api/boards/${board.id}`, { token })).data;
+  const act = (op, seat) => call(env, 'POST', `/api/boards/${board.id}/act`,
+    { token, body: { op, seat } });
+  return { env, token, board, code, phone, view, act };
+}
+
+/** Every text value in every table in the database, concatenated. */
+function wholeDatabase(env) {
+  const db = env.DB.db;
+  const tables = db.prepare("select name from sqlite_master where type = 'table'").all();
+  return tables.map(({ name }) => JSON.stringify(db.prepare(`select * from "${name}"`).all())).join('\n');
+}
+
+describe('conference boards', () => {
+  it('resolves its code on the same join route polls use', async () => {
+    const b = await conferenceBoard();
+    const res = await call(b.env, 'GET', `/api/join/${b.code}`);
+    eq(res.status, 200);
+    eq(res.data.kind, 'conference');
+    eq(res.data.state, 'live');
+  });
+
+  it('never writes a student name or topic to the database', async () => {
+    const b = await conferenceBoard();
+    const p = await b.phone();
+    const saved = await p.act('save', { name: 'Quillonette', topic: 'Zarquon lighthouse history', stage: 1 });
+    eq(saved.status, 200);
+    await p.act('ask', { about: 'Finding sources', note: 'Xylophonic archives question' });
+    await b.act('call', p.seat);
+    await b.act('done', p.seat);
+    await p.act('step', { text: 'Visit the Blorptastic library' });
+
+    // The instructor can see it — that is the point of the board...
+    const v = await b.view();
+    eq(v.view.cards[0].name, 'Quillonette');
+    // ...and none of it is in D1.
+    const dump = wholeDatabase(b.env);
+    for (const secret of ['Quillonette', 'Zarquon', 'Xylophonic', 'Blorptastic']) {
+      ok(!dump.includes(secret), `"${secret}" reached the database`);
+    }
+  });
+
+  it('only lets a phone act as a seat this server signed', async () => {
+    const b = await conferenceBoard();
+    const p = await b.phone();
+    const forged = await call(b.env, 'POST', `/api/join/${b.code}/board`,
+      { body: { op: 'save', seat: p.seat, token: 'not-a-signature', data: { name: 'Mallory' } } });
+    eq(forged.status, 403);
+
+    // A real signature for one seat does not open another.
+    const q = await b.phone();
+    await q.act('save', { name: 'Victim' });
+    const hijack = await call(b.env, 'POST', `/api/join/${b.code}/board`,
+      { body: { op: 'save', seat: q.seat, token: p.token, data: { name: 'Mallory' } } });
+    eq(hijack.status, 403);
+    eq((await b.view()).view.cards[0].name, 'Victim');
+  });
+
+  it('shows a phone its own card, never anyone else’s, and never its place in line', async () => {
+    const b = await conferenceBoard();
+    const a = await b.phone();
+    const c = await b.phone();
+    await a.act('save', { name: 'Ana', topic: 'Fort Pickens' });
+    await c.act('save', { name: 'Cal', topic: 'Palafox Street' });
+    await a.act('ask', { about: 'Finding sources' });
+    await c.act('ask', { about: 'Citing sources (MLA)' });
+    await b.act('call', c.seat);
+    const me = (await c.act('me')).data;
+    eq(me.card.name, 'Cal');
+    eq(me.card.ask.about, 'Citing sources (MLA)');
+    // The phone is never told where it is in line or that it was called:
+    // the instructor calls names aloud, and students keep working.
+    eq(me.line, undefined);
+    eq(me.card.call, undefined);
+    eq(me.card.callAt, undefined);
+    ok(!JSON.stringify(me).includes('Ana'), 'another student reached this phone');
+    ok(!JSON.stringify(me).includes('Fort Pickens'), 'another student’s topic reached this phone');
+  });
+
+  it('ignores status fields a phone tries to set on itself', async () => {
+    const b = await conferenceBoard();
+    const p = await b.phone();
+    await p.act('save', {
+      name: 'Eve', call: 'with', conferences: [{ start: 1, end: 2 }], ask: { about: 'x', at: 0 },
+    });
+    const card = (await b.view()).view.cards[0];
+    eq(card.call, '');
+    eq(card.conferences, []);
+    eq(card.ask, null);
+  });
+
+  it('will not queue a student who has not said what they want to talk about', async () => {
+    const b = await conferenceBoard();
+    const p = await b.phone();
+    eq((await p.act('ask', { about: 'Finding sources' })).status, 409, 'no name yet');
+    await p.act('save', { name: 'Dee' });
+    eq((await p.act('ask', { about: '' })).status, 400);
+    eq((await p.act('ask', { about: 'Finding sources' })).status, 200);
+  });
+
+  it('puts first visits ahead of return visits', async () => {
+    const b = await conferenceBoard();
+    const back = await b.phone();
+    await back.act('save', { name: 'Returning' });
+    await back.act('ask', { about: 'Finding sources' });
+    await b.act('call', back.seat);
+    await b.act('done', back.seat);
+    await back.act('ask', { about: 'Thesis & organization' });   // asks again, first
+
+    const fresh = await b.phone();
+    await fresh.act('save', { name: 'Fresh' });
+    await fresh.act('ask', { about: 'Finding sources' });        // asks second
+
+    const order = (await b.view()).view.cards
+      .filter((c) => c.ask).sort((x, y) => x.ask.at - y.ask.at).map((c) => c.name);
+    eq(order, ['Returning', 'Fresh'], 'fixture: the return visit asked first');
+    const { queueOrder } = await import('../app/conference-logic.js');
+    eq(queueOrder((await b.view()).view.cards).map((c) => c.name), ['Fresh', 'Returning']);
+  });
+
+  it('records a conference and asks the student for their next step', async () => {
+    const b = await conferenceBoard();
+    const p = await b.phone();
+    await p.act('save', { name: 'Gus', topic: 'Seville Quarter' });
+    await p.act('ask', { about: 'Thesis & organization', note: 'too broad?' });
+    eq((await b.act('call', p.seat)).status, 200);
+    eq((await b.act('done', p.seat)).status, 200);
+    let me = (await p.act('me')).data;
+    eq(me.card.stepPending, true);
+    eq(me.card.ask, null);
+    eq(me.card.conferences.length, 1);
+    eq(me.card.conferences[0].about, 'Thesis & organization');
+    eq(me.card.conferences[0].note, 'too broad?');
+    await p.act('step', { text: 'Narrow to the 1880s' });
+    me = (await p.act('me')).data;
+    eq(me.card.step, 'Narrow to the 1880s');
+    eq(me.card.stepPending, false);
+  });
+
+  it('keeps one instructor out of another’s board', async () => {
+    const b = await conferenceBoard();
+    const p = await b.phone();
+    await p.act('save', { name: 'Hal' });
+    const bob = await account(b.env, 'bob');
+
+    eq((await call(b.env, 'GET', `/api/boards/${b.board.id}`, { token: b.token })).status, 200);
+    eq((await call(b.env, 'GET', `/api/boards/${b.board.id}`, { token: bob })).status, 404);
+    eq((await call(b.env, 'POST', `/api/boards/${b.board.id}/act`,
+      { token: bob, body: { op: 'remove', seat: p.seat } })).status, 404);
+    eq((await call(b.env, 'POST', `/api/boards/${b.board.id}/end`, { token: bob })).status, 404);
+    eq((await call(b.env, 'GET', '/api/boards', { token: bob })).data.length, 0);
+    eq((await call(b.env, 'GET', '/api/boards', { token: b.token })).data.length, 1);
+    eq((await b.view()).view.cards.length, 1, 'bob’s attempts changed alice’s board');
+  });
+
+  it('hands the log over once on end, then forgets every student', async () => {
+    const b = await conferenceBoard();
+    const p = await b.phone();
+    await p.act('save', { name: 'Ivy', topic: 'Pensacola Bay Bridge' });
+    const end = await call(b.env, 'POST', `/api/boards/${b.board.id}/end`, { token: b.token });
+    eq(end.status, 200);
+    eq(end.data.log.cards[0].name, 'Ivy');
+
+    const { state } = b.env.__rooms.get(b.board.id);
+    eq(state.data.size, 0, 'the room kept data after end');
+    eq(state.alarm, null);
+    eq((await call(b.env, 'GET', `/api/join/${b.code}`)).data.state, 'ended');
+    eq((await p.act('me')).status, 410);
+    // A second end returns nothing more — there is nothing left to return.
+    eq((await call(b.env, 'POST', `/api/boards/${b.board.id}/end`, { token: b.token })).data.log, null);
+  });
+
+  it('sets an alarm that erases the room when the board expires', async () => {
+    const b = await conferenceBoard();
+    const p = await b.phone();
+    await p.act('save', { name: 'Jo' });
+    const { state, room } = b.env.__rooms.get(b.board.id);
+    ok(state.alarm > Date.now() + 11 * 60 * 60 * 1000, 'no twelve-hour alarm was set');
+    await room.alarm();
+    eq(state.data.size, 0);
+  });
+
+  it('treats a board past its expiry as ended even before the alarm runs', async () => {
+    const b = await conferenceBoard();
+    b.env.DB.db.prepare('update conference_boards set expires_at = ? where id = ?')
+      .run(Date.now() - 1, b.board.id);
+    eq((await call(b.env, 'GET', `/api/join/${b.code}`)).data.state, 'ended');
+    eq((await call(b.env, 'POST', `/api/join/${b.code}/seat`)).status, 410);
+  });
+
+  it('cleans what the instructor configures', async () => {
+    const b = await conferenceBoard({ stages: ['  Topic  ', 'topic', '', 'Sources'], target: 999 });
+    eq(b.board.settings.stages, ['Topic', 'Sources']);
+    eq(b.board.settings.target, 5);
   });
 });
 

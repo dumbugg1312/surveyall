@@ -36,6 +36,10 @@ import {
 import { CHART_ICONS } from '../app/icons.js';
 import { buildExportSlides, exportStem } from '../app/export-model.js';
 import { pptxParts } from '../app/pptx.js';
+import {
+  cleanStudentPatch, cleanSettings, newCard, queueOrder, lanes, coverage, attentionReason,
+  logRows, statusOf, DEFAULT_STAGES,
+} from '../app/conference-logic.js';
 import { zip, crc32 } from '../app/zip.js';
 import {
   ELEMENT_LIST, getElement, hasElement, searchElements,
@@ -3920,6 +3924,105 @@ describe('deck export — the PowerPoint package', () => {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     eq(view.getUint32(bytes.length - 22, true), 0x06054b50);
     eq(view.getUint16(bytes.length - 12, true), parts.length);
+  });
+});
+
+
+// =====================================================================
+// Conference board rules (app/conference-logic.js)
+// =====================================================================
+
+describe('conference board rules', () => {
+  const T = 1_800_000_000_000;
+  const board = { stages: DEFAULT_STAGES, createdAt: T };
+  const card = (seat, fields = {}) => ({ ...newCard(seat, T), name: seat, ...fields });
+  const seen = { conferences: [{ start: T, end: T + 60_000, about: '', note: '' }] };
+
+  it('lets a phone set only its own four fields', () => {
+    const out = cleanStudentPatch({
+      name: '  Ana\n  B  ', topic: 'x'.repeat(500), stage: 99, mood: 'furious', call: 'with', seat: 'z',
+    });
+    eq(out.name, 'Ana B');
+    eq(out.topic.length, 160);
+    eq('stage' in out, false);
+    eq(out.mood, '');
+    eq(Object.keys(out).sort(), ['mood', 'name', 'topic']);
+  });
+
+  it('orders the line: first visits, then return visits', () => {
+    const cards = [
+      card('back', { ...seen, ask: { about: 'a', at: T + 1 } }),
+      card('late', { ask: { about: 'a', at: T + 3 } }),
+      card('early', { ask: { about: 'a', at: T + 2 } }),
+      card('front', { ask: { about: 'a', at: T }, call: 'with' }),
+      card('idle'),
+    ];
+    eq(queueOrder(cards).map((c) => c.seat), ['early', 'late', 'back']);
+  });
+
+  it('flags what a student said at check-in, straight away', () => {
+    eq(attentionReason(card('a', { topic: 'x', mood: 'stuck', moodAt: T + 1 })), 'Says they’re stuck');
+    eq(attentionReason(card('b', { topic: '' })), 'No topic yet');
+    eq(attentionReason(card('c', { topic: 'x', mood: 'okay', moodAt: T })), '');
+  });
+
+  it('never flags anyone for time passing', () => {
+    // Students fill the card in once and come back only to ask, so a card
+    // untouched since the start of class, on the first stage, is normal.
+    const quiet = card('d', { topic: 'x', stage: 0, mood: 'good', moodAt: T });
+    eq(attentionReason(quiet), '');
+    const l = lanes([quiet]);
+    eq(l.flagged.length, 0);
+    eq(l.working.map((c) => c.seat), ['d']);
+  });
+
+  it('does not re-flag a student already seen unless they say stuck afterwards', () => {
+    eq(attentionReason(card('a', { ...seen, topic: '' })), '');
+    eq(attentionReason(card('a', { ...seen, topic: 'x', mood: 'stuck', moodAt: T })), '');
+    eq(attentionReason(card('a', { ...seen, topic: 'x', mood: 'stuck', moodAt: T + 120_000 })),
+      'Says they’re stuck');
+  });
+
+  it('never flags someone who is already in line', () => {
+    eq(attentionReason(card('a', { mood: 'stuck', moodAt: T, ask: { about: 'x', at: T } })), '');
+  });
+
+  it('sorts every named student into exactly one lane', () => {
+    const cards = [
+      card('with', { call: 'with', topic: 'x' }),
+      card('asked', { ask: { about: 'x', at: T }, topic: 'x' }),
+      card('stuck', { mood: 'stuck', moodAt: T, topic: 'x' }),
+      card('fine', { topic: 'x', stage: 2 }),
+      card('done', { ...seen, topic: 'x' }),
+      { ...newCard('nameless', T) },
+    ];
+    const l = lanes(cards);
+    eq(l.withYou.map((c) => c.seat), ['with']);
+    eq(l.asked.map((c) => c.seat), ['asked']);
+    eq(l.flagged.map((f) => f.card.seat), ['stuck']);
+    eq(l.working.map((c) => c.seat), ['fine']);
+    eq(l.seen.map((c) => c.seat), ['done']);
+    eq(coverage(cards), { joined: 5, talked: 1, waiting: 1 });
+    eq(statusOf(cards[0]), 'with');
+  });
+
+  it('writes one log row per named student', () => {
+    const rows = logRows([
+      card('Zed', { ...seen, topic: 'Fort Barrancas', step: 'find 2 sources' }),
+      card('Amy', { ask: { about: 'x', at: T } }),
+      newCard('nameless', T),
+    ], board);
+    eq(rows.map((r) => r.Name), ['Amy', 'Zed']);
+    eq(rows[1].Conferences, 1);
+    eq(rows[1]['Minutes in conference'], 1);
+    eq(rows[1]['Next step (theirs)'], 'find 2 sources');
+    eq(rows[0]['Still in line'], 'yes');
+  });
+
+  it('falls back to the default lists when an instructor clears them', () => {
+    const s = cleanSettings({ stages: '\n\n', topics: [] });
+    eq(s.stages, DEFAULT_STAGES);
+    ok(s.topics.length > 0);
   });
 });
 

@@ -43,12 +43,14 @@
  */
 
 import { SessionRoom } from './session-room.js';
+import { ConferenceRoom } from './conference-room.js';
 import {
   changePassword, currentUser, questionPermutation, resetPassword, signIn, signUp,
-  signPseudonym, verifyPseudonym, underGlobalLimit,
+  signPseudonym, verifyPseudonym, signSeat, verifySeat, underGlobalLimit,
 } from './auth.js';
+import { BOARD_LIFETIME_MS, LIMITS as BOARD_LIMITS, cleanLine, cleanSettings } from '../app/conference-logic.js';
 
-export { SessionRoom };
+export { SessionRoom, ConferenceRoom };
 
 // =====================================================================
 // Small helpers
@@ -748,6 +750,15 @@ async function participantRoute(request, env, seg, method, body, url) {
     );
   }
 
+  // Not a poll at all: conference boards share the join-code namespace,
+  // so a student types one code into one box whatever the instructor is
+  // running. Looked up last, because polls are the common case.
+  if (!session) {
+    const board = await env.DB.prepare('select * from conference_boards where join_code = ?')
+      .bind(code).first();
+    if (board) return boardParticipantRoute(request, env, board, code, seg, method, body, url);
+  }
+
   if (!session) {
     // Distinguish "that deck exists, nothing is running" from "no such
     // code" — the first is a student who scanned early, and telling them
@@ -1034,6 +1045,203 @@ async function participantRoute(request, env, seg, method, body, url) {
 }
 
 // =====================================================================
+// Conference boards
+//
+// The one feature that handles student names, and so the one built to
+// keep them out of this database. Everything here is the D1 half — the
+// board's code, title, and the instructor's lists. Names, topics and the
+// line live in the board's ConferenceRoom Durable Object and die with it;
+// see worker/conference-room.js for the rules, and worker/schema.sql for
+// why conference_boards has no column that could hold them.
+// =====================================================================
+
+const boardLive = (row) => !row.ended_at && Number(row.expires_at) > now();
+
+function rowToBoard(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    join_code: row.join_code,
+    title: row.title,
+    settings: cleanSettings(parse(row.settings, {})),
+    created_at: row.created_at,
+    expires_at: row.expires_at,
+    ended_at: row.ended_at || null,
+    state: boardLive(row) ? 'live' : 'ended',
+  };
+}
+
+/** Ask a board's room to do something. Returns { status, body }. */
+async function boardOp(env, boardId, msg) {
+  const stub = env.CONFERENCE_ROOM.get(env.CONFERENCE_ROOM.idFromName(boardId));
+  const res = await stub.fetch('https://board/op', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Room-Secret': env.AUTH_SECRET || '' },
+    body: JSON.stringify({ ...msg, now: now() }),
+  });
+  const text = await res.text();
+  return { status: res.status, body: parse(text, null) };
+}
+
+const relay = ({ status, body }) => (status === 200 ? json(body) : fail(body?.error || 'Something went wrong.', status));
+
+/**
+ * A code nobody else is using, in ANY of the three tables that hand out
+ * codes. The unique index on conference_boards covers collisions among
+ * boards; this covers a board landing on a deck's or a session's code,
+ * which the join route would otherwise resolve to the poll.
+ */
+async function freeJoinCode(DB) {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const code = generateJoinCode(6);
+    const taken = await DB.prepare(`
+      select 1 from decks where join_code = ?1
+      union all select 1 from sessions where join_code = ?1
+      union all select 1 from conference_boards where join_code = ?1
+      limit 1
+    `).bind(code).first();
+    if (!taken) return code;
+  }
+  throw new Error('could not allocate a join code');
+}
+
+/** Only phones holding a signature this server issued for this board. */
+const PHONE_BOARD_OPS = new Set(['me', 'save', 'ask', 'unask', 'step']);
+const INSTRUCTOR_BOARD_OPS = new Set(['call', 'done', 'back', 'clear', 'remove']);
+
+async function boardParticipantRoute(request, env, board, code, seg, method, body, url) {
+  const tail = seg[2] || '';
+  const live = boardLive(board);
+
+  if (!tail && method === 'GET') {
+    return json({
+      kind: 'conference',
+      id: board.id,
+      join_code: code,
+      title: board.title,
+      state: live ? 'live' : 'ended',
+    });
+  }
+
+  if (!live) return fail('This conference board has ended.', 410);
+
+  // A fresh seat for a phone that has never opened this board. Nothing is
+  // stored until the student saves their card, so a seat costs nothing.
+  if (tail === 'seat' && method === 'POST') {
+    const seat = uid();
+    return json({ seat, token: await signSeat(env, board.id, seat) });
+  }
+
+  if (tail === 'ws') {
+    // The seat signature rides as a subprotocol, ['surveyall.seat', token],
+    // for the same reason the presenter's token does: a browser cannot set
+    // headers on a WebSocket, and a URL ends up in logs.
+    const seat = String(url.searchParams.get('seat') || '');
+    const offered = (request.headers.get('Sec-WebSocket-Protocol') || '')
+      .split(',').map((x) => x.trim()).filter(Boolean);
+    const at = offered.indexOf('surveyall.seat');
+    const token = at === -1 ? '' : offered[at + 1];
+    if (!(await verifySeat(env, board.id, seat, token))) return fail('Reload the page.', 403);
+    const stub = env.CONFERENCE_ROOM.get(env.CONFERENCE_ROOM.idFromName(board.id));
+    return stub.fetch(new Request(
+      `https://board/connect?role=participant&seat=${encodeURIComponent(seat)}`, request));
+  }
+
+  if (tail === 'board' && method === 'POST') {
+    if (!PHONE_BOARD_OPS.has(body.op)) return fail('Unknown action.', 400);
+    const seat = String(body.seat || '');
+    if (!(await verifySeat(env, board.id, seat, body.token))) {
+      return fail('This device has not joined the board. Reload the page.', 403);
+    }
+    return relay(await boardOp(env, board.id, {
+      op: body.op, role: 'participant', seat, data: body.data || {},
+    }));
+  }
+
+  return fail('Unknown route', 404);
+}
+
+async function boardInstructorRoute(request, env, seg, method, body, user) {
+  const DB = env.DB;
+  const boardId = seg[1];
+
+  if (!boardId && method === 'GET') {
+    const { results } = await DB.prepare(
+      'select * from conference_boards where owner_id = ? order by created_at desc limit 30',
+    ).bind(user.id).all();
+    return json((results || []).map(rowToBoard));
+  }
+
+  if (!boardId && method === 'POST') {
+    const id = uid();
+    const t = now();
+    const settings = cleanSettings(body);
+    const title = cleanLine(body.title, BOARD_LIMITS.title) || 'Conferences';
+    await DB.prepare(`
+      insert into conference_boards (id, owner_id, join_code, title, settings, created_at, expires_at)
+      values (?, ?, ?, ?, ?, ?, ?)
+    `).bind(id, user.id, await freeJoinCode(DB), title, JSON.stringify(settings),
+      t, t + BOARD_LIFETIME_MS).run();
+    const init = await boardOp(env, id, {
+      op: 'init', role: 'presenter', data: { boardId: id, title, ...settings },
+    });
+    if (init.status !== 200) {
+      await DB.prepare('delete from conference_boards where id = ?').bind(id).run();
+      return fail('Could not start the board. Please try again.', 500);
+    }
+    return json(rowToBoard(
+      await DB.prepare('select * from conference_boards where id = ?').bind(id).first()));
+  }
+
+  const row = await DB.prepare('select * from conference_boards where id = ? and owner_id = ?')
+    .bind(boardId, user.id).first();
+  if (!row) return notYours();
+  const live = boardLive(row);
+
+  if (!seg[2] && method === 'GET') {
+    const view = live ? await boardOp(env, row.id, { op: 'view', role: 'presenter' }) : null;
+    return json({ ...rowToBoard(row), view: view?.status === 200 ? view.body : null });
+  }
+
+  if (seg[2] === 'ws') {
+    if (!live) return fail('This conference board has ended.', 410);
+    const stub = env.CONFERENCE_ROOM.get(env.CONFERENCE_ROOM.idFromName(row.id));
+    return stub.fetch(new Request('https://board/connect?role=presenter', request));
+  }
+
+  if (seg[2] === 'act' && method === 'POST') {
+    if (!live) return fail('This conference board has ended.', 410);
+    if (!INSTRUCTOR_BOARD_OPS.has(body.op)) return fail('Unknown action.', 400);
+    return relay(await boardOp(env, row.id, {
+      op: body.op, role: 'presenter', data: { seat: body.seat },
+    }));
+  }
+
+  // End: the log comes back exactly once, in this response, and then the
+  // room forgets every student on it. The page saves the log to the
+  // instructor's own computer before it asks for this.
+  if (seg[2] === 'end' && method === 'POST') {
+    let log = null;
+    if (live) {
+      const res = await boardOp(env, row.id, { op: 'end', role: 'presenter' });
+      if (res.status === 200) log = res.body;
+    }
+    await DB.prepare('update conference_boards set ended_at = coalesce(ended_at, ?) where id = ?')
+      .bind(now(), row.id).run();
+    return json({ ok: true, log });
+  }
+
+  if (!seg[2] && method === 'DELETE') {
+    if (live) await boardOp(env, row.id, { op: 'end', role: 'presenter' });
+    await DB.prepare('delete from conference_boards where id = ? and owner_id = ?')
+      .bind(row.id, user.id).run();
+    return json({ ok: true });
+  }
+
+  return fail('Unknown board route', 404);
+}
+
+// =====================================================================
 // Ownership
 //
 // The whole of rule 5 lives in these five functions. Each takes a bare
@@ -1178,6 +1386,11 @@ async function instructorRoute(request, env, seg, method, body, url, ctx, user) 
     }
 
     return fail('Unknown admin route', 404);
+  }
+
+  // ----------------------------------------------------- conference boards
+  if (seg[0] === 'boards') {
+    return boardInstructorRoute(request, env, seg, method, body, user);
   }
 
   // ------------------------------------------------------------- decks

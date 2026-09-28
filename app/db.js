@@ -406,6 +406,57 @@ export const moderateAudienceQuestion = (id, patch) =>
   api(`/api/qa/${id}`, { method: 'PATCH', body: patch, auth: true });
 
 // =====================================================================
+// Conference boards
+//
+// The one feature where a student gives their name. The board's cards
+// live in its Durable Object, never the database, and are erased when the
+// board ends — see worker/conference-room.js. A phone holds a signed
+// "seat" instead of a nickname; the seat is the key to its own card.
+// =====================================================================
+
+export const listBoards = () => api('/api/boards', { auth: true });
+export const getBoard = (id) => api(`/api/boards/${id}`, { auth: true });
+export const createBoard = (fields) =>
+  api('/api/boards', { method: 'POST', body: fields, auth: true });
+export const boardAction = (id, op, seat) =>
+  api(`/api/boards/${id}/act`, { method: 'POST', body: { op, seat }, auth: true });
+/** Ends the board. The response carries the log — the last copy there is. */
+export const endBoard = (id) => api(`/api/boards/${id}/end`, { method: 'POST', auth: true });
+export const deleteBoard = (id) => api(`/api/boards/${id}`, { method: 'DELETE', auth: true });
+
+/** A student's first call on a board: a fresh signed seat. */
+export const claimSeat = (code) =>
+  api(`/api/join/${encodeURIComponent(code)}/seat`, { method: 'POST' });
+
+/** Everything a phone does to its own card: me, save, ask, unask, step. */
+export const seatAction = (code, { seat, token }, op, data) =>
+  api(`/api/join/${encodeURIComponent(code)}/board`, {
+    method: 'POST', body: { op, seat, token, data },
+  });
+
+/** The instructor's live board: `onBoard({meta, cards})`, `onEnded()`. */
+export function watchBoard(boardId, onBoard, onEnded) {
+  return subscribe(`board:${boardId}`, (event, data) => {
+    if (event === 'board') onBoard(data);
+    else if (event === 'ended') onEnded?.(data);
+  }, () => ({
+    path: `/api/boards/${boardId}/ws`,
+    protocols: getToken() ? ['surveyall.bearer', getToken()] : null,
+  }));
+}
+
+/** A phone's own card, live: `onMe({board, card, line})`, `onEnded()`. */
+export function watchSeat(code, { seat, token }, onMe, onEnded) {
+  return subscribe(`seat:${code}:${seat}`, (event, data) => {
+    if (event === 'me') onMe(data);
+    else if (event === 'ended') onEnded?.(data);
+  }, () => ({
+    path: `/api/join/${encodeURIComponent(code)}/ws?seat=${encodeURIComponent(seat)}`,
+    protocols: ['surveyall.seat', token],
+  }));
+}
+
+// =====================================================================
 // Realtime
 //
 // One WebSocket per session, shared by every subscriber on the page, so
@@ -430,40 +481,52 @@ const sockets = new Map();
 const PING_MS = 25000;
 const SILENCE_MS = PING_MS * 2 + 5000;
 
-function socketFor(sessionId) {
-  let entry = sockets.get(sessionId);
+/**
+ * Where a session's socket connects, decided afresh on every (re)connect.
+ * Presenters use the authenticated session route; students use the
+ * join-code route, which is the only one they can reach.
+ */
+function sessionTarget(sessionId) {
+  return () => {
+    const code = codeFor(sessionId);
+    const token = getToken();
+    const path = (!token && code)
+      ? `/api/join/${code}/ws`
+      : `/api/sessions/${sessionId}/ws`;
+    // A browser cannot put an Authorization header on a WebSocket
+    // handshake, so a presenter's token travels as a subprotocol.
+    // Participants send nothing: their route is unauthenticated by
+    // design and offering a protocol they don't need would only be
+    // one more thing to get wrong.
+    return { path, protocols: token ? ['surveyall.bearer', token] : null };
+  };
+}
+
+/**
+ * @param {string} key one socket per key, shared by every subscriber
+ * @param {() => {path: string, protocols: string[]|null}} target
+ */
+function socketFor(key, target = sessionTarget(key)) {
+  let entry = sockets.get(key);
   if (entry) return entry;
 
   entry = {
     ws: null, handlers: new Set(), closed: false, retry: 0, timer: null,
     ping: null, lastSeen: 0, connect: null,
   };
-  sockets.set(sessionId, entry);
+  sockets.set(key, entry);
 
   const connect = () => {
     if (entry.closed) return;
 
-    const code = codeFor(sessionId);
-    const authed = !!getToken();
-    // Presenters use the authenticated session route; students use the
-    // join-code route, which is the only one they can reach.
-    const path = (!authed && code)
-      ? `/api/join/${code}/ws`
-      : `/api/sessions/${sessionId}/ws`;
-
+    const { path, protocols } = target();
     const url = new URL(apiURL(path), window.location.href);
     url.protocol = url.protocol.replace('http', 'ws');
 
     let ws;
     try {
-      // A browser cannot put an Authorization header on a WebSocket
-      // handshake, so a presenter's token travels as a subprotocol.
-      // Participants send nothing: their route is unauthenticated by
-      // design and offering a protocol they don't need would only be
-      // one more thing to get wrong.
-      const token = getToken();
-      ws = (authed && token)
-        ? new WebSocket(url.toString(), ['surveyall.bearer', token])
+      ws = protocols
+        ? new WebSocket(url.toString(), protocols)
         : new WebSocket(url.toString());
     } catch {
       scheduleRetry();
@@ -530,8 +593,8 @@ function socketFor(sessionId) {
   return entry;
 }
 
-function subscribe(sessionId, handler) {
-  const entry = socketFor(sessionId);
+function subscribe(key, handler, target) {
+  const entry = socketFor(key, target);
   entry.handlers.add(handler);
   return () => {
     entry.handlers.delete(handler);
@@ -541,7 +604,7 @@ function subscribe(sessionId, handler) {
       clearInterval(entry.ping);
       entry.ping = null;
       try { entry.ws?.close(); } catch { /* ignore */ }
-      sockets.delete(sessionId);
+      sockets.delete(key);
     }
   };
 }

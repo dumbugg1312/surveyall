@@ -71,11 +71,12 @@
     their phones. This page describes exactly what is recorded when they do,
     what is not, and who can see it.
   </p>
-  <p class="updated">Last updated 17 August 2026.</p>
+  <p class="updated">Last updated 28 September 2026.</p>
 
   <h2>The short version</h2>
   <ul>
-    <li><strong>No student names are stored.</strong> There is no field to put one in.</li>
+    <li><strong>Polls, quizzes and every other activity store no student names.</strong> There is no field to put one in.</li>
+    <li><strong>The one exception is a conference board</strong>, where students give a first name and last initial so the instructor knows who to call up. That name is held only while the board runs and is erased when it ends. <a href="#conferences">Details below</a>.</li>
     <li><strong>Students never create an account and never sign in.</strong> They enter a room code, which is not a password and identifies nobody.</li>
     <li><strong>No emails, student IDs, or IP addresses are stored</strong> for anyone, student or instructor.</li>
     <li><strong>No cookies, no analytics, no advertising, no third-party trackers.</strong></li>
@@ -187,11 +188,55 @@
   </div>
   <p>
     That is the complete list. Every table in <code>worker/schema.sql</code> is
-    represented above, and there is no other file. Some of those rows are
+    represented above, and there is no other file, except
+    <code>conference_boards</code>, which holds an instructor’s board settings
+    and no student data. Conference boards are described in full
+    <a href="#conferences">below</a>. Some of those rows are
     housekeeping about instructor accounts rather than anything a student
     sends. They are listed because a page whose whole authority rests on
     being exhaustive has to actually be exhaustive, not because they change
     anything said above.
+  </p>
+
+  <h2 id="conferences">Conference boards: the one place a name is used</h2>
+  <p>
+    A conference board is for one-on-one writing conferences during class.
+    Each student opens it on their phone and gives a <strong>first name and last initial</strong>
+    (“Maya R.”),
+    a one-line topic, where they are in the writing process, how it’s going,
+    and, if they want a conference, what they want to talk about. When a
+    conference ends, the student types their own next step. The instructor
+    sees all of this on their own screen. It is never projected: the board’s
+    projector view shows the join code and nothing about anyone.
+  </p>
+  <p>This is handled differently from everything else on this page, on purpose:</p>
+  <ul>
+    <li><strong>It never enters the database.</strong> Names and everything a
+      student types on a board live only in that board’s own short-lived
+      storage (a Cloudflare Durable Object), not in the database the table
+      above describes. The database records only the board’s code, title,
+      the instructor’s lists of stages and topics, and when it started and
+      ended.</li>
+    <li><strong>It is erased when the board ends</strong>, or twelve hours after
+      the board started if nobody ends it, whichever comes first. The erase
+      is automatic and cannot be skipped.</li>
+    <li><strong>The only lasting copy is the instructor’s.</strong> Ending a
+      board downloads a log (names, topics, conferences held, next steps) to
+      the instructor’s own computer, where it sits with the rest of their
+      course records. SurveyAll keeps nothing.</li>
+    <li><strong>Students see only their own card.</strong> A phone is never sent
+      another student’s name or topic, its place in line, or whether it has
+      been called up.</li>
+    <li><strong>Only the instructor who started the board can open it.</strong>
+      Other instructors on this site cannot, the same as with sessions.</li>
+  </ul>
+  <p>
+    A student’s phone also remembers, on that phone only, its place on the
+    current board (so a reload is the same student) and its last next step
+    (so it is still there after the board is erased). It does not remember
+    the student’s name for next time, so a shared lab computer never shows
+    one student’s name to the next. Clearing the browser’s site data removes
+    both.
   </p>
 
   <h2>Who can see what</h2>

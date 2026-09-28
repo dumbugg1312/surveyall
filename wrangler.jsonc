@@ -48,6 +48,13 @@
       {
         "name": "SESSION_ROOM",
         "class_name": "SessionRoom"
+      },
+      // One per conference board. Unlike SessionRoom this one holds
+      // state: the only place student names ever live, erased when the
+      // board ends. See worker/conference-room.js.
+      {
+        "name": "CONFERENCE_ROOM",
+        "class_name": "ConferenceRoom"
       }
     ]
   },
@@ -60,6 +67,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["SessionRoom"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["ConferenceRoom"]
     }
   ],
 

@@ -691,6 +691,33 @@ export async function verifyPseudonym(env, sessionId, pseudonym, token) {
 }
 
 /**
+ * A conference-board seat: the random id a phone is given when it opens a
+ * board, signed the same way a pseudonym is. The seat is the key to that
+ * student's card — which, unlike anything else in SurveyAll, holds their
+ * name — so a phone may only ever act as a seat this server issued, on
+ * this board. Separately domain-prefixed so a seat signature can never be
+ * replayed as a pseudonym or an instructor token.
+ */
+const seatMessage = (boardId, seat) =>
+  encoder.encode(`surveyall/seat/v1:${boardId}:${seat}`);
+
+export async function signSeat(env, boardId, seat) {
+  if (!env.AUTH_SECRET) throw new Error('AUTH_SECRET is not configured');
+  const key = await hmacKey(env.AUTH_SECRET);
+  return b64url(await crypto.subtle.sign('HMAC', key, seatMessage(boardId, seat)));
+}
+
+export async function verifySeat(env, boardId, seat, token) {
+  if (!seat || !token || typeof token !== 'string' || !env.AUTH_SECRET) return false;
+  try {
+    const key = await hmacKey(env.AUTH_SECRET);
+    return await crypto.subtle.verify('HMAC', key, fromB64url(token), seatMessage(boardId, seat));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The display order for a question whose config order IS its answer key.
  *
  * `matching` and `timeline` are graded by position — a match is right when

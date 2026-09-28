@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Conferences · SurveyAll</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/favicon-180.png">
+<link rel="stylesheet" href="styles/fonts.css">
+<link rel="stylesheet" href="styles/base.css">
+<link rel="stylesheet" href="styles/app.css">
+<link rel="stylesheet" href="styles/conference.css">
+</head>
+<body>
+
+<!-- The instructor's conference board. This screen shows student NAMES,
+     so it is built for the instructor's laptop and never for the
+     projector: the only thing it will put on the wall is the join
+     screen, which shows a code and a QR and nothing about anyone.
+     See app/board-page.js. -->
+<header class="appbar">
+  <a class="brand" href="dashboard.html">SurveyAll</a>
+  <span class="spacer"></span>
+  <button class="btn btn-sm" id="showJoin" type="button">Show join code</button>
+  <button class="btn btn-sm btn-danger" id="endBoard" type="button">End conferences</button>
+</header>
+
+<main class="page bd-page">
+  <div class="bd-top">
+    <div>
+      <p class="eyebrow">Conference board · code <span class="bd-code" id="code"></span></p>
+      <h1 class="bd-title" id="title">Loading…</h1>
+    </div>
+    <span class="spacer"></span>
+    <dl class="bd-stats" aria-label="Coverage">
+      <div class="bd-stat"><dt>Joined</dt><dd id="statJoined">0</dd></div>
+      <div class="bd-stat"><dt>Talked to</dt><dd id="statTalked">0</dd></div>
+      <div class="bd-stat"><dt>Waiting</dt><dd id="statWaiting">0</dd></div>
+    </dl>
+  </div>
+
+  <div class="alert alert-info" id="endedNote" hidden></div>
+
+  <div class="bd-grid" id="lanes">
+    <div class="bd-col">
+      <section class="bd-lane" aria-labelledby="laneWith">
+        <h2 id="laneWith">With you <span class="bd-n" id="nWith"></span></h2>
+        <ul class="bd-list" id="withList"></ul>
+      </section>
+
+      <section class="bd-lane" aria-labelledby="laneAsked">
+        <h2 id="laneAsked">Asked for a conference <span class="bd-n" id="nAsked"></span></h2>
+        <p class="bd-lane-note">First visits go ahead of return visits. Students’ phones never show who’s been called or their place in line. Call their name, and press “Call up” so the board knows who’s with you.</p>
+        <ul class="bd-list" id="askedList"></ul>
+      </section>
+    </div>
+
+    <div class="bd-col">
+      <section class="bd-lane" aria-labelledby="laneFlag">
+        <h2 id="laneFlag">Might need you <span class="bd-n" id="nFlag"></span></h2>
+        <p class="bd-lane-note">Haven’t asked, but said “stuck” or left their topic blank when they checked in.</p>
+        <ul class="bd-list" id="flagList"></ul>
+      </section>
+
+      <section class="bd-lane" aria-labelledby="laneWork">
+        <h2 id="laneWork">Working <span class="bd-n" id="nWork"></span></h2>
+        <ul class="bd-roster" id="workList"></ul>
+      </section>
+
+      <section class="bd-lane" aria-labelledby="laneSeen">
+        <h2 id="laneSeen">Talked to <span class="bd-n" id="nSeen"></span></h2>
+        <ul class="bd-list" id="seenList"></ul>
+      </section>
+    </div>
+  </div>
+
+  <div class="bd-foot">
+    <button class="btn btn-sm" id="downloadLog" type="button">Download log now</button>
+    <span id="eraseNote"></span>
+  </div>
+</main>
+
+<div class="bd-projector" id="projector" hidden role="dialog" aria-modal="true" aria-label="Join screen">
+  <button class="btn btn-sm bd-projector-close" id="closeJoin" type="button">Close (Esc)</button>
+  <div class="bd-projector-inner">
+    <div class="bd-projector-qr" id="projectorQR"></div>
+    <div>
+      <p class="bd-projector-kicker">Conferences</p>
+      <p class="bd-projector-title" id="projectorTitle"></p>
+      <p class="bd-projector-url" id="projectorURL"></p>
+      <p class="bd-projector-code" id="projectorCode"></p>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script type="module" src="app/board-page.js"></script>
+<script type="module" src="app/feedback.js"></script>
+</body>
+</html>

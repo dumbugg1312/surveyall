@@ -20,6 +20,7 @@
 <link rel="stylesheet" href="styles/elements.css">
 <link rel="stylesheet" href="styles/ambience.css">
 <link rel="stylesheet" href="styles/app.css">
+<link rel="stylesheet" href="styles/conference.css">
 </head>
 <body>
 
@@ -53,6 +54,18 @@
       <button class="btn btn-primary" id="newDeck" type="button">New deck</button>
     </div>
     <div id="deckArea"></div>
+  </section>
+
+  <!-- 1-on-1 conferences. The one place in SurveyAll where students give
+       their name, so it is its own section with its own note about where
+       that name goes. See app/conference-dashboard.js. -->
+  <section class="dash-section" aria-labelledby="confHead">
+    <div class="section-head">
+      <h2 id="confHead">1-on-1 conferences</h2>
+      <span class="spacer"></span>
+      <button class="btn" id="newBoard" type="button">Start a conference board</button>
+    </div>
+    <div id="confArea"></div>
   </section>
 
   <section class="dash-section" aria-labelledby="archiveHead">
@@ -90,6 +103,7 @@
        nobody read occupying the end of the most-used screen in the app. -->
   <p class="privacy-note">
     Sessions store answers only — no names, emails, IDs or IP addresses.
+    Conference boards hold a first name and last initial only while they run.
     <a href="privacy.html">What's stored, and who can see it</a>.
   </p>
 
@@ -99,6 +113,7 @@
 <p class="sr-only" id="srStatus" role="status" aria-live="polite"></p>
 
 <script type="module" src="app/dashboard-page.js"></script>
+<script type="module" src="app/conference-dashboard.js"></script>
 <script type="module" src="app/feedback.js"></script>
 </body>
 </html>

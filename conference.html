@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#f7f4ee">
+<meta name="robots" content="noindex">
+<!-- No analytics, no trackers, no third-party scripts. -->
+<title>Conferences · SurveyAll</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/favicon-180.png">
+<link rel="stylesheet" href="styles/fonts.css">
+<link rel="stylesheet" href="styles/base.css">
+<link rel="stylesheet" href="styles/conference.css">
+</head>
+<body class="cf-body">
+
+<!-- A student's side of a conference board. They open it at the start of
+     class and leave it open; the page keeps their card on the server, so a
+     locked phone or a reload loses nothing. See app/conference-page.js. -->
+<main class="cf-shell">
+  <header class="cf-head">
+    <p class="cf-eyebrow">Conferences</p>
+    <h1 class="cf-title" id="title">Joining…</h1>
+  </header>
+
+  <section id="loading" class="cf-quiet">
+    <p>Finding the board.</p>
+  </section>
+
+  <section id="problem" class="cf-quiet" hidden>
+    <p id="problemText"></p>
+    <button class="btn" id="retry" type="button">Try again</button>
+  </section>
+
+  <section id="ended" class="cf-quiet" hidden>
+    <p><strong>Conferences are over for today.</strong> Your name and topic have been erased from the board.</p>
+    <div class="cf-step-card" id="endedStep" hidden>
+      <p class="cf-label">Your next step</p>
+      <p class="cf-step-text" id="endedStepText"></p>
+    </div>
+  </section>
+
+  <!-- First visit: who you are, what you're writing about, where you are. -->
+  <form id="setup" class="cf-panel" hidden novalidate>
+    <h2 class="cf-h2">Before you start</h2>
+    <div class="field">
+      <label for="setupName">First name and last initial</label>
+      <!-- autocomplete off, not given-name/name: the browser would offer a
+           first name alone, or a full surname, and neither is what's asked. -->
+      <input id="setupName" type="text" maxlength="40" autocomplete="off" autocapitalize="words"
+             placeholder="e.g. Maya R." required>
+      <span class="field-hint">So your instructor knows who to call up. Erased when conferences end.</span>
+    </div>
+    <div class="field">
+      <label for="setupTopic">Your topic</label>
+      <input id="setupTopic" type="text" maxlength="160" placeholder="One line is fine">
+    </div>
+    <fieldset class="cf-fieldset">
+      <legend>Where are you in the process?</legend>
+      <div class="cf-stages" id="setupStages"></div>
+    </fieldset>
+    <p class="alert alert-error" id="setupError" role="alert" hidden></p>
+    <button class="btn btn-primary btn-lg cf-wide" type="submit" id="setupSave">Save</button>
+    <button class="btn btn-ghost cf-wide" type="button" id="setupCancel" hidden>Cancel</button>
+  </form>
+
+  <section id="main" class="cf-main" hidden>
+    <!-- The one line that changes when your instructor acts. -->
+    <div id="status" class="cf-status" aria-live="polite"></div>
+
+    <form id="askPanel" class="cf-panel cf-ask" hidden novalidate>
+      <h2 class="cf-h2" id="askHead">What do you want to talk about?</h2>
+      <div class="cf-choices" id="askTopics" role="radiogroup" aria-labelledby="askHead"></div>
+      <div class="field">
+        <label for="askNote">Anything specific? <span class="muted">(optional)</span></label>
+        <textarea id="askNote" rows="2" maxlength="280"
+                  placeholder="e.g. I found two sources but can’t find a third"></textarea>
+      </div>
+      <p class="alert alert-error" id="askError" role="alert" hidden></p>
+      <div class="row">
+        <button class="btn" type="button" id="askCancel">Cancel</button>
+        <span class="spacer"></span>
+        <button class="btn btn-primary" type="submit" id="askSubmit">Add me to the list</button>
+      </div>
+    </form>
+
+    <form id="stepForm" class="cf-panel cf-step-form" hidden novalidate>
+      <h2 class="cf-h2">What’s your next step?</h2>
+      <p class="muted">In your own words: the one thing you’ll do next after that conversation.</p>
+      <label class="sr-only" for="stepInput">Your next step</label>
+      <textarea id="stepInput" rows="3" maxlength="280"></textarea>
+      <button class="btn btn-primary cf-wide" type="submit">Save my next step</button>
+    </form>
+
+    <div class="cf-step-card" id="stepCard" hidden>
+      <p class="cf-label">Your next step</p>
+      <p class="cf-step-text" id="stepText"></p>
+      <button class="btn btn-sm btn-ghost" type="button" id="stepEdit">Edit</button>
+    </div>
+
+    <div class="cf-panel cf-card">
+      <div class="cf-who">
+        <span class="cf-label">You</span>
+        <span class="cf-who-name" id="whoName"></span>
+        <span class="spacer"></span>
+        <button class="btn btn-sm btn-ghost" type="button" id="editName">Change name</button>
+      </div>
+
+      <div class="field">
+        <label for="topic">Your topic</label>
+        <input id="topic" type="text" maxlength="160" placeholder="What’s your essay about?">
+        <span class="field-hint cf-saved" id="topicSaved" aria-live="polite"></span>
+      </div>
+
+      <fieldset class="cf-fieldset">
+        <legend>Where are you in the process?</legend>
+        <div class="cf-stages" id="stages"></div>
+      </fieldset>
+
+      <fieldset class="cf-fieldset">
+        <legend>How’s it going?</legend>
+        <div class="cf-moods" id="moods"></div>
+      </fieldset>
+    </div>
+
+    <p class="cf-foot">Leave this page open all class. If your phone locks, just come back to it. Nothing you’ve entered is lost.</p>
+    <p class="cf-foot">Not <span id="notMeName"></span>? <button class="btn btn-sm btn-ghost cf-inline" type="button" id="notMe">Start fresh as someone else</button></p>
+  </section>
+</main>
+
+<script type="module" src="app/conference-page.js"></script>
+</body>
+</html>

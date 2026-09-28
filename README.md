@@ -57,6 +57,8 @@ Not "we're careful with student data" — **there is no student data**.
 
 No name field exists. No student logs in. Students hold no credential at all — only a join code, which is a room number, not a key. No table has a column that could hold a name, email, ID, or IP address. The only per-response value is a random nickname scoped to a single session that can't be linked across sessions. No cookies, no analytics, no third-party trackers. CSV exports have nothing to redact.
 
+**One deliberate exception: conference boards.** A 1-on-1 conference board needs a student's first name and last initial, because its whole job is telling you who to call up. Those names never enter the database. They live only in the board's own Durable Object while it runs and are erased when you end it (you get the log as a download) or twelve hours after it started. See [`docs/conferences.md`](docs/conferences.md) and `/privacy.html#conferences`.
+
 **The claim is "no *student* data", not "no data".** Instructors have accounts, so the database holds a username and a password hash for each one — staff records, which FERPA does not govern. There is no email column, so that username is the entire personal footprint of the system. The broader claim would be an overstatement, and an overstatement a reviewer can disprove costs you the rest of the argument.
 
 Two honest caveats: a student can type their name into an open-ended answer, and no tool can prevent that (you can delete any response with one click); and whoever operates the deployment administers the database and can read it — it simply holds no student identity to read.
@@ -93,6 +95,8 @@ present.html        projector view
 dashboard.html      your decks and the session archive
 edit.html           deck editor — questions, themes, backgrounds
 results.html        one session's results, and its CSV/PDF/PowerPoint exports
+board.html          a conference board, the instructor's side (never projected)
+conference.html     a conference board, the student's phone
 compare.html        the same question run over run, across sessions
 admin.html          feedback inbox, accounts, password resets, usage
 privacy.html        what is stored, and how to verify it
@@ -124,11 +128,15 @@ app/                ES modules, no build step
   preview-room.js     the classroom, faked in memory, so a deck can be
                       rehearsed without a session or a database row
   participant-state.js session-scoped pseudonym handling
+  conference-logic.js conference board rules: the line, the quiet-signs lane,
+                      the log. Shared by the board, the phone and the DO
   *-page.js           one controller per page
 
 worker/             the Cloudflare Worker
   index.js            the API, and all security enforcement
   session-room.js     Durable Object — realtime fan-out per session
+  conference-room.js  Durable Object — one per conference board; the ONLY
+                      place a student name is ever held, erased at end
   auth.js             accounts, password hashing, signed tokens
   schema.sql          D1 tables (run once)
 

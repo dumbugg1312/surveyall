@@ -373,3 +373,31 @@ create table if not exists flares (
 
 create index if not exists flares_session_idx
   on flares (session_id, created_at desc);
+
+-- ---------------------------------------------------------------------
+-- CONFERENCE_BOARDS — one row per 1-on-1 conference board.
+--
+-- FERPA NOTE, because a conference board is the one feature that knows
+-- who a student is: THIS TABLE DOES NOT. It holds the board's code, its
+-- title and the instructor's lists (writing stages, conference topics) —
+-- instructor data only. Each student's name, topic and place in line
+-- live in the board's own Durable Object (worker/conference-room.js),
+-- never in this database, and are erased when the board is ended or
+-- when `expires_at` passes, whichever comes first. The rule at the top of
+-- this file — no column that can hold a student's identity — still holds.
+-- ---------------------------------------------------------------------
+create table if not exists conference_boards (
+  id         text primary key,
+  owner_id   text not null,
+  join_code  text not null unique,
+  title      text not null default '',
+  -- {stages: [...], topics: [...], target: minutes}. Instructor lists.
+  settings   text not null default '{}',
+  created_at integer not null,
+  -- When the room erases itself (created_at + BOARD_LIFETIME_MS).
+  expires_at integer not null,
+  ended_at   integer
+);
+
+create index if not exists conference_boards_owner_idx
+  on conference_boards (owner_id, created_at desc);
